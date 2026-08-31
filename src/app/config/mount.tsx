@@ -23,6 +23,19 @@ const log = createLogger('boot/config');
  * remote. Everything else here is deliberately identical between the two.
  */
 export function mountConfig(container: HTMLElement): void {
+  /*
+   * Unlock scrolling for this page only.
+   *
+   * index.html's inline critical CSS pins html/body/#root to the viewport so
+   * the LCD can never scroll — mandatory there, fatal here: CAM's Configuration
+   * Browser is a ~866x537 Electron window and a phone on `#/remote` is smaller
+   * still, so everything below the fold was unreachable. The rules keyed off
+   * this class live in `src/ui/ui.css`, which rides the config-ui chunk; the
+   * display page loads neither that stylesheet nor this module, so its critical
+   * path is untouched (invariant I8).
+   */
+  document.documentElement.classList.add('kh-config-mode');
+
   const params = parseUrlParams(window.location.search);
   const persisted = readState();
   if (persisted.future) {

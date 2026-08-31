@@ -13,10 +13,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { createDiagAssembler } from '../../diag/wire';
 import { clientId } from '../../platform/env';
 import { stateToSyncBody } from '../../sync/appSync';
 
 import type { ConfigRuntime } from './runtime';
+import type { DiagReport } from '../../diag/report';
 import type { AppState } from '../../state/schema';
 import type { AppSync } from '../../sync/appSync';
 import type { CmdOp, RecvMeta, SyncStatus } from '../../sync/types';
@@ -51,6 +53,16 @@ export interface SyncHandle {
   library: TeleSample | null;
   /** The most recent error packet, kept separately so it does not scroll away. */
   lastError: TeleSample | null;
+  /**
+   * The last hardware report the display sent in answer to `requestDiag`,
+   * reassembled from its chunks, with the moment the LAST chunk landed.
+   *
+   * `at` is load-bearing rather than decorative: the Diagnostics card compares
+   * it against the moment the request went out, because a report that predates
+   * the request is a stale answer from a previous pull and rendering it as the
+   * reply would make a dead display look healthy.
+   */
+  diagReport: { report: DiagReport; at: number } | null;
   topicId: string | null;
   sendCmd: (op: CmdOp, arg?: unknown) => void;
   /** Publish a snapshot immediately, bypassing the 5 Hz coalescing window. */
@@ -71,6 +83,16 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
   const [library, setLibrary] = useState<TeleSample | null>(null);
   const [lastError, setLastError] = useState<TeleSample | null>(null);
   const [topicId, setTopicId] = useState<string | null>(null);
+  const [diagReport, setDiagReport] = useState<{ report: DiagReport; at: number } | null>(null);
+
+  /**
+   * One assembler for the life of the hook, not one per connection.
+   *
+   * A report is chunked across several `tele` messages, and a transport
+   * failover between two of them must not lose the parts already collected: the
+   * buffer belongs to the conversation, not to the socket carrying it.
+   */
+  const diagAssembler = useRef(createDiagAssembler());
 
   useEffect(() => {
     // No room means nothing to start; the values below are already `null` and
@@ -107,6 +129,10 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
           }
           if (sample.body['kind'] === 'library') setLibrary(sample);
           if (sample.body['severity'] === 'error') setLastError(sample);
+          // Returns non-null only on the part that completes a report, so this
+          // is a no-op for every other packet on the channel.
+          const report = diagAssembler.current.accept(sample.body);
+          if (report !== null) setDiagReport({ report, at: sample.at });
         },
       });
       if (isDisposed()) {
@@ -181,5 +207,15 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
     });
   }, []);
 
-  return { status, lastTele, lastStats, library, lastError, topicId, sendCmd, publishNow };
+  return {
+    status,
+    lastTele,
+    lastStats,
+    library,
+    lastError,
+    diagReport,
+    topicId,
+    sendCmd,
+    publishNow,
+  };
 }

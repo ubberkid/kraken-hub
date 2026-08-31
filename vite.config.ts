@@ -167,6 +167,27 @@ export default defineConfig(() => ({
              * and is not counted in that budget — a display with no room
              * configured never fetches it at all.
              */
+            /**
+             * The diagnostics CORE — probes, report shape, and the `tele` wire
+             * format for a remote report pull. `.ts` only, deliberately.
+             *
+             * `DiagView.tsx` imports `src/ui`, so a group that also matched
+             * `.tsx` would claim the whole configuration component library as a
+             * dependency — and the display lazily imports this chunk to answer
+             * `requestDiag`, which would then be an invariant-I8 leak of the
+             * config UI onto the LCD. Measured, not feared: that is exactly what
+             * `npm run size` reported the first time this group did not exist
+             * and rolldown left `src/diag/wire.ts` inside `config-ui`.
+             *
+             * Ranked above the two shells (90) so neither claims it, and above
+             * `sync-core` (91) is unnecessary — nothing here imports a runtime
+             * value from `src/sync`, on purpose (see `wire.ts`).
+             */
+            {
+              name: 'diag-core',
+              test: /[\\/]src[\\/]diag[\\/][^/\\\\]*\.ts$/,
+              priority: 93,
+            },
             {
               name: 'sync-core',
               test: /[\\/]src[\\/]sync[\\/]/,

@@ -48,6 +48,23 @@ export const PLAYBACK_RETRY_LIMIT = 60;
 /** Debounce for library changes, so a download's progress ticks do not flood. */
 const LIBRARY_DEBOUNCE_MS = 1000;
 
+/**
+ * Guard on the diagnostics pull.
+ *
+ * A double tap on the phone, or a command redelivered by two transports at
+ * once, must not start two five-second probe runs on one channel. One in-flight
+ * run at a time; the extra request is dropped, not queued.
+ *
+ * `diagRunning` covers the probe run itself, not the chunk-timer tail: the
+ * parts are spaced 250 ms apart, so a report of more than eight parts is still
+ * publishing when this 2 s floor expires and a fresh request can begin. That
+ * interleave is HARMLESS, not impossible — the receiver keys its buffer on the
+ * capture timestamp, so the newer capture discards the older one's stragglers
+ * and reassembles cleanly. Nothing here needs to prevent it; the guard exists
+ * to stop two concurrent five-second probe runs, and it does.
+ */
+const DIAG_MIN_INTERVAL_MS = 2000;
+
 export interface DisplaySyncOptions {
   runtime: DisplayRuntime;
   state: AppState;
@@ -159,6 +176,71 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
     deliver(0);
   }
 
+  /*
+   * ── The remote diagnostics pull ──────────────────────────────────────────
+   *
+   * The localStorage hand-off in `src/diag/report.ts` gets a report off the LCD
+   * and no further: CAM's two browsers share a storage partition, and a laptop
+   * on the other side of the room shares nothing at all. Somebody running CAM on
+   * a Windows PC and working on a Mac cannot read the JSON by any means the app
+   * offered before this.
+   *
+   * So the display answers `requestDiag` on the wire. Three things make that
+   * safe and honest:
+   *
+   *  - **It is a seam, not a feature.** Everything below the dynamic `import()`
+   *    is in the diag chunk, exactly like `DiagOverlay`. The LCD's critical path
+   *    does not grow by a byte, and `npm run size` proves it on every build.
+   *  - **`?diag=1` is NOT required.** That is the entire point: nobody can edit
+   *    a URL on a hidden Kraken Browser window from another machine. A display
+   *    booted normally answers.
+   *  - **Only a peer holding the room key can ask.** The command arrived
+   *    decrypted, which means it came from inside the room.
+   */
+  let publishTele: ((body: { ts: number; kind: string }) => void) | null = null;
+  let diagRunning = false;
+  let lastDiagAt = 0;
+  const diagTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  async function publishDiagReport(): Promise<void> {
+    const publish = publishTele;
+    if (publish === null || diagRunning) return;
+    if (lastDiagAt !== 0 && Date.now() - lastDiagAt < DIAG_MIN_INTERVAL_MS) return;
+    diagRunning = true;
+    try {
+      const [collect, wire] = await Promise.all([
+        import('../../diag/collect'),
+        import('../../diag/wire'),
+      ]);
+      const stats = runtime.frameClock.stats();
+      const report = await collect.collectQuickReport({
+        geometry: runtime.geometry.get(),
+        achievedFps: stats.achievedFps,
+        longFrames: stats.longFrames,
+      });
+      lastDiagAt = Date.now();
+      const chunks = wire.toDiagChunks(report);
+      writeReadout({ diag: chunks.length });
+      chunks.forEach((chunk, index) => {
+        // `publishTele` throttles at 5 Hz and DROPS what lands inside the
+        // window, so parts have to be spaced rather than looped out.
+        if (index === 0) {
+          publish(chunk);
+          return;
+        }
+        const timer = setTimeout(() => {
+          diagTimers.delete(timer);
+          publish(chunk);
+        }, index * wire.DIAG_CHUNK_SPACING_MS);
+        diagTimers.add(timer);
+      });
+    } catch (err) {
+      log.warn('could not answer a diagnostics request', err);
+    } finally {
+      diagRunning = false;
+    }
+  }
+
   const handle = await startAppSync({
     role: 'display',
     clientId: clientId(),
@@ -187,6 +269,9 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
           // (invariant 2), so "reload" means "re-initialise the renderer".
           runtime.onReinit.current?.('manual');
           break;
+        case 'requestDiag':
+          void publishDiagReport();
+          break;
         case 'identify':
         case 'ping':
           // Answered on the tele channel by the next telemetry packet; there is
@@ -210,6 +295,21 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
   });
 
   const { service } = handle;
+
+  /*
+   * Wired unconditionally, unlike the telemetry sink below.
+   *
+   * `publishTelemetry` governs the CONTINUOUS stream a display volunteers —
+   * position, frame rate, the clip index — and turning it off is a privacy
+   * choice about being watched. A diagnostics report is the opposite: it exists
+   * only because a person in the room just asked for it, once, by pressing a
+   * button. Gating the answer on the passive toggle would make the button
+   * silently do nothing, which is the failure mode this whole feature exists to
+   * remove.
+   */
+  publishTele = (body) => {
+    service.publishTele(body);
+  };
 
   if (o.state.sync.publishTelemetry) {
     // ── The M1 seam, now connected. `videoTelemetry` keeps its local emitter
@@ -289,6 +389,9 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
       if (debounce !== null) clearTimeout(debounce);
       if (seekTimer !== null) clearTimeout(seekTimer);
       seekTimer = null;
+      for (const timer of diagTimers) clearTimeout(timer);
+      diagTimers.clear();
+      publishTele = null;
       appliedPosAtTs = null;
       await handle.stop();
     })();

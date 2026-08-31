@@ -32,7 +32,7 @@ CAM's two browsers share one storage partition, which is what makes this work.
 Your ordinary Chrome and your phone do **not** share it — opening `#/diag` in a
 normal browser tab shows that browser's own probes and no display report.
 
-**So the loop is always:**
+**The same-machine loop:**
 
 1. In CAM, point the Web Integration at your kraken-hub URL.
 2. Open the display's diagnostics: append `?kraken=1&diag=1` — or use the
@@ -40,6 +40,53 @@ normal browser tab shows that browser's own probes and no display report.
    republishes every 5 s.
 3. Open **Configure** → `#/diag` in CAM's Configuration Browser.
 4. Press **Copy display JSON**, paste it into the hardware report.
+
+### From another machine
+
+The loop above assumes CAM and your editor are on the **same computer**. Very
+often they are not: CAM runs on the Windows PC with the Kraken in it, and you
+are on a laptop. `localStorage` is not shared across machines, so none of the
+steps above can reach the report at all.
+
+Pair a room once, and then pull it over the network instead:
+
+1. **On the PC, once.** Open kraken-hub's configuration page → **Remote** →
+   **Generate code**. Nothing else on the PC ever needs touching again.
+2. **On any other browser** — laptop, phone, whatever — open the same site,
+   go to **Remote**, and type the code into **Room code → Join**. Wait for the
+   status chip to say `online`.
+3. Press **Diagnostics → Request hardware report**. The display probes itself
+   for about five seconds and sends the report back over the paired room,
+   encrypted.
+4. Press **Copy JSON** and paste it into the hardware report, exactly as with
+   the same-machine route. The card also links straight to the issue form.
+
+```
+Windows PC                                  your laptop / phone
+──────────                                  ───────────────────
+CAM ── Kraken Browser (?kraken=1) ──── requestDiag ◄── Remote → Diagnostics
+                       │
+                       └── DiagReport (tele, chunked, AES-GCM) ──► "Copy JSON"
+```
+
+The display does **not** need to have been opened with `?diag=1` — which matters,
+because you cannot edit the URL of a hidden Kraken Browser window from another
+computer. Any normally-booted display in the room answers.
+
+Two caveats worth knowing before you file a bug about it:
+
+- The report is a **quick** probe set, budgeted at ~5 s. It carries everything
+  the same-machine report does except the measurements that genuinely need a
+  minute of watching — the CAM monitoring-feed interval (**H04**) among them.
+  For those, use the same-machine loop above.
+- **CAM caches the integration.** A display that has been running since before
+  this feature was deployed has no `requestDiag` handler and will ignore the
+  request in silence. Restart CAM, or reload the Web Integration, and try again.
+
+The same-machine flow above remains the alternative, and is still the right one
+when both windows are on one computer.
+
+---
 
 For the pattern tests you also need a **phone that records 60 fps video** and a
 steady hand. Record the LCD, then count distinct values of the on-screen counter

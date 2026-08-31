@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { issueUrl } from '../../../buildInfo';
 import { camInstallUrl } from '../../../config/knownHosts';
+import { toJson } from '../../../diag/report';
+import { diagPhase, diagReportFreshness, DIAG_REQUEST_TIMEOUT_MS } from '../../../diag/wire';
 import { listModules } from '../../../modules/registry';
 import { validateUrl, primaryIssue } from '../../../modules/video/routing/validate';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
@@ -55,6 +58,9 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showEndpoints, setShowEndpoints] = useState(false);
+  /** When the last `requestDiag` went out. `null` before anyone has asked. */
+  const [diagRequestedAt, setDiagRequestedAt] = useState<number | null>(null);
+  const [diagCopied, setDiagCopied] = useState(false);
   const lastLoopWrite = useRef(0);
   const lastSeekWrite = useRef(0);
   const pendingSeek = useRef<number | null>(null);
@@ -275,6 +281,26 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
     if (!Array.isArray(raw)) return [];
     return raw as { id: string; name: string; state: string; receivedBytes: number }[];
   }, [sync.library]);
+
+  /**
+   * The Diagnostics card's whole state machine, in one pure call.
+   *
+   * `now` rather than `Date.now()` because this runs during render: the 250 ms
+   * clock above is the only thing allowed to move time here, which is also what
+   * makes the 20-second timeout tick without a timer of its own.
+   */
+  const diag = sync.diagReport;
+  const diagState = diagPhase({
+    requestedAt: diagRequestedAt,
+    receivedAt: diag?.at ?? null,
+    now,
+  });
+  // A report survives a timed-out re-request (see `diagReportFreshness`), so the
+  // chip has to distinguish "this is the answer" from "this is what it said last
+  // time" — an unqualified "captured 14:02" next to a timeout Notice reads as a
+  // healthy display.
+  const diagStale = diag !== null && diagReportFreshness(diagState) === 'stale';
+  const hardwareReportUrl = issueUrl('hardware_report.yml');
 
   const urlValue = urlDraft ?? videoCfg.url;
   const urlCheck = urlValue.trim().length === 0 ? null : validateUrl(urlValue.trim());
@@ -674,6 +700,126 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
               </li>
             ))}
           </ul>
+        )}
+      </Panel>
+
+      <Panel
+        title="Diagnostics"
+        hint="Pull a hardware report off the machine running CAM — from this browser, on any machine."
+      >
+        <p className="kh-hint">
+          The display probes itself for about five seconds and sends the report back over this room,
+          encrypted like everything else on the wire. It does <strong>not</strong> need to have been
+          opened with <Code>?diag=1</Code>, and that is the point: nobody can edit a URL on a hidden
+          Kraken Browser window from another computer. The same-machine route — <Code>#/diag</Code>{' '}
+          in CAM&rsquo;s own Configuration Browser — still exists and is unchanged.
+        </p>
+        <Row>
+          <Button
+            primary
+            disabled={!paired || diagState === 'waiting'}
+            title={
+              paired
+                ? 'Sends a requestDiag command; the display answers on the telemetry channel.'
+                : 'Pair a room first — there is nothing to ask.'
+            }
+            onClick={() => {
+              setDiagCopied(false);
+              setDiagRequestedAt(Date.now());
+              sync.sendCmd('requestDiag');
+            }}
+          >
+            {diagState === 'waiting' ? 'Waiting for the display…' : 'Request hardware report'}
+          </Button>
+          {diag !== null && (
+            <Chip tone={diagStale ? 'warn' : 'ok'}>
+              {diagStale ? 'stale — from an earlier request, captured ' : 'captured '}
+              {new Date(diag.report.capturedAt).toLocaleTimeString()}
+            </Chip>
+          )}
+        </Row>
+
+        {diagState === 'waiting' && (
+          <p className="kh-hint">
+            Asked. The display samples its frame rate for three seconds before it answers, so this
+            normally takes five or six — and gives up after{' '}
+            {Math.round(DIAG_REQUEST_TIMEOUT_MS / 1000)}.
+          </p>
+        )}
+        {diagState === 'timeout' && (
+          <Notice tone="error">
+            The display did not answer — is it online and paired? Check the Status card above: the
+            display is only reachable while CAM has the Web Integration open on the same room code.
+            {diagStale && ' The report below is the earlier one, not an answer to this request.'}
+          </Notice>
+        )}
+
+        {diag !== null && (
+          <>
+            <table className="kh-table">
+              <tbody>
+                <tr>
+                  <th scope="row">Panel</th>
+                  <td>
+                    {diag.report.device.width}×{diag.report.device.height}{' '}
+                    {diag.report.device.shape} ({diag.report.device.geometrySource})
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">devicePixelRatio</th>
+                  <td>{diag.report.device.dpr}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Target FPS</th>
+                  <td>{diag.report.device.targetFps}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Chromium</th>
+                  <td>{diag.report.capabilities.chromiumVersion ?? 'not Chromium'}</td>
+                </tr>
+                <tr>
+                  <th scope="row">window.nzxt</th>
+                  <td>{diag.report.injection.present ? 'injected' : 'absent'}</td>
+                </tr>
+                <tr>
+                  <th scope="row">rAF fps (p50)</th>
+                  <td>{diag.report.timings.rafFps?.p50?.toFixed(1) ?? '—'}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Build</th>
+                  <td>
+                    {diag.report.app.version} · {diag.report.app.gitSha}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <details>
+              <summary>Raw JSON</summary>
+              <Code>{toJson(diag.report)}</Code>
+            </details>
+            <Row>
+              <Button
+                primary
+                onClick={() => {
+                  void navigator.clipboard.writeText(toJson(diag.report)).then(
+                    () => {
+                      setDiagCopied(true);
+                    },
+                    () => {
+                      setDiagCopied(false);
+                    },
+                  );
+                }}
+              >
+                {diagCopied ? 'Copied' : 'Copy JSON'}
+              </Button>
+              {hardwareReportUrl !== null && (
+                <a className="kh-btn" href={hardwareReportUrl} target="_blank" rel="noreferrer">
+                  File a hardware report
+                </a>
+              )}
+            </Row>
+          </>
         )}
       </Panel>
 

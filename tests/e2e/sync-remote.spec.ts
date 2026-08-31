@@ -130,6 +130,56 @@ test('killing the transport shows the failover in the remote UI', async ({ conte
   expect(Date.now() - startedAt).toBeLessThan(5000);
 });
 
+/**
+ * The remote diagnostics pull — the acceptance test for the whole feature.
+ *
+ * The load-bearing detail is what `displayUrl()` does NOT contain: `diag=1`.
+ * The old hand-off needed somebody to append that parameter to a hidden Kraken
+ * Browser window and then read the result out of the SAME machine's
+ * localStorage, which is impossible when CAM runs on a PC and you work on a Mac.
+ * A display booted perfectly normally has to answer, or the feature has not
+ * solved anything.
+ */
+test('a remote pulls a hardware report from a display never opened with ?diag=1', async ({
+  context,
+}) => {
+  const display = await context.newPage();
+  await display.goto(displayUrl('GHJK7890'));
+  await expect(display.locator('.kh-stage')).toBeVisible();
+  expect(display.url()).not.toContain('diag');
+  // The display's sync layer is up: without this the command has no listener
+  // and the test would be measuring a race rather than the feature.
+  await expect.poll(async () => (await readSync(display))['net']).toBe('online');
+
+  const remote = await context.newPage();
+  await remote.goto(remoteUrl('GHJK7890'));
+  await expect(remote.getByText('Current room')).toBeVisible();
+  await expect(remote.getByText(/fake — online/)).toBeVisible({ timeout: 10_000 });
+
+  await remote.getByRole('button', { name: 'Request hardware report' }).click();
+
+  // The display samples frames for three seconds before it answers, and the
+  // report may arrive in several chunks, so this is generous on purpose — but
+  // it is still well inside the card's own 20 s timeout, which would render
+  // "the display did not answer" instead.
+  const summary = remote.getByText('Raw JSON');
+  await expect(summary).toBeVisible({ timeout: 25_000 });
+  await expect(remote.getByText('display did not answer')).toBeHidden();
+
+  // The block is collapsed by design, so it has to be opened before it has any
+  // rendered text to read.
+  await summary.click();
+  const raw = remote.locator('details .kh-code');
+  await expect(raw).toBeVisible();
+  const json = await raw.innerText();
+  expect(json).toContain('"schemaVersion"');
+  expect(JSON.parse(json)).toMatchObject({ mode: 'display' });
+
+  // The summary the card renders, not just the blob behind it.
+  await expect(remote.getByRole('row', { name: /devicePixelRatio/ })).toBeVisible();
+  await expect(remote.getByRole('button', { name: 'Copy JSON' })).toBeVisible();
+});
+
 // ---------------------------------------------------------------------------
 // Position sync — the half that used to be format-only
 // ---------------------------------------------------------------------------

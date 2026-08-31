@@ -370,6 +370,34 @@ describe('command channel', () => {
     await a.stop();
     await b.stop();
   });
+
+  /**
+   * The remote diagnostics pull, at the wire level.
+   *
+   * `requestDiag` was added to `CmdOp` after the protocol shipped, and the
+   * addition is only safe because it needed no envelope version bump — `v`
+   * stays 1 and an older peer simply does not recognise the op. This asserts
+   * both halves: the command crosses an encrypted channel unchanged, and it
+   * does so under protocol version 1.
+   */
+  it('carries requestDiag, added to the contract without a protocol bump', async () => {
+    const { a, b, pump, wire } = await pair();
+    const seen: { op: string; arg?: unknown }[] = [];
+    b.onCmd((cmd) => seen.push(cmd));
+
+    a.sendCmd('requestDiag');
+    await flush(1);
+    pump();
+    await flush(1);
+
+    expect(seen).toEqual([{ op: 'requestDiag' }]);
+    // Still ciphertext: the op name is nowhere in the frame.
+    const frame = wire.published.at(-1);
+    expect(frame).toBeDefined();
+    expect(new TextDecoder().decode(frame?.frame)).not.toContain('requestDiag');
+    await a.stop();
+    await b.stop();
+  });
 });
 
 describe('retained keepalive', () => {

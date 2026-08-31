@@ -99,6 +99,17 @@ export type CmdOp =
   | 'reinit'
   | 'reload'
   | 'requestState'
+  /**
+   * "Probe yourself and publish the result on `tele`."
+   *
+   * Additive: `v` stays 1, because a peer that has never heard of this op
+   * already ignores it — `display/sync.ts` forwards unknown ops to the active
+   * module's command handler, which drops what it does not recognise. The
+   * answer comes back as `kind: 'diagReport'` chunks (`src/diag/wire.ts`),
+   * which is what makes a hardware report readable from a DIFFERENT machine
+   * than the one running CAM.
+   */
+  | 'requestDiag'
   | 'identify'
   | 'ping';
 
@@ -118,6 +129,7 @@ export const CMD_OPS: readonly CmdOp[] = [
   'reinit',
   'reload',
   'requestState',
+  'requestDiag',
   'identify',
   'ping',
 ];

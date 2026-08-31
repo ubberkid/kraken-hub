@@ -5,6 +5,56 @@
  * sized for a mouse and a real browser window, not for a 640 px LCD.
  */
 
+/*
+ * Config mode unlocks scrolling.
+ *
+ * index.html's inline critical CSS pins html/body/#root to the viewport with
+ * `overflow: hidden`, because the LCD must NEVER scroll: a stray scroll on a
+ * 640x640 panel streamed one frame per second is permanent, invisible and
+ * unrecoverable — there is no scrollbar and no input device. That lock is
+ * correct for the display page and is left exactly as it is.
+ *
+ * It is wrong for this page. CAM's Configuration Browser is a small Electron
+ * window (~866x537 measured), and a phone opening #/remote is smaller still;
+ * with the lock in place everything below the fold — the Diagnostics tab's
+ * display-report panel, its Copy JSON button, the footer — was simply
+ * unreachable. Large desktop windows happened to fit, which is why this went
+ * unnoticed.
+ *
+ * The marker class is added by `src/app/config/mount.tsx`, and these rules ship
+ * in the config-ui chunk's stylesheet. The display page loads neither, so its
+ * critical path does not grow by a byte (invariant I8, `npm run size`).
+ *
+ * Specificity note: `html.kh-config-mode #root` is (1,1,1) and must stay that
+ * way — the inline `#root` rule is (1,0,0), so a bare `.kh-config-mode #root`
+ * would tie on ids and lose on document order.
+ */
+html.kh-config-mode,
+html.kh-config-mode body {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  overscroll-behavior: auto;
+}
+
+html.kh-config-mode #root {
+  width: auto;
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+/*
+ * `.kh-app` carries `overflow-y: auto` for the locked layout. In config mode the
+ * viewport is the scroller, so this must go back to `visible` — an inner scroll
+ * container whose height is `auto` never scrolls, it just clips its descendants'
+ * escape route and gives the page two competing scroll roots.
+ */
+html.kh-config-mode .kh-app {
+  min-height: 100dvh;
+  overflow: visible;
+}
+
 .kh-app {
   --kh-bg-0: #0b0d10;
   --kh-bg-1: #14171c;
@@ -35,7 +85,9 @@
 .kh-shell {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  min-height: 100vh;
+  /* dvh, not vh: on a phone opening #/remote, `100vh` is the URL-bar-collapsed
+     height, so a page whose content fits would still scroll by a few pixels. */
+  min-height: 100dvh;
   max-width: 62rem;
   margin: 0 auto;
   padding: 1.25rem;

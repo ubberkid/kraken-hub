@@ -29,6 +29,59 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Added
 
+- **Remote diag pull — a hardware report off the CAM machine, from any browser.**
+  The diagnostics hand-off was same-machine only: the display wrote its
+  `DiagReport` into `localStorage` and `#/diag` read it back, which works because
+  CAM's two browsers share one storage partition — and fails completely when CAM
+  runs on a Windows PC and you work on a Mac. There was no way to get the JSON
+  out at all, and the docs' copy flow quietly assumed one machine.
+  - **`requestDiag`, a new `cmd` op** (`src/sync/types.ts`). Additive: the
+    envelope's `v` stays 1, because a peer that has never heard of the op already
+    ignores it. Only a peer holding the room key can send it — the command
+    arrives decrypted or not at all.
+  - **The display answers whether or not it was booted with `?diag=1`.** That is
+    the whole point: nobody can edit the URL of a hidden Kraken Browser window
+    from another computer. `src/app/display/sync.ts` gains a ~40-line seam whose
+    heavy half is behind a dynamic `import()` — the same lazy pattern
+    `DiagOverlay` uses — so the LCD's critical path does not grow and
+    `npm run size` proves it on every build (78.0 kB gzip against a 90 kB
+    budget, `diag-core` reached only through a dynamic edge).
+  - **A budgeted quick probe set** (`src/diag/collect.ts`). Everything
+    synchronous runs immediately, H12's 3 s rAF sampler gets its window, and the
+    whole collection is capped at 5 s: a probe that hangs yields a report with a
+    null field, never a request that never answers. The measurements that
+    genuinely need a minute of watching (H04) stay honestly absent.
+  - **A chunked `tele` payload that respects the 8 KB cap** (`src/diag/wire.ts`).
+    The report is serialised with no whitespace and no null-valued keys, then
+    split into `{ kind: 'diagReport', part, of, payload }` parts spaced 250 ms
+    apart — above `SyncService`'s 5 Hz telemetry throttle, which _drops_ rather
+    than queues. Parts of one capture share the capture's timestamp, so a newer
+    capture discards a half-arrived older one instead of being completed by it.
+  - **A Diagnostics card on the Remote page.** Request → progress hint → a
+    summary (panel, DPR, target FPS, Chromium, `window.nzxt`, rAF p50, build), a
+    collapsed raw-JSON block, **Copy JSON**, and a direct link to the
+    hardware-report issue form (derived from `package.json`, so a fork links to
+    the fork). It gives up after 20 s with _the display did not answer — is it
+    online and paired?_, and a report that predates the request is never
+    rendered as the answer.
+  - **It answers even with telemetry switched off.** `publishTelemetry` governs
+    the continuous stream a display volunteers; a report is a one-shot reply to a
+    button somebody just pressed, and gating it on that toggle would make the
+    button silently do nothing.
+  - `#/diag` keeps its localStorage path unchanged and now says in as many words
+    that it is same-machine only, and where to go when it is not.
+  - Tests: `src/diag/wire.test.ts` (compaction, the envelope cap asserted by
+    actually encoding an envelope, chunk/reassemble with a forced-oversize
+    report, out-of-order delivery, the timeout state machine), a `requestDiag`
+    round-trip in `src/sync/SyncService.test.ts`, and an e2e case in
+    `tests/e2e/sync-remote.spec.ts` where a remote pulls a report from a display
+    page opened **without** `?diag=1`.
+  - Docs: a **From another machine** section in
+    [`docs/hardware-checklist.md`](docs/hardware-checklist.md) and the new card
+    in [`docs/remote-control.md`](docs/remote-control.md), both of which note
+    that CAM caches the integration — a display running an older build ignores
+    the request until CAM restarts or reloads it.
+
 - **M4 — documentation, screenshots, and the release plumbing.** The parts of the
   launch milestone that do not need a Kraken on a desk.
   - **`npm run capture` (`scripts/capture-media.mjs`).** Every screenshot the
@@ -248,6 +301,44 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
   least useful.
 
 ### Fixed
+
+- **The configuration page could not scroll, so everything below the fold was
+  unreachable.** `index.html`'s inline critical CSS pins `html`, `body` and
+  `#root` to the viewport with `overflow: hidden` — mandatory for the display
+  page, where a stray scroll on a 640×640 panel with no scrollbar and no input
+  device is permanent and invisible. The lock leaked into config mode, and CAM's
+  Configuration Browser is a small Electron window (866×537 measured), so the
+  `#/diag` tab's display-report panel, its **Copy JSON** button and the version
+  footer simply could not be reached. Every desktop viewport in the suite
+  happened to fit the content, which is why nothing caught it.
+  - `src/app/config/mount.tsx` now adds a `kh-config-mode` marker class to
+    `<html>`, and `src/ui/ui.css` keys the unlock off it: `height: auto` and
+    `overflow: visible` on the root chain, `min-height: 100dvh` on `#root` and
+    `.kh-app`. `.kh-app`'s own `overflow-y: auto` goes back to `visible` in this
+    mode — an inner scroll container with `height: auto` never scrolls, it only
+    gives the page a second scroll root to fight with.
+  - **The display path is byte-for-byte unchanged.** The class is added by the
+    config mount and the rules ship in the config-ui chunk's stylesheet; the
+    display page loads neither. `displayCriticalPath` and `displayGraph` (I8)
+    are unaffected.
+  - `.kh-shell`'s `min-height` moves from `100vh` to `100dvh`, so a phone on
+    `#/remote` does not scroll by a URL-bar's worth when the content fits.
+  - Regression cover in `tests/e2e/boot-config.spec.ts`: the config page at
+    866×537 and the remote at 390×844 must scroll and must reach the footer,
+    and the display page at 390×400 must stay pinned — `scrollHeight <=
+clientHeight`, no `kh-config-mode` class, and a programmatic
+    `window.scrollTo(0, 5000)` that leaves `scrollY` at 0.
+
+- **A timed-out diagnostics re-request rendered a stale report as the answer.**
+  The remote's Diagnostics card gated the report on `diag !== null`, so after a
+  second pull timed out the error Notice and the _first_ pull's report sat on
+  screen together under an unqualified "captured 14:02" chip — a dead display
+  reading as a healthy one, which is the exact failure `diagPhase()` was
+  extracted to prevent. The report deliberately stays on screen (dropping it
+  would take the Copy JSON button with it), but the new
+  `diagReportFreshness()` in `src/diag/wire.ts` marks it: the chip turns
+  `warn` and reads "stale — from an earlier request", and the timeout Notice
+  says so in words. Unit cover in `src/diag/wire.test.ts`.
 
 - **The companion never looked for `yt-dlp` on `PATH`.** Its documentation said
   the resolution order ended there; the code went explicit `--yt-dlp` → cached

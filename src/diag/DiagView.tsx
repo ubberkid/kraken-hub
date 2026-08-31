@@ -187,6 +187,13 @@ export function DiagView({ runtime }: { runtime: ConfigRuntime }) {
             </a>
           )}
         </Row>
+        <p className="kh-hint">
+          This hand-off is <strong>same-machine only</strong>: it works because CAM&rsquo;s two
+          browsers share one storage partition. If you run CAM on one computer and work on another,
+          pair a room on the Remote page instead — a paired browser anywhere can press{' '}
+          <strong>Request hardware report</strong> and pull the same JSON across the network, with
+          no URL to edit on the machine running CAM.
+        </p>
         {display !== null && (
           <>
             <Code>{toJson(display)}</Code>

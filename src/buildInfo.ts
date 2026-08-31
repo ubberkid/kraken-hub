@@ -29,6 +29,16 @@ export function docUrl(path: string): string | null {
   return __REPO_URL__ === '' ? null : `${__REPO_URL__}/blob/main/${path}`;
 }
 
+/**
+ * A link to one of this repository's issue forms, prefilled by GitHub from the
+ * named template. Same rule as `docUrl()`: derived from the manifest so a fork
+ * points at the fork, `null` when there is no repository to point at, and never
+ * a hardcoded origin (invariant 4).
+ */
+export function issueUrl(template: string): string | null {
+  return __REPO_URL__ === '' ? null : `${__REPO_URL__}/issues/new?template=${template}`;
+}
+
 /** e.g. `kraken-hub v0.1.0 · a1b2c3d · built 2026-08-30` */
 export function buildLabel(info: BuildInfo = buildInfo()): string {
   const day = info.buildTime.slice(0, 10);

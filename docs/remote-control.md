@@ -53,8 +53,9 @@ each other forever.
 
 **Can:** set the source URL (with the same validation the config page uses),
 play and hold, seek, drag an A–B loop, change fit / zoom / rotation, switch
-modules, pick from the clip library, and watch live telemetry — position,
-achieved frame rate, the last error.
+modules, pick from the clip library, watch live telemetry — position, achieved
+frame rate, the last error — and **pull a hardware report off the machine
+running CAM**, from any browser, without touching that machine.
 
 **Cannot:**
 
@@ -73,6 +74,38 @@ achieved frame rate, the last error.
   display at a different broker, turn off its watchdog, or opt it into audio.
   Those fields are deliberately absent from the wire format
   (`syncBodyToPatch()` in `src/sync/appSync.ts`).
+
+### Pulling a hardware report (Diagnostics card)
+
+**Remote → Diagnostics → Request hardware report.**
+
+This is the one control on the page that is about the machine rather than the
+media. It sends a `requestDiag` command; the display probes itself for about
+five seconds — panel geometry, DPR, Chromium version, target and achieved frame
+rate, a three-second rAF sample, storage and codec support — and publishes the
+result back as `tele` packets. The card renders a summary, a collapsed raw-JSON
+block, a **Copy JSON** button and a link to the hardware-report issue form.
+
+Three things about it are worth knowing:
+
+- **The display does not need `?diag=1`.** That is the entire point. Nobody can
+  edit the URL of a hidden Kraken Browser window from a different computer, so
+  a diagnostics route that depends on a URL parameter is useless the moment the
+  two machines are not the same machine. A display booted normally answers.
+- **It answers even with telemetry switched off.** The `publishTelemetry`
+  toggle governs the continuous stream a display volunteers. A report is a
+  one-shot answer to a button somebody just pressed, and a button that silently
+  does nothing is the failure mode this feature exists to remove.
+- **It is chunked.** A full report does not fit in one 8 KB envelope, so it is
+  serialised compactly (no whitespace, no null-valued keys) and split into
+  numbered parts spaced 250 ms apart — above `SyncService`'s 5 Hz telemetry
+  throttle, which drops rather than queues. The remote reassembles them and
+  gives up after 20 seconds with _display did not answer — is it online and
+  paired?_
+
+The same-machine route (`#/diag` in CAM's own Configuration Browser, fed through
+`localStorage`) is unchanged and remains the alternative when both windows are
+on one computer. See [the hardware checklist](hardware-checklist.md).
 
 ### Commands versus state
 
@@ -223,6 +256,12 @@ and DPR, error codes and messages, the names / durations / sizes of stored clips
 source URL — the first eight hex characters of SHA-256, never the URL itself.
 Telemetry can be switched off entirely in **Room settings**.
 
+One payload is not part of that stream: a hardware report, sent only in answer
+to **Request hardware report** and therefore unaffected by the toggle. It is the
+same `DiagReport` `#/diag` shows you, and it contains no media URL, no room code
+and no file contents — panel geometry, browser and codec support, frame timings,
+storage counters, and the last sixteen lines of the in-page log ring.
+
 ### Where the room code is stored
 
 In plaintext, in the browser profile, inside the normal `kraken-hub:v1:state`
@@ -282,6 +321,12 @@ Re-scan the QR, or retype the code. Note that `I`/`L` become `1` and `O` becomes
 page is actually in a room: open it with `?kraken=1&diag=1` and look at the
 `data-kh-sync` attribute on `<html>`, which reports the transport, the last
 applied revision and whether it arrived retained.
+
+**Request hardware report says the display did not answer** — the display is on
+a different room code, is not running, or CAM has not reloaded the integration
+since this build was deployed. CAM caches the page: a display already running an
+older build has no `requestDiag` handler, and it will ignore the request in
+silence until CAM restarts or the integration is reloaded.
 
 **Nothing in the clip list** — the display publishes its clip index on connect
 and every five minutes. If it is empty, the library is empty; add clips from the
