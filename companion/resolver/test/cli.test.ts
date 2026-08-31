@@ -1,3 +1,6 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { CliError, DEFAULT_MAX_CACHE_GB, defaultCacheDir, parseArgs } from '../src/cli.js';
@@ -61,12 +64,24 @@ describe('flag parsing', () => {
 });
 
 describe('the default cache directory', () => {
+  /**
+   * The platform argument selects the *convention* (which directories to nest),
+   * but `defaultCacheDir` assembles the result with `node:path`'s `join`, which
+   * always emits the **host's** separator. So every expectation here is built
+   * with the same `join` rather than with a literal `/` — otherwise the suite
+   * passes on macOS and fails on the Windows runner for a reason that has
+   * nothing to do with the code under test.
+   */
   it('follows each platform’s convention', () => {
-    expect(defaultCacheDir('darwin', {})).toMatch(/Library\/Caches\/kraken-hub-resolver$/);
-    expect(defaultCacheDir('win32', { LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' })).toContain(
-      'kraken-hub-resolver',
+    expect(defaultCacheDir('darwin', {})).toBe(
+      join(homedir(), 'Library', 'Caches', 'kraken-hub-resolver'),
     );
-    expect(defaultCacheDir('linux', { XDG_CACHE_HOME: '/xdg' })).toBe('/xdg/kraken-hub-resolver');
-    expect(defaultCacheDir('linux', {})).toMatch(/\.cache\/kraken-hub-resolver$/);
+    expect(defaultCacheDir('win32', { LOCALAPPDATA: 'C:\\Users\\x\\AppData\\Local' })).toBe(
+      join('C:\\Users\\x\\AppData\\Local', 'kraken-hub-resolver', 'Cache'),
+    );
+    expect(defaultCacheDir('linux', { XDG_CACHE_HOME: '/xdg' })).toBe(
+      join('/xdg', 'kraken-hub-resolver'),
+    );
+    expect(defaultCacheDir('linux', {})).toBe(join(homedir(), '.cache', 'kraken-hub-resolver'));
   });
 });

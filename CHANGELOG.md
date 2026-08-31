@@ -667,6 +667,15 @@ companion/resolver/dist/cli.js` — is the documented fallback for macOS, Linux
 
 ### Fixed
 
+- **The companion's cache-directory test only passed on the machine that wrote
+  it.** `defaultCacheDir` assembles its answer with `node:path`'s `join`, which
+  emits the **host's** separator no matter which platform it is asked about, so
+  `companion/resolver/test/cli.test.ts`'s forward-slash literals and regexes
+  failed the moment `companion-release.yml` first ran its checks on
+  `windows-latest`. Every expectation in that block is now built with the same
+  `join` (and the same `homedir`) the implementation uses, which asserts the
+  whole path rather than a suffix and passes on macOS, Linux, and Windows alike.
+
 - **Every pasted link looked like an error, and none of them were.** Reported
   verbatim as _“Any youtube or direct link I put in there just gives me an error
   saying it can't do it. Saying it can't do a cross origin read.”_ The display
