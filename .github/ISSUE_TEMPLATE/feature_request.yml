@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a capability kraken-hub does not have yet.
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Hard constraint:** kraken-hub is a static site on GitHub Pages. It has no
+        backend and will not gain one. Anything requiring a server we run is out of
+        scope — the optional localhost resolver companion is the escape hatch for
+        features that genuinely need a process on your own machine.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+
+  - type: input
+    id: area
+    attributes:
+      label: Which module or provider does this affect?
+      placeholder: 'video / youtube provider / clock / new module'
+
+  - type: dropdown
+    id: needs-server
+    attributes:
+      label: Does this need a server?
+      options:
+        - 'No — it works entirely in the browser'
+        - 'It could use the optional localhost resolver companion'
+        - 'Yes, it needs a hosted service'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: willing
+    attributes:
+      label: Would you be willing to implement it?
+      options: ['Yes', 'Yes, with guidance', 'No']
+    validations:
+      required: true

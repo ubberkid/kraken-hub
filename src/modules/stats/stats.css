@@ -1,0 +1,145 @@
+/*
+ * Stats module styles. Imported from `display.ts`, so they ride in the module's
+ * own lazy chunk rather than on the display critical path.
+ *
+ * Every size comes from a custom property the renderer writes from `Geometry`
+ * (invariant I3). Flat colours only — no gradient, no blur, no shadow, no
+ * transition: CAM re-compresses every captured frame and charges for change.
+ */
+
+.kh-stats {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--kh-stats-fg, #f2f4f8);
+}
+
+.kh-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--kh-stats-cols, 1), 1fr);
+  gap: 4%;
+  align-items: center;
+  justify-items: center;
+  width: var(--kh-stats-box, 100%);
+  height: var(--kh-stats-box, 100%);
+}
+
+/* Two dials side by side read better as one row than as a 2x1 grid cell pair. */
+.kh-stats[data-layout='dual'] .kh-stats__grid {
+  grid-template-columns: 1fr 1fr;
+  height: auto;
+}
+
+.kh-stats[data-layout='grid'] .kh-stats__grid {
+  grid-template-rows: repeat(var(--kh-stats-rows, 3), 1fr);
+}
+
+.kh-stats__tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  text-align: center;
+}
+
+.kh-stats__dial {
+  display: block;
+  width: var(--kh-stats-dial, 50%);
+  height: var(--kh-stats-dial, 50%);
+  max-width: 100%;
+}
+
+.kh-stats__track {
+  stroke: var(--kh-stats-track, #2a2f38);
+}
+
+.kh-stats__arc {
+  stroke: var(--kh-stats-fg, #f2f4f8);
+}
+
+/* The readout sits inside its dial; in the grid layout there is no dial. */
+.kh-stats__readout {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.12em;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+  font-size: var(--kh-stats-value, 2rem);
+}
+
+.kh-stats__unit {
+  font-size: var(--kh-stats-unit, 1rem);
+  font-weight: 500;
+  color: var(--kh-stats-dim, #7c8798);
+}
+
+.kh-stats__label {
+  position: absolute;
+  bottom: 8%;
+  font-size: var(--kh-stats-label, 0.9rem);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--kh-stats-dim, #7c8798);
+}
+
+.kh-stats__sub {
+  position: absolute;
+  top: 12%;
+  font-size: var(--kh-stats-sub, 0.8rem);
+  font-variant-numeric: tabular-nums;
+  color: var(--kh-stats-dim, #7c8798);
+}
+
+.kh-stats[data-labels='off'] .kh-stats__label,
+.kh-stats[data-labels='off'] .kh-stats__sub {
+  display: none;
+}
+
+/* The grid layout is text-first: no dial, label above the value. */
+.kh-stats[data-layout='grid'] .kh-stats__dial {
+  display: none;
+}
+
+.kh-stats[data-layout='grid'] .kh-stats__tile {
+  grid-template-rows: auto auto;
+  align-content: center;
+}
+
+.kh-stats[data-layout='grid'] .kh-stats__readout,
+.kh-stats[data-layout='grid'] .kh-stats__label {
+  position: static;
+}
+
+.kh-stats[data-layout='grid'] .kh-stats__sub {
+  display: none;
+}
+
+/* Inside the safe inset: a round panel has no corners to put this in. */
+.kh-stats__waiting {
+  position: absolute;
+  inset: var(--kh-safe, 0);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--kh-stats-dim, #7c8798);
+  font-size: calc(var(--kh-inscribed, 400px) / 16);
+}
+
+/*
+ * `hidden` must win over the layout rules above.
+ *
+ * The UA sheet's `[hidden] { display: none }` is a bare attribute selector and
+ * loses to any class selector that sets `display`, which is exactly what the
+ * grid and the waiting card do — so without this the renderer's `hidden = true`
+ * is silently ignored and both are painted at once.
+ */
+.kh-stats__grid[hidden],
+.kh-stats__waiting[hidden],
+.kh-stats__label[hidden],
+.kh-stats__sub[hidden] {
+  display: none;
+}

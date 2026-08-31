@@ -1,0 +1,58 @@
+/*
+ * Image module styles. Imported from `display.ts`, so they ride in the module's
+ * own lazy chunk rather than on the display critical path.
+ *
+ * No panel dimension appears here: the wrapper's size and the picture's
+ * transform are both written by the renderer from `Geometry` (invariant I3).
+ */
+
+.kh-image {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/*
+ * The rotation frame. Centred on the panel and sized to the (possibly swapped)
+ * viewport, so a 90 or 270 degree rotation is one `rotate()` on this element and
+ * the fit math never needs to know about it.
+ */
+.kh-image__rot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  overflow: hidden;
+  transform-origin: 50% 50%;
+  /* One compositor layer for the whole picture; no filters, no shadows. */
+  will-change: transform;
+}
+
+.kh-image__img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  /* The panel is 240-640 px and sources are often much larger; let the
+     compositor downscale smoothly rather than nearest-neighbour. */
+  image-rendering: auto;
+}
+
+/* Advisory text, inside the safe inset — a round panel has no corners. */
+.kh-image__message {
+  position: absolute;
+  inset: var(--kh-safe, 0);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  white-space: pre-line;
+  line-height: 1.35;
+  color: #e6e9ef;
+  font-size: calc(var(--kh-inscribed, 400px) / 18);
+  pointer-events: none;
+}
+
+/* `hidden` must beat the class rules above — see the note in stats.css. */
+.kh-image__message[hidden],
+.kh-image__img[hidden] {
+  display: none;
+}

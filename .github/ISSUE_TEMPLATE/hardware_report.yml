@@ -1,0 +1,96 @@
+name: Hardware report
+description: Report what kraken-hub actually does on your Kraken. The most valuable contribution there is.
+labels: [hardware-report]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Almost everything kraken-hub knows about the LCD came from documentation and
+        one person's Kraken Elite. Every unverified claim in the docs carries a
+        `⚠ not verified on hardware` marker pointing at an H-id in
+        `docs/hardware-checklist.md`. This form is how those get closed.
+
+        **Kraken Plus and Kraken Z owners especially: your report fills a genuinely
+        empty row.**
+
+        How to produce the JSON below:
+        1. In CAM, open your kraken-hub card and click **Configure** — that opens the
+           Configuration Browser.
+        2. Navigate to `#/diag`.
+        3. Press **Copy JSON** and paste it here.
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - Kraken Elite (640x640 circle)
+        - Kraken Plus
+        - Kraken Z (320x320 circle)
+        - Kraken 2023 (240x240 square)
+        - Other / unknown
+    validations:
+      required: true
+
+  - type: input
+    id: cam-version
+    attributes:
+      label: CAM version
+      placeholder: '4.50.1'
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: OS and GPU
+      placeholder: 'Windows 11 23H2, RTX 4070'
+    validations:
+      required: true
+
+  - type: textarea
+    id: diag
+    attributes:
+      label: Diagnostics JSON (#/diag → Copy JSON)
+      render: json
+    validations:
+      required: true
+
+  - type: input
+    id: fps-flat
+    attributes:
+      label: 'H09 — measured capture FPS, flat content'
+      description: '`?kraken=1&diag=1&pattern=flat`, filmed at 60 fps; count distinct counter values per second.'
+      placeholder: '~18 at slider 40'
+
+  - type: input
+    id: fps-video
+    attributes:
+      label: 'H10 — measured capture FPS, full-bleed video'
+      description: '`?kraken=1&diag=1&pattern=video`, same protocol.'
+      placeholder: '~7 at slider 40'
+
+  - type: input
+    id: fps-youtube
+    attributes:
+      label: 'H11 — measured capture FPS, YouTube geometry engine'
+      description: '`?kraken=1&diag=1&pattern=youtube&v=<id>`, same protocol.'
+
+  - type: input
+    id: rings
+    attributes:
+      label: 'H20 — outermost fully visible ring label'
+      description: '`?kraken=1&diag=1&pattern=rings`, photographed straight-on.'
+      placeholder: '92%'
+
+  - type: textarea
+    id: photos
+    attributes:
+      label: Photos
+      description: The ring target and the diag overlay, straight-on if you can.
+
+  - type: textarea
+    id: surprises
+    attributes:
+      label: Anything surprising?
+      description: Freezes after sleep, dimming, audio routing, anything that did not match the docs.

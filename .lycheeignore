@@ -1,0 +1,24 @@
+# Links lychee must not fail on. One reason per entry; nothing here without one.
+#
+# The repository slug is real (`ubberkid/kraken-hub`), so github.com and
+# ubberkid.github.io links are checked like any other. Issue and discussion
+# links are written absolute for the same reason — GitHub's fork-relative
+# `../../issues/…` form is meaningless as a filesystem path and used to have to
+# be excluded here, which is exactly how a wrong-depth link once hid from CI.
+
+# --- deep links that require a signed-in CAM ---------------------------------
+# cam-redirect hands off to a desktop application. There is no page behind it to
+# fetch, and it answers a bot with a redirect to a login wall.
+^https://cam-redirect\.nzxt\.com
+^https://cam-beta-redirect\.nzxt\.com
+
+# --- hosts that refuse automated requests ------------------------------------
+# NZXT's support Zendesk answers 403 to anything without a browser fingerprint;
+# the article is real and was read during research.
+^https://support\.nzxt\.com
+# x.com serves an SPA shell and a 400 to non-browser clients.
+^https://x\.com
+# YouTube endpoints referenced in why-not-extraction.md are the *subject* of that
+# document's measurements; several are expected to answer 403 by design.
+^https://www\.youtube\.com/youtubei
+^https://.*\.googlevideo\.com

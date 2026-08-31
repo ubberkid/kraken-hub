@@ -1,0 +1,33 @@
+{
+  "displayCriticalPath": {
+    "gzipKb": 90,
+    "chunks": ["index", "vendor-react", "core", "display-shell"]
+  },
+  "displayGraph": {
+    "roots": ["index", "display-shell"],
+    "forbidden": ["src/ui/", "src/app/config/"]
+  },
+  "perModuleChunk": {
+    "gzipKb": 25
+  },
+  "perProviderChunk": {
+    "gzipKb": 60,
+    "overrides": {
+      "provider-hls": 120,
+      "provider-dash": 240
+    }
+  },
+  "configUi": {
+    "gzipKb": 140
+  },
+  "syncMqtt": {
+    "gzipKb": 70,
+    "overrides": {
+      "sync-mqtt": 115
+    },
+    "note": "MEASURED, not guessed: mqtt.js 5.x ships a prebundled browser ESM file (node_modules/mqtt/dist/mqtt.esm.js) that gzips to 109 kB on its own, and a prebundle is not tree-shakeable \u2014 the emitted sync-mqtt chunk is 101 kB gzip and essentially ALL of it is the library. The 70 kB base still governs any MQTT code we write. This chunk is behind two dynamic imports (SyncService -> MqttTransport -> mqtt) and is fetched only when a room is configured AND the transport preference allows MQTT, so it is never on the display critical path; displayGraph (I8) proves that on every build. Same rationale as the provider-hls / provider-dash overrides."
+  },
+  "totalDistMb": {
+    "mb": 10.0
+  }
+}

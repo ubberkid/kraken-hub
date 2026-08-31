@@ -1,0 +1,107 @@
+/*
+ * Display-only styles. Sized entirely from the CSS custom properties published
+ * by `applyGeometryToDom()` — no panel dimension is written here (invariant I3).
+ */
+
+.kh-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--kh-bg, #000);
+  /* Nothing inside the stage may affect layout outside it, and nothing may
+     paint outside it: the LCD capture takes whatever the corners contain. */
+  contain: strict;
+}
+
+/* The round mask forces the invisible corners to flat black. That is not only
+   tidy: a constant black corner is nearly free for the Elite's frame
+   compressor, so masking the ~21% of the frame nobody can see is an FPS win. */
+.kh-stage--circle {
+  border-radius: 50%;
+}
+
+.kh-stage__module {
+  position: absolute;
+  inset: 0;
+}
+
+/* --- overlay cards -------------------------------------------------------
+   Everything advisory is laid out inside the safe inset, because a round panel
+   clips its corners and there is no way for the user to scroll. */
+
+.kh-overlay {
+  position: absolute;
+  inset: var(--kh-safe, 0);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  text-align: center;
+}
+
+.kh-card {
+  max-width: 100%;
+  padding: 4% 6%;
+  border-radius: 1rem;
+  background: rgb(0 0 0 / 82%);
+  color: #fff;
+}
+
+.kh-card__title {
+  margin: 0 0 0.4em;
+  font-size: 1.5em;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.kh-card__body {
+  margin: 0;
+  font-size: 0.95em;
+  line-height: 1.35;
+  color: #e6e9ef;
+}
+
+.kh-card__footer {
+  margin: 0.8em 0 0;
+  font-size: 0.8em;
+  color: #9aa4b2;
+}
+
+.kh-lowfps {
+  font-size: calc(var(--kh-inscribed, 400px) / 14);
+}
+
+.kh-lowfps__badge {
+  position: absolute;
+  inset: auto auto var(--kh-safe, 8px) 50%;
+  transform: translateX(-50%);
+  padding: 0.3em 0.7em;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 78%);
+  color: #ffb648;
+  font-size: calc(var(--kh-inscribed, 400px) / 26);
+  white-space: nowrap;
+}
+
+.kh-error {
+  font-size: calc(var(--kh-inscribed, 400px) / 18);
+}
+
+.kh-debug {
+  position: absolute;
+  inset: var(--kh-safe, 0) var(--kh-safe, 0) auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(var(--kh-inscribed, 400px) / 30);
+  color: #63d29a;
+  text-align: left;
+  pointer-events: none;
+  white-space: pre-line;
+}
+
+.kh-splash {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #55606e;
+  font-size: calc(var(--kh-inscribed, 400px) / 22);
+}

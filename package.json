@@ -1,0 +1,80 @@
+{
+  "name": "kraken-hub",
+  "version": "0.1.0",
+  "description": "Open-source video/module hub for NZXT Kraken LCDs, running as a CAM Web Integration.",
+  "license": "MIT",
+  "private": true,
+  "workspaces": [
+    "companion/resolver"
+  ],
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ubberkid/kraken-hub.git"
+  },
+  "engines": {
+    "node": ">=20.19 <23"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "test:live": "KRAKEN_HUB_LIVE=1 vitest run --project live && npm run test:live --workspace kraken-hub-resolver",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:live": "KRAKEN_HUB_LIVE=1 playwright test --config playwright.live.config.ts",
+    "capture": "node scripts/capture-media.mjs",
+    "size": "node scripts/check-bundle-size.mjs",
+    "invariants": "node scripts/check-invariants.mjs",
+    "analyze": "ANALYZE=1 vite build && open dist/stats.html",
+    "licenses": "license-checker-rseidelsohn --production --markdown --out docs/third-party-licenses.md",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "check": "npm run typecheck && npm run lint && npm run invariants && npm run format:check && npm run test && npm run check:companion && npm run build && npm run size",
+    "check:companion": "npm run check --workspace kraken-hub-resolver",
+    "build:companion": "npm run build --workspace kraken-hub-resolver"
+  },
+  "dependencies": {
+    "dashjs": "^5.2.1",
+    "hls.js": "^1.7.1",
+    "mqtt": "^5.15.2",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/eslint-plugin": "^1.6.27",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-playwright": "^2.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.5",
+    "globals": "^17.11.0",
+    "jsdom": "^30.0.1",
+    "lint-staged": "^17.4.1",
+    "playwright": "^1.62.1",
+    "prettier": "^3.9.6",
+    "rollup-plugin-visualizer": "^7.1.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.68.0",
+    "vite": "^8.2.2",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.11"
+  }
+}

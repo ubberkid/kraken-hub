@@ -1,0 +1,102 @@
+name: Bug report
+description: Something in kraken-hub behaves incorrectly.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you file:** CAM ships the LCD Web Integration at **1 frame per second**.
+        If video looks like a slideshow, raise the slider first:
+        `CAM → Lighting → your Kraken → Mode: Web Integration → Frame Rate`.
+        That is CAM's setting, not a kraken-hub bug.
+
+  - type: checkboxes
+    id: fps-checked
+    attributes:
+      label: Frame Rate slider
+      options:
+        - label: I raised the CAM Frame Rate slider before reporting this.
+          required: true
+
+  - type: input
+    id: fps-value
+    attributes:
+      label: CAM Frame Rate slider value
+      description: The number the slider is set to right now.
+      placeholder: '40'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - Kraken Elite (640x640 circle)
+        - Kraken Plus
+        - Kraken Z (320x320 circle)
+        - Kraken 2023 (240x240 square)
+        - Other / unknown
+    validations:
+      required: true
+
+  - type: input
+    id: cam-version
+    attributes:
+      label: CAM version
+      placeholder: '4.50.1'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options: [video, image, clock, stats, none / app shell, not sure]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: context
+    attributes:
+      label: Where did you see it?
+      options:
+        - Kraken Browser (the LCD itself)
+        - Configuration Browser (the CAM settings window)
+        - Phone remote
+        - A normal desktop browser
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the config browser
+        2. Paste this URL: ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diag
+    attributes:
+      label: Diagnostics JSON
+      description: Open `#/diag` in the Configuration Browser and press **Copy JSON**.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: photo
+    attributes:
+      label: Photo of the LCD (optional)
+      description: Drag an image in. A straight-on photo is worth a lot for geometry bugs.

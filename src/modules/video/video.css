@@ -1,0 +1,202 @@
+/*
+ * Video module overlays. Low entropy on purpose (design-videoEngine.md §7.4,
+ * §8.2): flat fills, no gradients, no blur, no shadows, no animation beyond a
+ * 1 Hz pulse. CAM's Elite pipeline compresses every captured frame, so a busy
+ * overlay costs achieved FPS as surely as busy video does.
+ *
+ * Everything is laid out against `--kh-safe` and `--kh-inscribed`, the custom
+ * properties the platform layer publishes — no panel dimension is written here
+ * (invariant I3).
+ */
+
+.kh-video__media {
+  display: block;
+  /* The stage owns every transform (§4.1); the media element owns none. */
+  transform-origin: 0 0;
+}
+
+/*
+ * The YouTube surface. Deliberately oversized (1920x1920 by default): the
+ * width/height ATTRIBUTES are what the player measures, and the crop that hides
+ * its chrome is written by RenderController onto the stage above it. Nothing
+ * here may set a transform (design-videoEngine.md §4.1).
+ */
+.kh-video__yt {
+  display: block;
+  border: 0;
+  /* No border-radius, filter or shadow on the stage: each is per-frame raster
+     work on a device whose frame budget is the scarce resource (§4.4). */
+  background: #000;
+}
+
+.kh-video__card {
+  position: absolute;
+  inset: var(--kh-safe, 0);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.kh-video__card-inner {
+  max-width: 100%;
+  padding: 5%;
+  background: #141414;
+  color: #f2f4f8;
+  border-radius: 1rem;
+}
+
+.kh-video__card-title {
+  margin: 0 0 0.35em;
+  font-size: calc(var(--kh-inscribed, 400px) / 13);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.kh-video__card-body {
+  margin: 0;
+  font-size: calc(var(--kh-inscribed, 400px) / 18);
+  line-height: 1.35;
+  color: #d7dbe2;
+}
+
+.kh-video__card-detail {
+  margin: 0.6em 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(var(--kh-inscribed, 400px) / 22);
+  color: #8b95a3;
+  word-break: break-all;
+}
+
+.kh-video__card-footer {
+  margin: 0.8em 0 0;
+  font-size: calc(var(--kh-inscribed, 400px) / 22);
+  color: #9aa4b2;
+}
+
+/* Download progress: percent and name only. A bar plus two short lines is
+   about as little frame-to-frame change as a progress readout can have. */
+.kh-video__progress {
+  position: absolute;
+  inset: auto var(--kh-safe, 0) var(--kh-safe, 0);
+  padding: 0.6em 0.8em;
+  background: #141414;
+  color: #f2f4f8;
+  border-radius: 0.6rem;
+  font-size: calc(var(--kh-inscribed, 400px) / 22);
+  text-align: center;
+  pointer-events: none;
+}
+
+.kh-video__progress-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #9aa4b2;
+}
+
+.kh-video__progress-bar {
+  height: 6px;
+  margin-top: 0.5em;
+  background: #2a2f37;
+  border-radius: 3px;
+}
+
+.kh-video__progress-fill {
+  height: 100%;
+  background: #63d29a;
+  border-radius: 3px;
+}
+
+.kh-video__hint {
+  position: absolute;
+  inset: auto var(--kh-safe, 0) var(--kh-safe, 0);
+  padding: 0.5em 0.8em;
+  background: #141414;
+  color: #d7dbe2;
+  border-radius: 0.6rem;
+  font-size: calc(var(--kh-inscribed, 400px) / 24);
+  text-align: center;
+  pointer-events: none;
+}
+
+/*
+ * The other cross-origin embeds (Twitch, Vimeo, Streamable). Same rule as the
+ * YouTube surface: deliberately oversized, no transform here, nothing that
+ * forces per-frame raster work (§4.1, §4.4).
+ */
+.kh-video__embed,
+.kh-video__embed-frame {
+  display: block;
+  border: 0;
+  background: #000;
+}
+
+/* §7.4 — the category glyph. One character, so it survives CAM's compression. */
+.kh-video__card-glyph {
+  margin: 0 0 0.2em;
+  font-size: calc(var(--kh-inscribed, 400px) / 10);
+  line-height: 1;
+}
+
+.kh-video__card-retry {
+  display: flex;
+  gap: 0.4em;
+  align-items: center;
+  justify-content: center;
+  margin: 0.6em 0 0;
+  font-size: calc(var(--kh-inscribed, 400px) / 24);
+  color: #9aa4b2;
+}
+
+/*
+ * The ONLY animation on an error card, and it is one property on one 10 px dot
+ * at 1 Hz. Anything larger or faster is paid for in achieved FPS (§7.4, §8.2).
+ */
+.kh-video__pulse {
+  width: 10px;
+  height: 10px;
+  background: #d99a3f;
+  border-radius: 50%;
+  animation: kh-video-pulse 1s steps(2, end) infinite;
+}
+
+@keyframes kh-video-pulse {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.25;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kh-video__pulse {
+    animation: none;
+  }
+}
+
+/*
+ * Corner badges: the previous-source fallback (§7.4) and the low-FPS advisory
+ * once the 20 s card has shrunk (§8.1). Static, tiny, cheap to encode.
+ */
+.kh-video__badge {
+  position: absolute;
+  inset: var(--kh-safe, 0) var(--kh-safe, 0) auto;
+  padding: 0.35em 0.6em;
+  background: #141414;
+  color: #d7dbe2;
+  border-radius: 0.5rem;
+  font-size: calc(var(--kh-inscribed, 400px) / 26);
+  text-align: center;
+  pointer-events: none;
+}
+
+.kh-video__fps-badge {
+  color: #e0b050;
+}

@@ -1,0 +1,83 @@
+name: link-check
+
+# Documentation rots at its links first. A renamed file leaves a 404 that nobody
+# notices because nobody re-reads a page they wrote.
+#
+# Two schedules, for two different failure modes:
+#  - on a docs PR, so a rename cannot land with dangling internal links;
+#  - weekly, so external rot (a moved NZXT page, a deleted gist) surfaces on its
+#    own instead of in somebody's bug report.
+#
+# Internal links are the ones that must pass. External hosts rate-limit,
+# soft-404 and go down, so the scheduled run tolerates that; see the two jobs
+# below.
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.lycheeignore'
+      - '.github/workflows/link-check.yml'
+  schedule:
+    # Mondays, 07:00 UTC.
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: link-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  internal:
+    name: internal links (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `--offline` resolves relative paths and anchors against the checkout and
+      # never opens a socket. That makes this job fully deterministic: it can
+      # only fail because a link in this repository points at something in this
+      # repository that is not there.
+      - name: Check internal links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline
+            --no-progress
+            --include-fragments
+            './**/*.md'
+          fail: true
+          jobSummary: true
+
+  external:
+    name: external links (advisory)
+    runs-on: ubuntu-latest
+    # Skipped on pull requests: a contributor must never be blocked by somebody
+    # else's server being slow.
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check external links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --no-progress
+            --max-retries 2
+            --timeout 20
+            --accept 200,206,403,429
+            './**/*.md'
+          # Advisory: this job opens an issue rather than failing the run, so a
+          # weekly red X never becomes background noise people learn to ignore.
+          fail: false
+          output: lychee-report.md
+
+      - name: Report broken external links
+        if: ${{ hashFiles('lychee-report.md') != '' }}
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: Weekly link check found broken external links
+          content-filepath: lychee-report.md
+          labels: docs

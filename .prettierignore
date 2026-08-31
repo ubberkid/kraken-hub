@@ -1,0 +1,10 @@
+dist
+coverage
+playwright-report
+test-results
+node_modules
+package-lock.json
+tests/e2e/__screenshots__
+docs/third-party-licenses.md
+# Source-of-truth design documents are kept byte-for-byte as authored.
+docs/design

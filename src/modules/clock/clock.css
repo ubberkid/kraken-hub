@@ -1,0 +1,91 @@
+/*
+ * Clock styles. Imported from `display.ts`, so they ride in the module's own
+ * lazy chunk rather than on the display critical path.
+ *
+ * Every size that depends on the panel is written by the renderer from
+ * `Geometry`; the only geometry this file reads is the `--kh-safe` custom
+ * property published by `applyGeometryToDom()` (invariant I3).
+ *
+ * Flat fills, no gradients, no shadows, no transitions: the Elite compresses
+ * every captured frame, and anything that smears pixels across a repaint costs
+ * achieved FPS for no legibility.
+ */
+
+.kh-clock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--kh-clock-fg, #f2f4f8);
+}
+
+.kh-clock__digital,
+.kh-clock__analog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  /* Text must stay inside the visible disc; the dial sizes itself. */
+  max-width: calc(100% - 2 * var(--kh-safe, 0px));
+}
+
+.kh-clock__time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.kh-clock__meridiem {
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  color: var(--kh-clock-dim, #7c8798);
+}
+
+.kh-clock__date {
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--kh-clock-dim, #7c8798);
+}
+
+.kh-clock__date--analog {
+  margin-top: 0.2em;
+}
+
+.kh-clock__dial {
+  display: block;
+  overflow: visible;
+}
+
+.kh-clock__ring,
+.kh-clock__tick {
+  stroke: var(--kh-clock-dim, #7c8798);
+}
+
+.kh-clock__tick--major {
+  stroke: var(--kh-clock-fg, #f2f4f8);
+}
+
+.kh-clock__hand {
+  stroke: var(--kh-clock-fg, #f2f4f8);
+}
+
+.kh-clock__hand--second {
+  stroke: var(--kh-clock-dim, #7c8798);
+}
+
+.kh-clock__hub {
+  fill: var(--kh-clock-fg, #f2f4f8);
+}
+
+/* `hidden` must beat the class rules above — the UA sheet's bare `[hidden]`
+   selector loses to any class that sets `display`. */
+.kh-clock__meridiem[hidden],
+.kh-clock__date[hidden] {
+  display: none;
+}

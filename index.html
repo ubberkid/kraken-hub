@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="kraken-hub — video, image, clock and system-stats modules for NZXT Kraken LCDs."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>kraken-hub</title>
+    <!--
+      Critical CSS is inline so the LCD paints black on the very first frame.
+      A white flash is extremely visible on a 640x640 panel that is streamed
+      one frame per second by default.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        overflow: hidden;
+        overscroll-behavior: none;
+        font:
+          16px/1.4 system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

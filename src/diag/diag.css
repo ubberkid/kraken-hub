@@ -1,0 +1,66 @@
+/*
+ * On-LCD diagnostics. Sized from the geometry custom properties so it is
+ * legible at 240, 320 and 640 alike, and laid out inside the safe inset because
+ * a round panel clips its corners.
+ */
+
+.kh-diag {
+  position: absolute;
+  inset: var(--kh-safe, 0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: calc(var(--kh-inscribed, 400px) / 24);
+  color: #fff;
+  background: #000;
+  text-align: left;
+}
+
+.kh-diag__list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15em 0.6em;
+  margin: 0;
+  width: 100%;
+}
+
+.kh-diag__list dt {
+  color: #63d29a;
+}
+
+.kh-diag__list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.kh-diag__hint {
+  margin: 0.4em 0 0;
+  font-size: 0.62em;
+  color: #7d8794;
+  text-align: center;
+}
+
+.kh-diag--pattern {
+  inset: 0;
+  padding: 0;
+}
+
+.kh-diag__rings {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.kh-diag--flat {
+  align-items: center;
+  justify-content: center;
+}
+
+.kh-diag__counter {
+  font-size: calc(var(--kh-inscribed, 400px) / 4);
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}

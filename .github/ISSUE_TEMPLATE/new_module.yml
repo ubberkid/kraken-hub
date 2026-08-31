@@ -1,0 +1,71 @@
+name: New module proposal
+description: Propose a new display module (like video, clock or stats).
+labels: [module, enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `docs/modules.md` first — it has the interface, the rules, and a
+        step-by-step walkthrough that builds the Clock module from scratch.
+
+  - type: input
+    id: name
+    attributes:
+      label: Module name
+      placeholder: 'weather'
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What does it show on a 640x640 circle?
+      description: Describe the actual pixels. Remember the corners are cut off.
+    validations:
+      required: true
+
+  - type: textarea
+    id: sketch
+    attributes:
+      label: Mock or sketch
+      description: Drag in an image. A napkin drawing is fine.
+
+  - type: dropdown
+    id: data
+    attributes:
+      label: Where does its data come from?
+      options:
+        - CAM monitoring feed only (1 Hz)
+        - A bundled asset in the repo
+        - User input / configuration
+        - A network request the user configures
+        - Other (explain below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: low-fps
+    attributes:
+      label: What does it look like at targetFps === 1?
+      description: >
+        Every module must have a defined appearance when CAM streams one frame per
+        second. Animations that only read at 40 fps are a design flaw, not a bug.
+    validations:
+      required: true
+
+  - type: input
+    id: size
+    attributes:
+      label: Estimated chunk size (gzip)
+      description: The budget is 25 kB gzip per module chunk.
+      placeholder: '~8 kB'
+
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Module rules (docs/modules.md)
+      options:
+        - label: It never navigates and never touches `window.nzxt` directly.
+        - label: It reads geometry from props — no hardcoded 640.
+        - label: It has no top-level side effects (it is dynamically imported).
+        - label: It imports no sibling module and nothing from a CDN.

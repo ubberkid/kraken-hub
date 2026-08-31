@@ -1,0 +1,85 @@
+name: release
+
+# Tag-driven, because that is the only release ceremony this project has: `main`
+# deploys continuously and a tag documents state rather than gating a ship.
+#
+#     npm version minor        # bumps package.json, commits, tags vX.Y.Z
+#     git push --follow-tags
+#
+# The release body is not generated from commits. It is the section a human
+# already wrote and reviewed in CHANGELOG.md, extracted verbatim by
+# scripts/changelog-section.mjs — which fails the job when the tag has no
+# section, so a tag pushed without notes stops here instead of publishing an
+# empty release.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    permissions:
+      # The only elevated permission in the repository, scoped to this one job:
+      # creating a Release needs write access to repository contents.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A tag that cannot be built is not a release. This is the same build the
+      # Pages deploy runs, budgets included, so a tag can never document a state
+      # that would have failed to ship.
+      - name: Build
+        run: npm run build
+
+      - name: Bundle budgets
+        run: npm run size
+
+      - name: Check the tag matches package.json
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $pkg."
+            echo "Run 'npm version' rather than tagging by hand — it writes both."
+            exit 1
+          fi
+
+      - name: Extract the changelog section
+        run: node scripts/changelog-section.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
+
+      # The built site, attached to the release: a reproducible artifact for
+      # anyone who wants to self-host a specific version without a toolchain.
+      - name: Package the built site
+        run: |
+          cd dist
+          zip -r "$RUNNER_TEMP/kraken-hub-$GITHUB_REF_NAME.zip" . -x '*.map'
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --verify-tag \
+            $prerelease \
+            "$RUNNER_TEMP/kraken-hub-$GITHUB_REF_NAME.zip#Built site (dist)"

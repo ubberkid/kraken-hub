@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000" role="img" aria-label="Ring target: concentric rings at 100, 96, 92, 88, 84 and 80 percent of the panel width">
+  <title>kraken-hub ring target (H20)</title>
+  <desc>Photograph the panel straight on and report the outermost label that is fully visible. That percentage calibrates the safe-area inset.</desc>
+  <rect width="1000" height="1000" fill="#000"/>
+
+  <g fill="none" stroke-width="3">
+    <circle cx="500" cy="500" r="500" stroke="#ffffff"/>
+    <circle cx="500" cy="500" r="480" stroke="#ff5f5f"/>
+    <circle cx="500" cy="500" r="460" stroke="#ffb648"/>
+    <circle cx="500" cy="500" r="440" stroke="#63d29a"/>
+    <circle cx="500" cy="500" r="420" stroke="#4cc2ff"/>
+    <circle cx="500" cy="500" r="400" stroke="#c08cff"/>
+  </g>
+
+  <g font-family="ui-monospace, Menlo, monospace" font-size="34" font-weight="700" text-anchor="middle" dominant-baseline="middle">
+    <text x="500" y="522" fill="#ffffff">100</text>
+    <text x="500" y="562" fill="#ff5f5f">96</text>
+    <text x="500" y="602" fill="#ffb648">92</text>
+    <text x="500" y="642" fill="#63d29a">88</text>
+    <text x="500" y="682" fill="#4cc2ff">84</text>
+    <text x="500" y="722" fill="#c08cff">80</text>
+  </g>
+
+  <!-- Each ring is also labelled where it meets the horizontal axis, so the
+       outermost readable number can be identified from a photograph even when
+       the centre stack is obscured. -->
+  <g font-family="ui-monospace, Menlo, monospace" font-size="16" font-weight="700" dominant-baseline="middle">
+    <text x="992" y="514" fill="#ffffff" text-anchor="end">100</text>
+    <text x="972" y="484" fill="#ff5f5f" text-anchor="end">96</text>
+    <text x="952" y="514" fill="#ffb648" text-anchor="end">92</text>
+    <text x="932" y="484" fill="#63d29a" text-anchor="end">88</text>
+    <text x="912" y="514" fill="#4cc2ff" text-anchor="end">84</text>
+    <text x="892" y="484" fill="#c08cff" text-anchor="end">80</text>
+  </g>
+
+  <g stroke="#39414c" stroke-width="2">
+    <line x1="500" y1="0" x2="500" y2="1000"/>
+    <line x1="0" y1="500" x2="1000" y2="500"/>
+  </g>
+</svg>
