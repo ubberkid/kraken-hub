@@ -76,7 +76,7 @@ jobs:
 
       - name: Report broken external links
         if: ${{ hashFiles('lychee-report.md') != '' }}
-        uses: peter-evans/create-issue-from-file@v5
+        uses: peter-evans/create-issue-from-file@v6
         with:
           title: Weekly link check found broken external links
           content-filepath: lychee-report.md
