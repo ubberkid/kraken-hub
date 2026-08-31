@@ -100,6 +100,15 @@ export interface ModuleConfigProps {
 export interface KrakenModule<C = unknown> {
   readonly id: ModuleId;
   readonly name: string;
+  /**
+   * The name on the home screen's module chip, when the full one is too long.
+   *
+   * The four chips are a rhythm, not a list — one word each, tapped to switch
+   * what the LCD is showing — so a module whose proper name is two words gives
+   * the chip a short one. Everywhere a module is NAMED (its settings panel, the
+   * docs, the README's module table) still uses `name`. Defaults to `name`.
+   */
+  readonly chipName?: string;
   /** One line, shown in the module picker. */
   readonly summary: string;
   /** Inline SVG path data — no asset request on the display path. */

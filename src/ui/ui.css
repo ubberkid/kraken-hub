@@ -1,5 +1,17 @@
 /*
- * Config-only design system.
+ * Config-only design system — "Halo" (docs/design/halo-prototype.html).
+ *
+ * The approved direction organises the app around the object: the Kraken's
+ * round screen sits front and centre, always live, and every control is
+ * something you do TO it. This file carries the whole visual system as custom
+ * properties, so a view only ever names a token.
+ *
+ * Type is the PLATFORM'S OWN — SF on macOS, Segoe inside CAM's Electron shell.
+ * The prototype loads Schibsted Grotesk / Spline Sans Mono to make a design
+ * document look like one; the shipped app loads no webfont at all, because a
+ * font request is a network dependency on a page that must work offline, and
+ * because native-feeling apps use the system face. `--kh-mono` is used only for
+ * code-ish accents (the install URL, room codes, quiet labels).
  *
  * Invariant I8: the display page must never import src/ui. Everything here is
  * sized for a mouse and a real browser window, not for a 640 px LCD.
@@ -56,30 +68,108 @@ html.kh-config-mode .kh-app {
 }
 
 .kh-app {
-  --kh-bg-0: #0b0d10;
-  --kh-bg-1: #14171c;
-  --kh-bg-2: #1c2027;
-  --kh-line: #2a3038;
-  --kh-fg-0: #f2f4f8;
-  --kh-fg-1: #a7b0bd;
-  --kh-accent: #4cc2ff;
+  /* ---- ground & surfaces ------------------------------------------------ */
+  --kh-ground: #0c1017;
+  --kh-panel: #0f1620;
+  --kh-panel-2: #131c28;
+  --kh-line: #232e3e;
+  --kh-line-soft: #1a2230;
+
+  /* ---- ink -------------------------------------------------------------- */
+  --kh-ink: #e9eef5;
+  --kh-ink-2: #c9d4e0;
+  --kh-muted: #93a0b1;
+  --kh-muted-2: #7b8798;
+  --kh-muted-3: #5e6a7c;
+  --kh-placeholder: #54627a;
+
+  /* ---- accent ----------------------------------------------------------- */
+  --kh-accent: #4fd8d2;
+  --kh-on-accent: #062a28;
+  --kh-accent-bg: #12292e;
+  --kh-accent-line: #2a6a66;
+  --kh-accent-ink: #8fe8e4;
+
+  /* ---- states ----------------------------------------------------------- */
   --kh-warn: #ffb648;
-  --kh-danger: #ff6b6b;
-  --kh-ok: #63d29a;
+  --kh-warn-ink: #ffc46b;
+  --kh-warn-bg: #241b0c;
+  --kh-warn-line: #4a3717;
+  --kh-danger: #ff8a8a;
+  --kh-ok: #6fd39b;
+
+  /* ---- radii ------------------------------------------------------------ */
+  --kh-r-input: 11px;
+  --kh-r-card: 13px;
+  --kh-r-panel: 14px;
+  --kh-r-chip: 99px;
+  --kh-r-tight: 9px;
+
+  /* ---- motion: ONE curve, 200–450 ms, nothing bounces for fun ----------- */
+  --kh-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --kh-dur-fast: 200ms;
+  --kh-dur: 250ms;
+  --kh-dur-slow: 450ms;
+
+  /* ---- type: the platform's own face, never a webfont ------------------- */
+  --kh-font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --kh-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Legacy aliases: nothing outside this file reads them, but a fork's patch
+     against the pre-Halo palette should still resolve to something sane. */
+  --kh-bg-0: var(--kh-ground);
+  --kh-bg-1: var(--kh-panel);
+  --kh-bg-2: var(--kh-panel-2);
+  --kh-fg-0: var(--kh-ink);
+  --kh-fg-1: var(--kh-muted);
 
   box-sizing: border-box;
   min-height: 100%;
   padding: 0;
   margin: 0;
   overflow-y: auto;
-  color: var(--kh-fg-0);
-  background: var(--kh-bg-0);
+  color: var(--kh-ink);
+  background: var(--kh-ground);
+  font-family: var(--kh-font);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
 .kh-app *,
 .kh-app *::before,
 .kh-app *::after {
   box-sizing: inherit;
+}
+
+/* One curve, honoured. Nothing in this file animates without it. */
+@media (prefers-reduced-motion: reduce) {
+  .kh-app *,
+  .kh-app *::before,
+  .kh-app *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+.kh-app :focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Every screen enters the same way — the prototype's `rise`, one curve, 450 ms.
+ *
+ * The rule lives on `<main>` rather than on each view because the prototype
+ * treats a screen change as one gesture, not as four views that each brought
+ * their own. `ConfigApp` keys `<main>` on the route name so the element is
+ * genuinely replaced on navigation, which is what makes a CSS animation on it
+ * re-run; without the key React would keep the node and only the first paint
+ * would ever animate.
+ */
+.kh-shell > main {
+  animation: kh-rise var(--kh-dur-slow) var(--kh-ease);
 }
 
 .kh-shell {
@@ -106,38 +196,36 @@ html.kh-config-mode .kh-app {
 
 .kh-header h1 {
   margin: 0;
-  font-size: 1.15rem;
-  letter-spacing: 0.02em;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.kh-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.kh-nav a {
-  padding: 0.35rem 0.7rem;
-  border-radius: 999px;
-  color: var(--kh-fg-1);
+/*
+ * The wordmark, which is now the ENTIRE header.
+ *
+ * The five-tab bar is gone (prototype screen 1: "six tabs → zero"). Sections
+ * live behind the home screen's own quiet disclosure row and About sits in the
+ * footer, so the top of the page has one job: say what this is, and get you
+ * home from anywhere.
+ */
+.kh-wordmark {
+  color: inherit;
   text-decoration: none;
-  font-size: 0.85rem;
 }
 
-.kh-nav a:hover {
-  background: var(--kh-bg-2);
-  color: var(--kh-fg-0);
+.kh-wordmark:hover h1 {
+  color: var(--kh-accent-ink);
 }
 
-.kh-nav a[aria-current='page'] {
-  background: var(--kh-bg-2);
-  color: var(--kh-accent);
+.kh-wordmark h1 {
+  transition: color var(--kh-dur) var(--kh-ease);
 }
 
 .kh-panel {
-  background: var(--kh-bg-1);
+  background: var(--kh-panel);
   border: 1px solid var(--kh-line);
-  border-radius: 0.75rem;
+  border-radius: var(--kh-r-panel);
   padding: 1rem 1.15rem;
   margin: 0 0 1rem;
 }
@@ -145,12 +233,13 @@ html.kh-config-mode .kh-app {
 .kh-panel > h2 {
   margin: 0 0 0.25rem;
   font-size: 0.95rem;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .kh-panel > .kh-hint {
   margin: 0 0 0.9rem;
-  color: var(--kh-fg-1);
+  color: var(--kh-muted);
   font-size: 0.82rem;
 }
 
@@ -160,8 +249,8 @@ html.kh-config-mode .kh-app {
   gap: 0.5rem 1rem;
   align-items: center;
   justify-content: space-between;
-  padding: 0.45rem 0;
-  border-top: 1px solid var(--kh-line);
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--kh-line-soft);
 }
 
 .kh-field:first-of-type {
@@ -175,60 +264,85 @@ html.kh-config-mode .kh-app {
 .kh-field .kh-desc {
   flex: 1 0 100%;
   margin: 0;
-  color: var(--kh-fg-1);
+  color: var(--kh-muted-2);
   font-size: 0.78rem;
 }
 
 .kh-input,
 .kh-select {
   min-width: 12rem;
-  padding: 0.4rem 0.55rem;
-  color: var(--kh-fg-0);
-  background: var(--kh-bg-2);
+  padding: 0.5rem 0.7rem;
+  color: var(--kh-ink);
+  background: var(--kh-ground);
   border: 1px solid var(--kh-line);
-  border-radius: 0.4rem;
+  border-radius: var(--kh-r-input);
   font: inherit;
   font-size: 0.85rem;
+  transition: border-color var(--kh-dur) var(--kh-ease);
 }
 
-.kh-input:focus-visible,
-.kh-select:focus-visible,
-.kh-btn:focus-visible {
-  outline: 2px solid var(--kh-accent);
-  outline-offset: 2px;
+.kh-input::placeholder {
+  color: var(--kh-placeholder);
+}
+
+.kh-input:hover,
+.kh-select:hover {
+  border-color: var(--kh-accent-line);
 }
 
 .kh-btn {
-  padding: 0.42rem 0.85rem;
-  color: var(--kh-fg-0);
-  background: var(--kh-bg-2);
+  padding: 0.5rem 0.9rem;
+  color: var(--kh-ink);
+  background: var(--kh-panel);
   border: 1px solid var(--kh-line);
-  border-radius: 0.4rem;
+  border-radius: var(--kh-r-input);
   font: inherit;
   font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
   cursor: pointer;
+  transition:
+    transform var(--kh-dur-fast) var(--kh-ease),
+    border-color var(--kh-dur) var(--kh-ease),
+    background var(--kh-dur) var(--kh-ease);
 }
 
 .kh-btn:hover {
-  border-color: var(--kh-accent);
+  border-color: var(--kh-accent-line);
+  color: var(--kh-ink);
+}
+
+.kh-btn:active {
+  transform: scale(0.96);
+}
+
+.kh-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .kh-btn--primary {
   background: var(--kh-accent);
   border-color: var(--kh-accent);
-  color: #04121a;
+  color: var(--kh-on-accent);
   font-weight: 600;
+}
+
+.kh-btn--primary:hover {
+  color: var(--kh-on-accent);
 }
 
 .kh-chip {
   display: inline-flex;
   gap: 0.4rem;
   align-items: center;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
+  padding: 0.28rem 0.7rem;
+  border-radius: var(--kh-r-chip);
   border: 1px solid var(--kh-line);
-  background: var(--kh-bg-2);
+  background: var(--kh-panel);
+  color: var(--kh-muted);
   font-size: 0.78rem;
+  font-weight: 500;
 }
 
 .kh-chip--ok {
@@ -237,7 +351,7 @@ html.kh-config-mode .kh-app {
 }
 
 .kh-chip--warn {
-  color: var(--kh-warn);
+  color: var(--kh-warn-ink);
   border-color: color-mix(in srgb, var(--kh-warn) 45%, transparent);
 }
 
@@ -245,21 +359,45 @@ html.kh-config-mode .kh-app {
   display: block;
   overflow-x: auto;
   padding: 0.6rem 0.7rem;
-  color: var(--kh-fg-0);
-  background: var(--kh-bg-0);
+  color: var(--kh-ink);
+  background: var(--kh-ground);
   border: 1px solid var(--kh-line);
-  border-radius: 0.4rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-radius: var(--kh-r-tight);
+  font-family: var(--kh-mono);
   font-size: 0.78rem;
   white-space: pre-wrap;
   word-break: break-all;
 }
 
+/* A snippet inside a sentence — `-an`, `?diag=1` — rather than a block of its
+   own. The block form breaks the line it sits in and reads as a code listing. */
+.kh-code--inline {
+  display: inline;
+  padding: 0.1em 0.35em;
+  white-space: nowrap;
+  word-break: normal;
+}
+
 .kh-footer {
-  border-top: 1px solid var(--kh-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  align-items: baseline;
+  border-top: 1px solid var(--kh-line-soft);
   padding-top: 0.75rem;
-  color: var(--kh-fg-1);
-  font-size: 0.75rem;
+  color: var(--kh-muted-3);
+  font-family: var(--kh-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.kh-footer a {
+  color: var(--kh-muted-2);
+  text-decoration: none;
+}
+
+.kh-footer a:hover {
+  color: var(--kh-accent-ink);
 }
 
 .kh-row {
@@ -269,34 +407,77 @@ html.kh-config-mode .kh-app {
   align-items: center;
 }
 
-.kh-bezel {
+/* A heading inside a panel, below the panel's own <h2>. */
+.kh-subhead {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.kh-list {
   display: grid;
-  place-items: center;
-  padding: 1rem;
-  background: radial-gradient(circle at 50% 30%, #23272e, #0c0e11 70%);
-  border-radius: 1rem;
+  gap: 0.35rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.kh-bezel__ring {
-  padding: 14px;
-  border-radius: 50%;
-  background: linear-gradient(160deg, #3a4049, #16191d);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 55%);
+/*
+ * The house disclosure (`<Disclosure>` in src/ui/index.tsx).
+ *
+ * "Disclosure over density": technical options, transport internals and the
+ * hardware-report pull all sit behind one of these. The marker is a rotating
+ * caret rather than the platform triangle so the row reads as one control.
+ */
+.kh-details {
+  margin: 0.6rem 0 0;
+  border-top: 1px solid var(--kh-line-soft);
 }
 
-.kh-bezel__ring--square {
-  border-radius: 12px;
+.kh-details__summary {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.55rem 0;
+  color: var(--kh-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  transition: color var(--kh-dur) var(--kh-ease);
 }
 
-.kh-bezel iframe {
-  display: block;
-  border: 0;
-  border-radius: 50%;
-  background: #000;
+.kh-details__summary::-webkit-details-marker {
+  display: none;
 }
 
-.kh-bezel--square iframe {
-  border-radius: 4px;
+.kh-details__summary::before {
+  content: '›';
+  display: inline-block;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--kh-muted-3);
+  transition: transform var(--kh-dur) var(--kh-ease);
+}
+
+.kh-details[open] > .kh-details__summary::before {
+  transform: rotate(90deg);
+}
+
+.kh-details__summary:hover {
+  color: var(--kh-ink);
+}
+
+.kh-details__body {
+  padding-bottom: 0.35rem;
+  animation: kh-rise var(--kh-dur) var(--kh-ease);
+}
+
+/* A disclosure holding whole panels should not double up on their frames. */
+.kh-details__body > .kh-panel {
+  background: var(--kh-panel-2);
+  margin-bottom: 0.75rem;
 }
 
 .kh-table {
@@ -309,35 +490,93 @@ html.kh-config-mode .kh-app {
 .kh-table td {
   text-align: left;
   padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid var(--kh-line);
+  border-bottom: 1px solid var(--kh-line-soft);
   vertical-align: top;
 }
 
 .kh-table th {
-  color: var(--kh-fg-1);
+  color: var(--kh-muted);
   font-weight: 500;
 }
 
+/*
+ * Sliders, drawn rather than tinted.
+ *
+ * `accent-color` alone gets the thumb and the filled half right and leaves the
+ * REST of the track at the UA's light-theme default — a near-white bar across a
+ * panel whose every other rule is dark. The track is therefore ours, with the
+ * same 4 px / 4 px radius the scrubber rail uses, so a zoom slider and the
+ * remote's seek bar read as one control family.
+ */
 .kh-range {
   width: 100%;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  background: none;
+  accent-color: var(--kh-accent);
+  cursor: pointer;
+}
+
+.kh-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 4px;
+  background: #16202c;
+}
+
+.kh-range::-moz-range-track {
+  height: 4px;
+  border-radius: 4px;
+  background: #16202c;
+}
+
+.kh-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--kh-accent);
+}
+
+.kh-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kh-accent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 45%);
+}
+
+.kh-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kh-accent);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 45%);
+}
+
+.kh-range:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .kh-notice {
-  margin: 0.35rem 0 0;
-  font-size: 0.9rem;
-  line-height: 1.35;
+  margin: 0.45rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
 .kh-notice--error {
-  color: #ff8a8a;
+  color: var(--kh-danger);
 }
 
 .kh-notice--warn {
-  color: #ffc46b;
+  color: var(--kh-warn-ink);
 }
 
 .kh-notice--ok {
-  color: #6fd39b;
+  color: var(--kh-ok);
 }
 
 .kh-meter {
@@ -348,21 +587,24 @@ html.kh-config-mode .kh-app {
 
 .kh-meter__track {
   flex: 1;
-  height: 8px;
+  height: 4px;
   border-radius: 4px;
-  background: #2a2f37;
+  background: #16202c;
   overflow: hidden;
 }
 
 .kh-meter__fill {
   height: 100%;
-  background: #63d29a;
+  background: var(--kh-accent);
+  border-radius: 4px;
+  transition: width 0.3s linear;
 }
 
 .kh-meter__label {
-  font-size: 0.85rem;
-  color: #9aa4b2;
+  font-size: 0.82rem;
+  color: var(--kh-muted-2);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .kh-cliplist {
@@ -378,16 +620,17 @@ html.kh-config-mode .kh-app {
   gap: 0.8rem;
   align-items: center;
   padding: 0.6rem;
-  border: 1px solid #262b33;
-  border-radius: 0.6rem;
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-card);
+  background: var(--kh-panel);
 }
 
 .kh-clip__thumb {
   width: 64px;
   height: 64px;
-  border-radius: 0.4rem;
+  border-radius: var(--kh-r-tight);
   object-fit: cover;
-  background: #11151b;
+  background: var(--kh-ground);
   flex: none;
 }
 
@@ -403,22 +646,23 @@ html.kh-config-mode .kh-app {
 }
 
 .kh-clip__detail {
-  font-size: 0.85rem;
-  color: #9aa4b2;
+  font-size: 0.82rem;
+  color: var(--kh-muted-2);
 }
 
 .kh-dropzone {
   margin-top: 0.8rem;
   padding: 1.4rem;
-  border: 2px dashed #39404a;
-  border-radius: 0.8rem;
+  border: 2px dashed var(--kh-line);
+  border-radius: var(--kh-r-panel);
   text-align: center;
-  color: #9aa4b2;
+  color: var(--kh-muted-2);
+  transition: all var(--kh-dur) var(--kh-ease);
 }
 
 .kh-dropzone--over {
-  border-color: #63d29a;
-  color: #63d29a;
+  border-color: var(--kh-accent);
+  color: var(--kh-accent-ink);
 }
 
 /* Pairing QR. Rendered as an inline <svg> from src/app/config/qr.ts — never
@@ -429,4 +673,999 @@ html.kh-config-mode .kh-app {
   background: #ffffff;
   padding: 4px;
   flex: 0 0 auto;
+}
+
+/* ==========================================================================
+ * "Your Kraken" — the home screen (prototype screen 1)
+ *
+ * The screen IS the interface: a live mirror of the LCD, one primary action
+ * under it, module chips, and contextual options that open in place. Everything
+ * technical is one level down behind the quiet disclosure row.
+ * ========================================================================== */
+
+.kh-home {
+  /* Unitless, because the mirror's scale factor is computed from them in
+     `calc()` — see `.kh-halo__frame`. `--kh-halo-inner` is the size minus the
+     two 7 px bezel walls. */
+  --kh-halo-size: 236;
+  --kh-halo-inner: 222;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0 0.5rem;
+}
+
+/* The halo scales DOWN, never clips: a CAM window is 866 px wide and a phone is
+   less, and a round screen that loses its rim stops reading as the object. */
+@media (max-width: 700px) {
+  .kh-home {
+    --kh-halo-size: 184;
+    --kh-halo-inner: 170;
+  }
+}
+
+/*
+ * The CAM Configuration Browser is a SHORT window — 866 x 537 measured — and the
+ * prototype's composition is a single view: halo, status, one action, chips, the
+ * ops line, and the quiet way down, all visible at once.
+ *
+ * At the prototype's own spacing that composition is 637 px tall here, because
+ * the shipped app carries a header and a footer the prototype's CAM chrome
+ * stands in for. The whole navigation of a zero-tab app then loads below the
+ * fold, which is the one place this stopped feeling like the design.
+ *
+ * So the rhythm compresses on SHORT viewports — proportionally, keeping every
+ * ratio the prototype set, never rearranging anything. Above 640 px tall
+ * nothing here applies and the spacing is the prototype's to the pixel.
+ */
+@media (max-height: 640px) {
+  .kh-shell {
+    padding: 0.85rem 1.25rem;
+    gap: 0.85rem;
+  }
+
+  .kh-home {
+    --kh-halo-size: 204;
+    --kh-halo-inner: 190;
+
+    padding: 0.15rem 0;
+  }
+
+  .kh-status {
+    margin: 12px 0 4px;
+  }
+
+  .kh-paste {
+    margin-top: 12px;
+  }
+
+  .kh-flow {
+    margin-top: 14px;
+  }
+
+  .kh-mods {
+    margin-top: 14px;
+  }
+
+  .kh-ops {
+    margin-top: 12px;
+  }
+
+  .kh-more {
+    margin-top: 14px;
+  }
+}
+
+@keyframes kh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- the FPS advisory: shown only when the DISPLAY said so --------------- */
+.kh-fps-banner {
+  width: 100%;
+  max-width: 30rem;
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  background: var(--kh-warn-bg);
+  border: 1px solid var(--kh-warn-line);
+  border-radius: var(--kh-r-card);
+  color: var(--kh-warn-ink);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.kh-fps-banner b {
+  color: var(--kh-warn);
+  font-weight: 600;
+}
+
+/* ---- the halo ----------------------------------------------------------- */
+.kh-halo {
+  position: relative;
+  width: calc(var(--kh-halo-size) * 1px);
+  height: calc(var(--kh-halo-size) * 1px);
+  margin: 2px auto 0;
+  flex: none;
+  border-radius: 50%;
+  background: #05070b;
+  border: 7px solid #161d28;
+  box-shadow:
+    0 0 0 1px #0a0e15,
+    0 10px 40px -6px rgb(79 216 210 / 16%),
+    inset 0 0 24px rgb(0 0 0 / 70%);
+}
+
+.kh-halo--square {
+  border-radius: 18px;
+}
+
+.kh-halo__lcd {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kh-halo--square .kh-halo__lcd {
+  border-radius: 11px;
+}
+
+/*
+ * The mirror is the REAL display page, booted the way CAM boots it, at the real
+ * panel size and then scaled to the bezel. Scaling rather than resizing is the
+ * point: the geometry engine, the mask and the module see 640 px exactly as the
+ * Kraken Browser presents it.
+ */
+.kh-halo__frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--kh-mirror-w) * 1px);
+  height: calc(var(--kh-mirror-h) * 1px);
+  border: 0;
+  background: #000;
+  transform: translate(-50%, -50%) scale(calc(var(--kh-halo-inner) / var(--kh-mirror-w)));
+}
+
+/*
+ * The video module's stand-in.
+ *
+ * The mirror deliberately does NOT run a second player: two YouTube embeds or
+ * two decoders on one origin is double the work, double the network and — for
+ * an embed — a second set of ads. The surface below is a stylized playing
+ * field; the truth about what is on the LCD comes from the telemetry mirror in
+ * the status line under it.
+ */
+.kh-halo__surface {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 30% 20%, #123b4f 0%, transparent 55%),
+    radial-gradient(100% 90% at 75% 80%, #2b1550 0%, transparent 60%), #071019;
+  animation: kh-drift 9s linear infinite alternate;
+}
+
+@keyframes kh-drift {
+  to {
+    transform: scale(1.25) rotate(6deg);
+  }
+}
+
+/* ---- status line -------------------------------------------------------- */
+.kh-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 16px 0 4px;
+  min-height: 1.4em;
+  font-size: 0.85rem;
+  color: var(--kh-muted);
+  text-align: center;
+}
+
+.kh-status__live {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--kh-accent);
+  box-shadow: 0 0 8px var(--kh-accent);
+}
+
+.kh-status b {
+  color: var(--kh-ink);
+  font-weight: 600;
+}
+
+.kh-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the one primary action --------------------------------------------- */
+.kh-paste {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 27rem;
+  margin: 16px auto 0;
+}
+
+.kh-paste__input {
+  flex: 1;
+  min-width: 0;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  color: var(--kh-ink);
+  border-radius: var(--kh-r-input);
+  padding: 11px 14px;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.kh-paste__input::placeholder {
+  color: var(--kh-placeholder);
+}
+
+.kh-paste .kh-btn {
+  flex: none;
+  padding: 11px 18px;
+}
+
+.kh-home__notice {
+  width: 100%;
+  max-width: 27rem;
+  margin: 0.5rem auto 0;
+  text-align: left;
+}
+
+/* ---- the download story, told in plain words ---------------------------- */
+.kh-flow {
+  width: 100%;
+  max-width: 27rem;
+  margin: 22px auto 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: kh-rise var(--kh-dur) var(--kh-ease);
+}
+
+/*
+ * The three cards arrive in order, the way the prototype's demo reveals them —
+ * one gesture that resolves into three lines rather than a block appearing at
+ * once. Only the RISE is staggered: opacity below is the step's STATE (0.32
+ * waiting, 1 reached), and the group's own fade above carries the arrival, so
+ * the two never fight over the same property.
+ */
+@keyframes kh-step-in {
+  from {
+    transform: translateY(8px);
+  }
+}
+
+.kh-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-card);
+  padding: 12px 14px;
+  opacity: 0.32;
+  transition: opacity var(--kh-dur-slow) var(--kh-ease);
+  animation: kh-step-in var(--kh-dur) var(--kh-ease) both;
+}
+
+.kh-step:nth-child(2) {
+  animation-delay: 70ms;
+}
+
+.kh-step:nth-child(3) {
+  animation-delay: 140ms;
+}
+
+/* The global reduce rule collapses durations; a delay is not a duration. */
+@media (prefers-reduced-motion: reduce) {
+  .kh-step {
+    animation-delay: 0s !important;
+  }
+}
+
+.kh-step--on {
+  opacity: 1;
+}
+
+.kh-step__ic {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--kh-r-tight);
+  display: grid;
+  place-items: center;
+  background: var(--kh-accent-bg);
+  color: var(--kh-accent-ink);
+  font-size: 14px;
+}
+
+.kh-step__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-step b {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--kh-ink);
+  font-weight: 600;
+}
+
+.kh-step small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--kh-muted-2);
+}
+
+.kh-step .kh-meter {
+  margin-top: 6px;
+}
+
+/* ---- module chips ------------------------------------------------------- */
+.kh-mods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 20px 0 0;
+}
+
+.kh-mod {
+  appearance: none;
+  cursor: pointer;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  color: var(--kh-muted);
+  border-radius: var(--kh-r-chip);
+  padding: 7px 15px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition:
+    transform var(--kh-dur-fast) var(--kh-ease),
+    color var(--kh-dur) var(--kh-ease),
+    background var(--kh-dur) var(--kh-ease),
+    border-color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-mod:hover {
+  color: var(--kh-ink);
+  border-color: var(--kh-accent-line);
+}
+
+/* The prototype's one press gesture, on everything that takes a press. */
+.kh-mod:active {
+  transform: scale(0.96);
+}
+
+.kh-mod[aria-pressed='true'] {
+  background: var(--kh-accent-bg);
+  border-color: var(--kh-accent-line);
+  color: var(--kh-accent-ink);
+}
+
+/* ---- contextual options, in place --------------------------------------- */
+.kh-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  margin-top: 16px;
+  font-size: 0.78rem;
+  color: var(--kh-muted-2);
+}
+
+.kh-op {
+  appearance: none;
+  background: none;
+  border: 0;
+  /* The prototype's `#34405230` — a hint that the line is touchable, not a
+     dotted rule under every word. At 60% it read as a loud underline. */
+  border-bottom: 1px dashed rgb(52 64 82 / 19%);
+  border-radius: 0;
+  padding: 0 0 2px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    transform var(--kh-dur-fast) var(--kh-ease),
+    color var(--kh-dur) var(--kh-ease),
+    border-color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-op:hover {
+  color: var(--kh-ink-2);
+  border-bottom-color: var(--kh-accent-line);
+}
+
+.kh-op:active {
+  transform: scale(0.96);
+}
+
+.kh-op b {
+  color: var(--kh-ink-2);
+  font-weight: 600;
+}
+
+.kh-op[aria-expanded='true'] {
+  color: var(--kh-accent-ink);
+  border-bottom-color: var(--kh-accent-line);
+}
+
+.kh-op[aria-expanded='true'] b {
+  color: var(--kh-accent-ink);
+}
+
+/*
+ * The disclosure. The module's existing settings panel is rendered inside it
+ * unchanged — stage 2 reskins the panels themselves; this frame only has to
+ * hold them without looking borrowed.
+ */
+.kh-disclosure {
+  width: 100%;
+  max-width: 40rem;
+  margin: 1.15rem auto 0;
+  padding: 0.9rem 1rem 0.15rem;
+  background: var(--kh-panel-2);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+  animation: kh-rise var(--kh-dur) var(--kh-ease);
+}
+
+.kh-disclosure__head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0 0 0.75rem;
+}
+
+.kh-disclosure__head h2 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  font-family: var(--kh-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--kh-muted-2);
+}
+
+.kh-disclosure .kh-panel {
+  background: var(--kh-panel);
+}
+
+/* ---- the quiet way down ------------------------------------------------- */
+.kh-more {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  justify-content: center;
+  margin-top: 18px;
+  font-family: var(--kh-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--kh-muted-3);
+}
+
+.kh-more a {
+  color: var(--kh-muted-3);
+  text-decoration: none;
+  transition: color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-more a:hover {
+  color: var(--kh-accent-ink);
+}
+
+/* ==========================================================================
+ * "Add to CAM" — first run, and then never again
+ *
+ * Two variants of one card (`views/CamSetupCard.tsx`): pinned to the top of the
+ * home screen while no display has ever connected, and a plain panel under
+ * `#/about` afterwards. The first-run variant earns an accent rim because it is,
+ * for those four minutes, the only thing on the page that matters.
+ * ========================================================================== */
+
+.kh-setup {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto 1.25rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+}
+
+.kh-setup--first {
+  border-color: var(--kh-accent-line);
+  background: linear-gradient(180deg, var(--kh-accent-bg), var(--kh-panel) 60%);
+}
+
+.kh-setup__title {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.kh-setup__lede {
+  margin: 0 0 1rem;
+  color: var(--kh-muted);
+  font-size: 0.85rem;
+}
+
+.kh-setup__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kh-setup__step {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.kh-setup__num {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--kh-accent-bg);
+  border: 1px solid var(--kh-accent-line);
+  color: var(--kh-accent-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.kh-setup__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-setup__body b {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.kh-setup__hint {
+  margin: 0.15rem 0 0.6rem;
+  color: var(--kh-muted);
+  font-size: 0.82rem;
+}
+
+.kh-setup__actions {
+  margin-top: 0.6rem;
+}
+
+/* ---- library extras ----------------------------------------------------- */
+.kh-quota {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  margin-bottom: 0.9rem;
+}
+
+.kh-quota .kh-meter {
+  flex: 1 1 14rem;
+}
+
+.kh-clip__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* ==========================================================================
+ * The phone remote (prototype screen 3)
+ *
+ * Built for a 390 px viewport first and merely allowed to look right on a
+ * desktop, which is the opposite of how the old page was laid out. `28rem` is
+ * the ceiling: the transport is sized for a thumb, and a thumb does not get
+ * bigger on a 27-inch monitor.
+ * ========================================================================== */
+
+.kh-remote {
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+/*
+ * The mini-halo. A stylized surface, never an iframe — see the note at the top
+ * of RemoteView.tsx: a phone is a different browser on a different machine, so
+ * an iframe here would boot a SECOND display rather than mirror the first.
+ */
+.kh-minihalo {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 0.25rem auto 0.9rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #05070b;
+  border: 4px solid #161d28;
+  box-shadow:
+    0 0 0 1px #0a0e15,
+    0 10px 30px -8px rgb(79 216 210 / 18%);
+}
+
+.kh-remote__title {
+  margin: 0;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-remote__sub {
+  margin: 0.15rem 0 0;
+  text-align: center;
+  color: var(--kh-muted-2);
+  font-size: 0.78rem;
+}
+
+/* ---- the scrubber: position, and two real loop handles ------------------ */
+.kh-scrub {
+  margin: 1.4rem 0.5rem 0;
+}
+
+.kh-scrub__track {
+  position: relative;
+  height: 26px;
+  touch-action: none;
+}
+
+.kh-scrub__rail,
+.kh-scrub__loop,
+.kh-scrub__fill {
+  position: absolute;
+  top: 11px;
+  height: 4px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.kh-scrub__rail {
+  left: 0;
+  right: 0;
+  background: #16202c;
+}
+
+/* The A–B band. Dim while the loop is off: the handles are still where you left
+   them, and pretending otherwise would lose the setting. */
+.kh-scrub__loop {
+  background: var(--kh-accent-line);
+  opacity: 0.35;
+}
+
+.kh-scrub__loop[data-enabled='true'] {
+  opacity: 1;
+}
+
+.kh-scrub__fill {
+  left: 0;
+  background: var(--kh-accent);
+}
+
+/*
+ * The seek control, laid over the track and under the handles.
+ *
+ * Only its thumb is visible — the rail, the loop band and the progress fill are
+ * ours — but it is a real `<input type="range">`, so tapping anywhere on the bar
+ * seeks and every platform's touch and keyboard behaviour comes for free.
+ */
+.kh-scrub__seek {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 26px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.kh-scrub__seek::-webkit-slider-runnable-track {
+  height: 26px;
+  background: transparent;
+}
+
+.kh-scrub__seek::-moz-range-track {
+  height: 26px;
+  background: transparent;
+}
+
+.kh-scrub__seek::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 7px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--kh-accent);
+  box-shadow: 0 0 6px rgb(79 216 210 / 60%);
+}
+
+.kh-scrub__seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--kh-accent);
+}
+
+.kh-scrub__seek:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* 44 px of touch target around an 18 px dot — the handle is the whole button. */
+.kh-scrub__handle {
+  position: absolute;
+  top: 4px;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--kh-ink);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 50%);
+  cursor: grab;
+  touch-action: none;
+  transition: transform var(--kh-dur-fast) var(--kh-ease);
+}
+
+.kh-scrub__handle::after {
+  content: '';
+  position: absolute;
+  inset: -13px;
+}
+
+.kh-scrub__handle:active {
+  cursor: grabbing;
+  transform: scale(1.15);
+}
+
+.kh-scrub__handle[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.kh-scrub__lab {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--kh-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--kh-accent-ink);
+}
+
+.kh-scrub__times {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0.25rem 0.1rem 0;
+  font-family: var(--kh-mono);
+  font-size: 0.68rem;
+  color: var(--kh-muted-3);
+}
+
+.kh-scrub__looptoggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed rgb(52 64 82 / 60%);
+  border-radius: 0;
+  padding: 0 0 2px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-scrub__looptoggle[aria-pressed='true'] {
+  color: var(--kh-accent-ink);
+  border-bottom-color: var(--kh-accent-line);
+}
+
+/* ---- transport: three targets, sized for one thumb --------------------- */
+.kh-transport {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  margin: 1.1rem 0 0.9rem;
+}
+
+.kh-tbtn {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--kh-line);
+  background: var(--kh-panel);
+  color: var(--kh-ink);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    transform var(--kh-dur-fast) var(--kh-ease),
+    border-color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-tbtn--big {
+  width: 64px;
+  height: 64px;
+  border: 0;
+  background: var(--kh-accent);
+  color: var(--kh-on-accent);
+  font-size: 1.2rem;
+}
+
+.kh-tbtn:active {
+  transform: scale(0.94);
+}
+
+.kh-tbtn:hover:not([disabled]) {
+  border-color: var(--kh-accent-line);
+}
+
+/*
+ * Off, but still readable. At 0.35 the "−10"/"+10" glyphs fell under 3:1 on the
+ * panel, so an unpaired remote looked broken rather than waiting. 0.5 keeps them
+ * legible and still unmistakably inactive.
+ */
+.kh-tbtn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- one quiet line where five chips used to be ------------------------- */
+.kh-linkstatus {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0 1rem;
+  color: var(--kh-muted-2);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.kh-status__dead {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--kh-muted-3);
+}
+
+/* ---- pairing, as one card ---------------------------------------------- */
+.kh-roomcard {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+}
+
+.kh-roomcard--open {
+  padding: 1rem 1.15rem 1.15rem;
+}
+
+.kh-roomcard__head {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.kh-roomcard__head b {
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.kh-roomcard__title {
+  margin: 0 0 0.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.kh-roomcard__code {
+  display: block;
+  font-family: var(--kh-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--kh-accent-ink);
+}
+
+.kh-roomcard--open .kh-qr {
+  display: block;
+  margin: 0 auto 0.9rem;
+}
+
+.kh-roomcard__caption {
+  margin: -0.4rem 0 1rem;
+  text-align: center;
+  color: var(--kh-muted-2);
+  font-size: 0.78rem;
+}
+
+/*
+ * "Connecting…" while the transport comes up.
+ *
+ * A phone that arrived from the QR is paired the instant it renders, but the
+ * radio takes a second or two — and a card claiming "Paired with your PC"
+ * through that window is claiming something it cannot see yet. The shimmer says
+ * *working on it* without a spinner's implication that something might fail.
+ *
+ * `prefers-reduced-motion` is honoured by the blanket rule at the top of this
+ * file, which drops the duration to 1 ms; the text stays legible either way
+ * because the animation only moves a highlight across it.
+ */
+.kh-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--kh-muted) 0%,
+    var(--kh-ink) 40%,
+    var(--kh-ink) 60%,
+    var(--kh-muted) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: kh-shimmer 1.6s var(--kh-ease) infinite;
+}
+
+@keyframes kh-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
 }

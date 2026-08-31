@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test';
 
 /**
  * The M2 acceptance tests, run against the in-repo broker simulator
@@ -28,20 +28,132 @@ function displayUrl(room = ROOM): string {
   return `/?kraken=1&sim=elite&room=${room}&transport=fake`;
 }
 
+/** A bounding box that is a box, not `Box | null` — an absent one is a failure. */
+async function boxOf(
+  locator: Locator,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const box = await locator.boundingBox();
+  if (box === null) throw new Error('element has no bounding box — is it rendered?');
+  return box;
+}
+
 async function readSync(page: Page): Promise<Record<string, unknown>> {
   const raw = await page.locator('html').getAttribute('data-kh-sync');
   return raw === null ? {} : (JSON.parse(raw) as Record<string, unknown>);
 }
 
+// ---------------------------------------------------------------------------
+// Zero-tap pairing — the link a phone actually opens
+// ---------------------------------------------------------------------------
+
+/** `kraken-hub:v1:remote:room` — this device's pairing, kept apart from state. */
+const REMEMBERED_KEY = 'kraken-hub:v1:remote:room';
+
+/**
+ * The real shared link: the room code lives in the FRAGMENT.
+ *
+ * `?transport=fake` stays in the search because it is a test harness flag, not
+ * a secret. The room does not, and `src/app/config/qr.test.ts` pins that the
+ * link builder puts it in the hash — a fragment never leaves the browser, so
+ * the one piece of key material in the sync design cannot land in an access
+ * log, a CDN log or a `Referer` header on the way to a static host.
+ */
+function scannedLink(room = ROOM): string {
+  return `/?transport=fake#/remote?room=${room}`;
+}
+
+test('a scanned pairing link connects with zero taps', async ({ context }) => {
+  const remote = await context.newPage();
+  await remote.goto(scannedLink('MNPQ2345'));
+
+  // No Join. No Generate. Nothing pressed at all between `goto` and this.
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
+  await expect(remote.getByTestId('paired-summary')).toContainText('MNPQ 2345');
+  await expect(remote.getByTestId('link-status')).toHaveAttribute('data-network', 'online', {
+    timeout: 10_000,
+  });
+
+  // …and the room really did reach the sync layer, not just the card.
+  await expect(remote.getByTestId('paired-title')).toHaveText('Paired with your PC');
+
+  // The device wrote the pairing down while doing it.
+  await expect
+    .poll(async () => remote.evaluate((key) => localStorage.getItem(key), REMEMBERED_KEY))
+    .toBe('MNPQ2345');
+});
+
+/**
+ * The second visit: a home-screen bookmark or a plain reload, with no code in
+ * the link at all. This is the case the remembered key exists for.
+ */
+test('a later visit to plain #/remote reconnects from storage', async ({ context }) => {
+  const first = await context.newPage();
+  await first.goto(scannedLink('RSTV3456'));
+  await expect(first.getByTestId('paired-summary')).toBeVisible();
+  await expect
+    .poll(async () => first.evaluate((key) => localStorage.getItem(key), REMEMBERED_KEY))
+    .toBe('RSTV3456');
+  await first.close();
+
+  // Destroy the state document, so the remembered key is the ONLY record that
+  // this device was ever paired — which is the whole point of it being separate.
+  const scratch = await context.newPage();
+  await scratch.goto('/');
+  await scratch.evaluate((key) => {
+    localStorage.removeItem(key);
+  }, STATE_KEY);
+  await scratch.close();
+
+  const again = await context.newPage();
+  await again.goto('/?transport=fake#/remote');
+  await expect(again.getByTestId('paired-summary')).toBeVisible();
+  await expect(again.getByTestId('paired-summary')).toContainText('RSTV 3456');
+  await expect(again.getByTestId('link-status')).toHaveAttribute('data-network', 'online', {
+    timeout: 10_000,
+  });
+});
+
+/**
+ * "Forget this Kraken" has to clear all three places a room hides — the
+ * remembered key, the state document and the code still sitting in this page's
+ * own address bar from the link that opened it. Missing any one of them shows up
+ * as a remote that re-pairs itself on the next render.
+ */
+test('Forget this Kraken clears the pairing and disconnects', async ({ context }) => {
+  const remote = await context.newPage();
+  await remote.goto(scannedLink('WXYZ4567'));
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
+  await expect(remote.getByTestId('link-status')).toHaveAttribute('data-network', 'online', {
+    timeout: 10_000,
+  });
+
+  await remote.getByTestId('pairing-options').locator('summary').first().click();
+  await remote.getByTestId('pair-forget').click();
+
+  await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
+  await expect(remote.getByTestId('paired-summary')).toHaveCount(0);
+  await expect(remote.getByTestId('link-status')).toHaveAttribute('data-network', 'idle');
+
+  expect(await remote.evaluate((key) => localStorage.getItem(key), REMEMBERED_KEY)).toBeNull();
+  // The room is out of the fragment too, so a reload cannot undo the decision.
+  expect(new URL(remote.url()).hash).toBe('#/remote');
+
+  await remote.reload();
+  await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
+});
+
 test('a cold display restores from the retained snapshot ALONE', async ({ context }) => {
   // 1. A remote pairs into the room and changes the active module.
   const remote = await context.newPage();
   await remote.goto(remoteUrl());
-  await expect(remote.getByText('Current room')).toBeVisible();
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
 
   // The retained slot already holds the snapshot published on connect, so the
   // test waits for it to CHANGE rather than merely to exist.
   const before = await remote.evaluate((key) => localStorage.getItem(key), RETAINED_KEY);
+  // The module picker is a settings control, not a media control, so the Halo
+  // remote keeps it one level down under "More controls".
+  await remote.getByTestId('more-controls').locator('summary').first().click();
   await remote.locator('#remote-module').selectOption('clock');
   await expect
     .poll(async () => remote.evaluate((key) => localStorage.getItem(key), RETAINED_KEY))
@@ -80,37 +192,93 @@ test('a cold display restores from the retained snapshot ALONE', async ({ contex
   expect(readout['retained']).toBe(true);
 });
 
-test('a loop-slider change reaches the display in under a second', async ({ context }) => {
+/**
+ * The A-B loop, dragged rather than typed.
+ *
+ * The old remote spelled the loop as two number-fed range inputs; the Halo
+ * remote makes it two draggable handles on the scrubber, which is what the
+ * design calls for and what a thumb can actually operate. The assertion is
+ * unchanged in intent: a loop change made on the phone reaches the display in
+ * under a second, through the ordinary state channel and its 5 Hz coalescing.
+ */
+test('a dragged loop handle reaches the display in under a second', async ({ context }) => {
   const display = await context.newPage();
   await display.goto(displayUrl('BCDE2345'));
   await expect(display.locator('.kh-stage')).toBeVisible();
 
   const remote = await context.newPage();
   await remote.goto(remoteUrl('BCDE2345'));
-  await expect(remote.getByText('Current room')).toBeVisible();
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
 
   // Wait until the display has applied at least one snapshot, so the timing
   // below measures the update rather than the initial handshake.
   await expect.poll(async () => Object.keys(await readSync(display)).length).toBeGreaterThan(0);
 
+  // No duration is known here (nothing is playing), so the track spans the
+  // one-hour ceiling: dragging handle A to the middle asks for ~1800 s.
+  const box = await boxOf(remote.locator('.kh-scrub__track'));
+  const from = await boxOf(remote.getByTestId('loop-handle-a'));
+
   const startedAt = Date.now();
-  await remote.locator('#remote-loop-a').fill('30');
+  await remote.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await remote.mouse.down();
+  await remote.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 8 });
+  await remote.mouse.up();
 
   await expect
     .poll(async () => {
       const loop = (await readSync(display))['loop'] as { start?: number } | null | undefined;
       return loop?.start ?? null;
     })
-    .toBe(30);
+    .toBeGreaterThan(1500);
 
   expect(Date.now() - startedAt).toBeLessThan(1000);
+
+  const loop = (await readSync(display))['loop'] as { start?: number };
+  expect(loop.start).toBeLessThan(2100);
+  // Moving a handle turns the loop on — a drag that changed nothing visible
+  // because a separate toggle was off is the failure this prevents.
+  await expect(remote.getByTestId('loop-toggle')).toHaveAttribute('aria-pressed', 'true');
+});
+
+/**
+ * The handles are focusable and keyboard-operable, which is the half of
+ * "draggable" that a pointer test can never cover.
+ */
+test('the loop handles are reachable and adjustable from the keyboard', async ({ context }) => {
+  const remote = await context.newPage();
+  await remote.goto(remoteUrl('JKLM1234'));
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
+
+  const handle = remote.getByTestId('loop-handle-a');
+  await expect(handle).toHaveAttribute('role', 'slider');
+  await handle.focus();
+  await expect(handle).toBeFocused();
+
+  const before = Number(await handle.getAttribute('aria-valuenow'));
+  await remote.keyboard.press('ArrowRight');
+  await expect
+    .poll(async () => Number(await handle.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(before);
+
+  // Page Up moves ten steps, not one.
+  const nudged = Number(await handle.getAttribute('aria-valuenow'));
+  await remote.keyboard.press('PageUp');
+  await expect
+    .poll(async () => Number(await handle.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(nudged + 1);
 });
 
 test('killing the transport shows the failover in the remote UI', async ({ context }) => {
   const remote = await context.newPage();
   await remote.goto(remoteUrl('CDEF3456'));
-  await expect(remote.getByText('Current room')).toBeVisible();
-  await expect(remote.getByText(/fake — online/)).toBeVisible({ timeout: 10_000 });
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
+  // The five transport chips became one quiet line; the transport's own name
+  // moved into the Diagnostics disclosure, and the line carries the same facts
+  // as data attributes so a test never has to match user-facing prose.
+  const status = remote.getByTestId('link-status');
+  await expect(status).toHaveAttribute('data-transport', 'fake', { timeout: 10_000 });
+  await expect(status).toHaveAttribute('data-network', 'online');
 
   // Take the primary simulated broker down. The transport's own poll notices,
   // reports `offline`, and SyncService re-runs the ladder onto the fallback.
@@ -119,9 +287,7 @@ test('killing the transport shows the failover in the remote UI', async ({ conte
     localStorage.setItem('kraken-hub:v1:fake:down:primary', '1');
   });
 
-  await expect(remote.getByText('fallback transport — higher latency')).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(status).toHaveAttribute('data-failover', 'true', { timeout: 15_000 });
 
   // The acceptance criterion is a NUMBER, not "eventually": a phone that takes
   // ten seconds to notice its broker died is indistinguishable from a broken
@@ -153,10 +319,15 @@ test('a remote pulls a hardware report from a display never opened with ?diag=1'
 
   const remote = await context.newPage();
   await remote.goto(remoteUrl('GHJK7890'));
-  await expect(remote.getByText('Current room')).toBeVisible();
-  await expect(remote.getByText(/fake — online/)).toBeVisible({ timeout: 10_000 });
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
+  await expect(remote.getByTestId('link-status')).toHaveAttribute('data-network', 'online', {
+    timeout: 10_000,
+  });
 
-  await remote.getByRole('button', { name: 'Request hardware report' }).click();
+  // The pull now lives one level down, under Diagnostics — "disclosure over
+  // density". Everything below it is unchanged.
+  await remote.getByTestId('diag-disclosure').locator('summary').first().click();
+  await remote.getByTestId('request-report').click();
 
   // The display samples frames for three seconds before it answers, and the
   // report may arrive in several chunks, so this is generous on purpose — but
@@ -169,7 +340,7 @@ test('a remote pulls a hardware report from a display never opened with ?diag=1'
   // The block is collapsed by design, so it has to be opened before it has any
   // rendered text to read.
   await summary.click();
-  const raw = remote.locator('details .kh-code');
+  const raw = remote.getByTestId('diag-disclosure').locator('details .kh-code');
   await expect(raw).toBeVisible();
   const json = await raw.innerText();
   expect(json).toContain('"schemaVersion"');
@@ -177,7 +348,7 @@ test('a remote pulls a hardware report from a display never opened with ?diag=1'
 
   // The summary the card renders, not just the blob behind it.
   await expect(remote.getByRole('row', { name: /devicePixelRatio/ })).toBeVisible();
-  await expect(remote.getByRole('button', { name: 'Copy JSON' })).toBeVisible();
+  await expect(remote.getByTestId('copy-report')).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -268,7 +439,7 @@ test('the remote scrubber interpolates between telemetry packets', async ({ cont
 
   const remote = await context.newPage();
   await remote.goto(remoteUrl('DEFG4567'));
-  await expect(remote.getByText('Current room')).toBeVisible();
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
 
   /*
    * Telemetry is 0.5 Hz, so ONE packet arrives per two seconds. Sample the bar
@@ -303,7 +474,7 @@ test('a seek on the remote moves the display', async ({ context }) => {
 
   const remote = await context.newPage();
   await remote.goto(remoteUrl('EFGH5678'));
-  await expect(remote.getByText('Current room')).toBeVisible();
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
   await expect.poll(async () => seekValue(remote), { timeout: 20_000 }).toBeGreaterThan(0);
 
   // Hold first, so the assertion below cannot pass because the clip simply
@@ -343,7 +514,7 @@ test('a cold display resumes from the position in the retained snapshot', async 
 
   const remote = await context.newPage();
   await remote.goto(remoteUrl('FGHI6789'));
-  await expect(remote.getByText('Current room')).toBeVisible();
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
   await expect.poll(async () => seekValue(remote), { timeout: 20_000 }).toBeGreaterThan(0);
 
   // Hold, and wait until the HELD flag has reached the remote through telemetry:

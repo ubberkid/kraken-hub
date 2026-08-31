@@ -29,6 +29,218 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Added
 
+- **“Halo” — the configuration UI, rebuilt around the screen itself.** The
+  approved design direction is
+  [`docs/design/halo-prototype.html`](docs/design/halo-prototype.html) (“Halo”,
+  2026-08-31): the app is organised around **the object** rather than around the
+  codebase. The old app had six tabs named after implementation phases — Setup,
+  Sources, Preview, Remote, Diagnostics, About — and a home screen that was four
+  numbered steps. The new one has no tabs and one home: the LCD, live, with the
+  controls arranged around it. Everything technical still exists, one level down,
+  where the curious will look.
+  - **A live mirror of the panel** (`src/app/config/views/HomeView.tsx`). The
+    halo runs the real display page, `./?kraken=1&sim=<preset>`, in an iframe on
+    the same origin — the simulator surface the Preview tab used to hide, now
+    promoted to the thing you always see. Same origin means shared
+    `localStorage`, so an edit below is reflected above through the production
+    storage-event path, not a lookalike React tree. The device preset comes from
+    what the **display** published (the `DiagReport`, else the video module's
+    telemetry mirror), falling back to the Elite.
+  - **Except for video, which gets a stand-in on purpose.** A second player on
+    one origin means a second decoder, a second download and — on a YouTube
+    embed — a second set of ads, on a page whose whole job is to watch the first
+    one. The video mirror is a stylized surface, and the truth about what is
+    playing comes from the telemetry the display already publishes, in the
+    status line under the halo (`live` dot, name, `m:ss / m:ss`, tabular).
+  - **One primary action.** A paste row — “Paste a video link — YouTube, MP4,
+    HLS…” and a Play button — routed through the _existing_ `validateUrl`, so a
+    link that cannot play says so inline, in the same words the module panel
+    uses, before anything is stored. Warnings never block; errors do.
+  - **The download-first story, told in plain words.** When the display is
+    fetching, the `kraken-hub:v1:video:downloads` mirror drives three step cards
+    (detected → “Saving to your Kraken” with live progress → “On screen now”).
+    The app's biggest differentiator used to happen silently.
+  - **Module chips, not a settings page.** Four `aria-pressed` chips switch the
+    active module through the store, and a contextual inline-ops line under them
+    (`Loop 0:18 – 0:42 · Fill · Cover · Saved locally ✓`) opens that module's
+    existing full panel in a disclosure below, in place.
+  - **The low-frame-rate advisory now fires only on a number the display
+    published** (`src/app/config/homeState.ts`). This window's own geometry
+    fallback is 640/30 in any ordinary browser, so the previous
+    always-on Step 1 warned users about a slider they had already raised. It
+    carries the exact CAM path, and it is hidden otherwise.
+  - **A quiet way down.** `Remote · Library · Diagnostics ⌄` under the fold, and
+    About in the footer next to the version line. Every existing route still
+    resolves; `#/preview` folds into the mirror with an in-page hash rewrite and
+    no navigation (invariant I1).
+  - **The whole composition fits CAM's window.** At 866×537 — the size the
+    Configuration Browser actually opens — the prototype's spacing put the
+    `Remote · Library · Diagnostics` row about a hundred pixels below the fold,
+    which in an app with no tabs means the navigation is invisible on arrival.
+    A `max-height: 640px` rhythm compresses the vertical scale proportionally
+    (halo 236 → 204 px, the margins with it) so halo, status, action, chips, ops
+    and the way down are on screen at once. Above 640 px tall the spacing is the
+    prototype's to the pixel.
+  - Stable `data-testid` hooks on every new control (`mirror`, `paste-input`,
+    `paste-submit`, `module-chip-<id>`, `ops-<key>`, `fps-banner`, the
+    disclosure links), used by the e2e suite.
+  - **The phone remote is a media remote now**
+    (`src/app/config/views/RemoteView.tsx`, prototype screen 3). It was nine
+    stacked panels reproducing every configuration control on a 390 px screen.
+    It is now a mini-halo, a title and a `Playing on your Kraken · 1080p local`
+    line off telemetry, a scrubber, three transport buttons sized for a thumb,
+    and one pairing card — with the source field, the module picker, framing,
+    the clip list and the room settings intact one level down under **More
+    controls**.
+  - **The A-B loop is two draggable handles, not two number fields.** Real
+    pointer capture (so a drag never falls off an 18 px target on a phone),
+    `role="slider"` with `aria-valuenow`/`aria-valuetext`, and full keyboard
+    control — arrows nudge half a second, Page Up/Down jump ten, Home/End go to
+    the ends. A handle may not pass the other one, moving one turns the loop on,
+    and every write goes through the existing 5 Hz throttle with a trailing
+    flush, so the value you released on is the value that lands. The seek
+    control underneath is still a real `<input type="range">`, laid over the
+    track and under the handles: tapping the bar seeks, and the platform's own
+    touch and keyboard behaviour comes with it for free.
+  - **The mini-halo is a stylized surface, deliberately, and only here.** The
+    home screen's halo can run the real display page because it shares CAM's
+    origin and storage. A phone is a different browser on a different machine,
+    so an iframe there would boot a _second_ display — a second decoder and a
+    second download, on a battery — showing what the phone thinks rather than
+    what the cooler shows.
+  - **Five transport chips became one quiet line.** `mqtt — online`,
+    `local bus — idle`, `display seen 2s ago` were all facts about plumbing;
+    exactly one question was being asked, so the line answers it in words
+    (_Linked to your Kraken · seen 3s ago_) and carries the same facts as
+    `data-network` / `data-transport` / `data-failover` for the e2e suite. The
+    plumbing itself moved into the **Diagnostics** disclosure next to the
+    hardware-report pull, which is unchanged in behaviour.
+  - **The remote connects with zero taps.** Scanning the pairing QR opens
+    `#/remote?room=CODE` and the phone is joined before the card first paints —
+    no Join button, no code typed off a monitor in another room. Three sources,
+    in order: the link's own fragment, the state document if this device is
+    already paired, and a remembered room for a plain `#/remote` opened from a
+    home-screen bookmark. The paired card shimmers **Connecting…** until the
+    transport is actually up, because a card claiming "Paired with your PC"
+    through a second of radio warm-up is claiming something it cannot see.
+  - **A pairing that sticks, and a way to end it.**
+    `src/app/config/rememberedRoom.ts` writes the code to
+    `kraken-hub:v1:remote:room` — deliberately NOT the state document, which is
+    shared, published and remotely writable, so a phone's pairing survives that
+    document being cleared, migrated, or replaced by a retained frame from a
+    room this device has left. Reads verify with `isValidRoomCode` rather than
+    `normalizeRoomCode`, because the forgiving normaliser folds
+    `{"not":"a code"}` into the valid-shaped `N0TAC0DE` and the sync layer would
+    then derive a real key for a room nobody is in. **Forget this Kraken**, in
+    the pairing disclosure, clears all three places a room hides: the remembered
+    key, the state document, and the code still sitting in this page's own
+    fragment from the link that opened it.
+  - **The room code stays in the FRAGMENT.** `remoteLinkUrl()` in
+    `src/app/config/qr.ts` is now the single builder of the pairing link, and
+    `qr.test.ts` pins that a URL built from it has an empty `search` and a `hash`
+    carrying the code. This is a security property, not a style: a fragment is
+    stripped before the request leaves the browser, so it never reaches an
+    origin server, a CDN, a proxy, a `Referer` header or an analytics beacon. The
+    room code is not a revocable session id — the topic is `SHA-256(code)` and
+    every payload is AES-GCM encrypted under a key derived from the same code —
+    so anyone reading it out of an access log can decrypt the room, and there is
+    no server of ours to notice.
+  - **Fixed: `#/remote?room=…` did not route to the remote at all.** `parseRoute`
+    split the fragment on `/` without stripping its query first, so
+    `remote?room=ABCD1234` was an unknown head and fell through to the home
+    screen — a scanned QR opened the wrong page.
+  - **Fixed: a local `sync` setting was silently rolled back by the first remote
+    frame.** `appSync` re-resolves `persisted < remote < url` on every state
+    message and replaces the snapshot with the result, and `useSync` handed it
+    the persisted document **as read at boot** — so anything committed since was
+    discarded, and `sync.*` is exactly the family that never travels on the wire
+    and so never comes back. Measured on the new auto-join: the phone paired from
+    the link and unpaired itself about a second later, when the display's first
+    state frame arrived. `useSync` now re-reads the persisted layer at the moment
+    it starts a service.
+  - **Fixed: a stopped transport still reported itself online.** `useSync` kept
+    the last `SyncStatus` after the service was torn down, so "Forget this
+    Kraken" left the quiet status line reading _Linked to your Kraken_. Every
+    reading is now derived from whether a room exists at all.
+  - **Phone chrome.** `theme-color` (`#0C1017`, which is `--kh-ground`, so the
+    address bar and the page are one colour) and the `apple-mobile-web-app`
+    tags, so Add to Home Screen looks like an app rather than a browser window.
+    `index.html` changes are **meta only** — the file is shared with the display
+    page, where these are inert, and its inline critical CSS is untouched.
+  - **Pairing is one card.** Unpaired, it is the biggest thing below the
+    transport: QR, code field, Generate. Paired, it collapses to
+    _Paired with your PC · ROOM XXXX-XXXX_, with everything that changes a room
+    one tap down. Transport buttons grey out when no display has been heard from
+    in twelve seconds — a Play button that does nothing three times reads as a
+    broken app, not as a closed CAM.
+  - **Six tabs → zero, for real.** The header is a wordmark. Sections live
+    behind the home screen's `Remote · Library · Diagnostics ⌄` row, About sits
+    in the footer, and `ROUTES` is gone from `router.ts`.
+  - **`#/sources` → `#/library`.** "Sources" is a word from the architecture; a
+    library is what a shelf of clips is called. The old hash still resolves and
+    rewrites in place, no navigation (invariant I1/I2), exactly like `#/preview`
+    before it. The view is reskinned with plain-language copy, a quota meter,
+    thumbnails and pin/delete per clip.
+  - **First-run setup, done the Apple way** (`src/app/config/displaySeen.ts`).
+    The CAM install card — frame-rate slider, install URL, one-click open —
+    sits at the top of the home screen while **no display has ever connected**,
+    and afterwards lives quietly under `#/about` as _Add to CAM_. The trigger is
+    evidence, not a dismiss button: the first time anything the DISPLAY
+    published is seen on this origin (its `DiagReport`, else the video module's
+    telemetry) the answer is latched into `kraken-hub:v1:config:displaySeen`,
+    because the evidence itself is perishable and a user who finished setup last
+    week must not be shown step one again on a cold boot.
+  - **Module panels reskinned, with a hard line through each one.** The controls
+    a person uses are on the surface in plain words; everything that exists
+    because of how the thing is built is behind a per-panel **Advanced**
+    disclosure — YouTube geometry, the CORS proxy, crossfade, pan/rotate,
+    colour themes, the downloader's policy/port/token. The resolver companion
+    card is now **Local downloader**, with _Downloader detected_ / _Not
+    detected_; no primary control says "adapter", "resolver policy" or "source
+    URL" any more.
+  - **Inline ops land on the control they name.** `Fill · Cover` opens the
+    module's panel _and_ scrolls to and focuses `#video-fit`. The three ids the
+    home screen points at are pinned to the primary surface by a note in each
+    panel — a line that names a control and then hides it inside a collapsed
+    disclosure is worse than no line at all.
+  - **Module order is the prototype's**: video, clock, stats, image
+    (`src/modules/registry.ts`). Ordered by how often a chip is pressed rather
+    than by how the code is grouped; the module picker follows it everywhere.
+  - `Disclosure` joins the UI kit (`src/ui/index.tsx`) — a `<details>` with the
+    house frame, so "disclosure over density" is one component rather than a
+    convention.
+  - Verified at 866×537 (CAM's window) and 390×844 (a phone): the halo scales,
+    nothing is clipped, nothing scrolls sideways. Stable `data-testid` hooks on
+    every new control, and the touched e2e specs updated to match — `#/sources`,
+    the loop drag, the keyboard handles, the collapsed diagnostics pull, the
+    status line's data attributes.
+  - **Detection is named, and progress is a sentence.** The first step card says
+    _YouTube video detected_ rather than _Link detected_ — the whole point of
+    the flow is that detection is legible, and a user who pasted a YouTube link
+    wants the app to agree it was one. Anything the host cannot name confidently
+    falls back to _Video link detected_ rather than guessing at a brand. The
+    percentage moved into the sentence (_Downloading locally — 40%_), so the bar
+    runs full width instead of making room for a label that repeated it, and the
+    finished card reads as a receipt: _128 MB · kept in your library_.
+  - **One press gesture, one enter animation.** `scale(.96)` on press now
+    reaches the module chips and the inline ops, not only the primary buttons;
+    the three step cards rise in sequence (0/70/140 ms) instead of appearing as
+    a block; and the prototype's `rise` moved from three individual views onto
+    `<main>`, keyed by route, so every screen enters the same way rather than
+    only the two that remembered to ask. All of it on the one curve, all of it
+    under `prefers-reduced-motion` — including the stagger's delays, which the
+    blanket duration override does not reach.
+  - **The details that were cheapening it.** The inline-ops dashes were drawn at
+    60% opacity against the prototype's 19%, so a quiet affordance read as a
+    dotted rule under every word. `<input type="range">` was tinted with
+    `accent-color` alone, which leaves the _unfilled_ half of the track at the
+    UA's light-theme default — a near-white bar across a dark panel — so the
+    track, progress and thumb are drawn explicitly now and match the remote's
+    scrubber. The `Stats` chip said “System stats”, breaking the four-one-word
+    rhythm of the chip row; `KrakenModule` gained an optional `chipName` and the
+    module is still “System stats” everywhere it is named at length. Disabled
+    transport buttons went from 0.35 to 0.5 opacity — an unpaired remote looked
+    broken rather than waiting.
 - **Remote diag pull — a hardware report off the CAM machine, from any browser.**
   The diagnostics hand-off was same-machine only: the display wrote its
   `DiagReport` into `localStorage` and `#/diag` read it back, which works because
@@ -187,6 +399,32 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **`src/ui` is now the Halo design system.** Every component in the config UI
+  kit (Panel, Field, TextInput, Select, Button, Chip, Notice, Meter, Code, the
+  clip list, the drop zone…) is restyled onto one set of custom properties —
+  ground `#0C1017`, panel `#0F1620`, line `#232E3E`, ink `#E9EEF5`, accent
+  `#4FD8D2` on `#062A28`, an amber warn family, 11 px inputs / 13–14 px cards /
+  99 px chips, and a single motion curve `cubic-bezier(.32,.72,0,1)` at
+  200–450 ms with `prefers-reduced-motion` honoured. Type is the **platform's
+  own** face (`-apple-system` / Segoe inside CAM) with a `ui-monospace` stack
+  for code-ish accents; the app loads no webfont, so the page still works
+  offline and inside a strict CSP. Views not yet rebuilt (the remote,
+  diagnostics — stage 2) inherit the new skin unchanged. The scroll-unlock
+  rules and invariant I8 are untouched: no `src/ui` module is reachable from a
+  display root, and the display critical path stays 78.0 kB gzip.
+- **The walkthroughs were re-walked against the shipped app.** Every
+  step-by-step in `README.md`, [`getting-started.md`](docs/getting-started.md),
+  [`remote-control.md`](docs/remote-control.md),
+  [`local-clips.md`](docs/local-clips.md) and
+  [`troubleshooting.md`](docs/troubleshooting.md) named a surface that no longer
+  exists — _Setup → Step 3 → Active module_, the _Preview_ tab, the
+  _Diagnostics_ tab, "type the code into Room code → Join", "Generating a code
+  on Setup", the _Resolver detected_ card. They now describe what is actually
+  there: the module chips and the inline-ops line, the halo as the preview, the
+  QR that connects a phone with nothing typed, **Forget this Kraken**, **More
+  controls**, **Library**, the first-run **Add kraken-hub to CAM** card, and the
+  video panel's **Local downloader**. Every screenshot was regenerated by
+  `npm run capture` from the final build.
 - **The first hardware report is in, and the docs say what was measured rather
   than what was assumed.** A maintainer's Kraken Elite on CAM 4.76.5
   (2026-08-31, app 0.1.0 `2f556b4`) closes seven automatic rows, written up in

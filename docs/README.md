@@ -31,12 +31,13 @@ The project README is [one level up](../README.md).
 
 The parts of this project that are research rather than code.
 
-| Document                                       | What it covers                                                                                                                     |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| [why-not-extraction.md](why-not-extraction.md) | The measurements that killed YouTube stream extraction from a static origin, with curl repros.                                     |
-| [hardware-checklist.md](hardware-checklist.md) | H01–H23: what is still unmeasured on real hardware, and exactly how to measure each one.                                           |
-| [design/](design/)                             | The three implementation-ready design documents, kept as authored, each with a corrections section where shipped reality diverges. |
-| [design/research/](design/research/)           | The source research: the NZXT platform contract, YouTube playback, providers and sync.                                             |
+| Document                                                 | What it covers                                                                                                                                                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [why-not-extraction.md](why-not-extraction.md)           | The measurements that killed YouTube stream extraction from a static origin, with curl repros.                                                                                                                                 |
+| [hardware-checklist.md](hardware-checklist.md)           | H01–H23: what is still unmeasured on real hardware, and exactly how to measure each one.                                                                                                                                       |
+| [design/](design/)                                       | The three implementation-ready design documents, kept as authored, each with a corrections section where shipped reality diverges.                                                                                             |
+| [design/research/](design/research/)                     | The source research: the NZXT platform contract, YouTube playback, providers and sync.                                                                                                                                         |
+| [design/halo-prototype.html](design/halo-prototype.html) | **“Halo” — the approved configuration/remote UI direction, 2026-08-31.** The interactive prototype is the spec: its tokens, layout, copy and interaction states are what `src/ui` and the configuration surfaces are built to. |
 
 ## Maintaining it
 

@@ -343,6 +343,35 @@ function placeData(m: Matrix, bits: number[]): void {
 }
 
 /**
+ * The pairing link — the single place it is built.
+ *
+ * ## The room code lives in the FRAGMENT, and that is a security property
+ *
+ * `https://host/kraken-hub/#/remote?room=ABCD1234`, never
+ * `https://host/kraken-hub/?room=ABCD1234`. A fragment is stripped by the
+ * browser before the request goes out: it never reaches the origin server, a
+ * CDN, a corporate proxy, a `Referer` header sent to a third party, or an
+ * analytics beacon. A query string reaches all of them and is written to their
+ * logs.
+ *
+ * That matters here more than it usually does. The room code is not an opaque
+ * session id that a server could revoke — it is the *key material*: the topic is
+ * `SHA-256(code)` and every payload is AES-GCM encrypted under a key derived
+ * from the same code. Anyone who reads the code out of a log can decrypt the
+ * room. There is no server of ours to notice or to rotate it.
+ *
+ * So this function takes the code and puts it after the route inside the hash,
+ * and `qr.test.ts` asserts that a URL built from it has an empty `search` and a
+ * `hash` containing the code. Do not "tidy" it into a normal query string.
+ *
+ * `appUrl` is the canonical install URL with its trailing slash
+ * (`knownHosts.canonicalAppUrl`), so a fork encodes its own origin.
+ */
+export function remoteLinkUrl(appUrl: string, roomCode: string): string {
+  return `${appUrl}#/remote?room=${encodeURIComponent(roomCode)}`;
+}
+
+/**
  * Encode `text` as a QR matrix of booleans (`true` = dark module).
  *
  * The returned matrix has NO quiet zone; the caller adds the mandatory 4-module

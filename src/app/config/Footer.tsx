@@ -5,8 +5,13 @@ export function Footer() {
   const info = buildInfo();
   return (
     <footer className="kh-footer">
-      kraken-hub v{info.version} · {info.gitSha} · built{' '}
-      {info.buildTime.slice(0, 16).replace('T', ' ')} UTC
+      <span>
+        kraken-hub v{info.version} · {info.gitSha} · built{' '}
+        {info.buildTime.slice(0, 16).replace('T', ' ')} UTC
+      </span>
+      <a href="#/about" data-testid="disclosure-about">
+        About
+      </a>
     </footer>
   );
 }

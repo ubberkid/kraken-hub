@@ -43,8 +43,8 @@ account, no telemetry — that:
 - **loops the exact section you care about**, with no visible seam;
 - **is a hub, not a video player** — video, image/GIF, clock and system stats are
   all modules, and adding a fifth is one directory and one line;
-- **takes commands from your phone** over an encrypted, backendless channel
-  paired with an eight-character code;
+- **takes commands from your phone** — scan the code CAM is showing and the
+  phone connects on its own, over an encrypted, backendless channel;
 - **is honest about what it cannot do**, in writing, with measurements.
 
 ---
@@ -288,7 +288,8 @@ reachable from an ordinary browser tab. Start `npm run dev`, then open:
 | `/?kraken=1&sim=elite&module=stats&layout=grid` | System stats in the compact grid layout                      |
 | `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                    |
 | `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)    |
-| `/#/preview`                                    | the display in a bezel, with a device picker — same page     |
+| `/#/library`                                    | the clip library: what has been downloaded, and the quota    |
+| `/#/remote`                                     | the phone remote, at whatever size the window is             |
 | `/#/diag`                                       | local probes plus the report the display published, as JSON  |
 
 The simulator refuses to run whenever a real `window.nzxt` is present, so a

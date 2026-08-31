@@ -129,6 +129,7 @@ export function Button({
   primary,
   title,
   disabled,
+  testId,
 }: {
   children: ReactNode;
   onClick: () => void;
@@ -140,6 +141,8 @@ export function Button({
    * a greyed-out button with no explanation reads as a bug.
    */
   disabled?: boolean;
+  /** A stable `data-testid`, so a suite never has to match on user-facing copy. */
+  testId?: string;
 }) {
   return (
     <button
@@ -147,10 +150,40 @@ export function Button({
       className={primary === true ? 'kh-btn kh-btn--primary' : 'kh-btn'}
       title={title ?? ''}
       disabled={disabled === true}
+      data-testid={testId}
       onClick={onClick}
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * The house disclosure: a `<details>` with the app's own frame.
+ *
+ * "Disclosure over density" is one of the four principles the approved design
+ * names, and this is the shape it takes everywhere below the primary controls —
+ * the remote's diagnostics pull, the transport detail, the technical half of
+ * every module panel. `<details>` rather than a state hook on purpose: it is
+ * open/closed in the DOM, so it is keyboard-operable, findable by the browser's
+ * own in-page search, and correct before any JavaScript has run.
+ */
+export function Disclosure({
+  summary,
+  children,
+  testId,
+  defaultOpen,
+}: {
+  summary: string;
+  children: ReactNode;
+  testId?: string;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details className="kh-details" data-testid={testId} open={defaultOpen === true}>
+      <summary className="kh-details__summary">{summary}</summary>
+      <div className="kh-details__body">{children}</div>
+    </details>
   );
 }
 
@@ -159,8 +192,15 @@ export function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'neutral'; chil
   return <span className={cls}>{children}</span>;
 }
 
-export function Code({ children }: { children: ReactNode }) {
-  return <code className="kh-code">{children}</code>;
+/**
+ * `inline` is not decoration: the block form is `display: block`, so a snippet
+ * dropped mid-sentence (`?diag=1`, `-an`) breaks the paragraph in half and reads
+ * as a code listing. Blocks for URLs and JSON, inline for anything inside prose.
+ */
+export function Code({ children, inline }: { children: ReactNode; inline?: boolean }) {
+  return (
+    <code className={inline === true ? 'kh-code kh-code--inline' : 'kh-code'}>{children}</code>
+  );
 }
 
 export function Row({ children }: { children: ReactNode }) {
@@ -246,13 +286,22 @@ export function Notice({ tone, children }: { tone: 'error' | 'warn' | 'ok'; chil
 }
 
 /** Quota / download progress bar. `pct` is 0..100; `null` renders indeterminate. */
-export function Meter({ pct, label }: { pct: number | null; label: string }) {
+/**
+ * A progress bar, with the number beside it or folded into the caller's own
+ * prose.
+ *
+ * `label` is optional because the home screen's download story reads
+ * "Downloading locally — 40%" in the step's own sentence, exactly as the
+ * prototype writes it; repeating the percentage at the end of the bar would say
+ * the same thing twice and shorten the bar to make room for the echo.
+ */
+export function Meter({ pct, label }: { pct: number | null; label?: string }) {
   return (
     <div className="kh-meter">
       <div className="kh-meter__track">
         <div className="kh-meter__fill" style={{ width: `${String(pct ?? 100)}%` }} />
       </div>
-      <span className="kh-meter__label">{label}</span>
+      {label !== undefined && <span className="kh-meter__label">{label}</span>}
     </div>
   );
 }

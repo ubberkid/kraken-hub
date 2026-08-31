@@ -6,7 +6,7 @@
  * the UI kit and React.
  */
 
-import { Field, Panel, Select, Toggle } from '../../ui';
+import { Disclosure, Field, Panel, Select, Toggle } from '../../ui';
 
 import {
   CLOCK_FACES,
@@ -49,7 +49,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   return (
     <Panel
       title="Clock"
-      hint="Digital or analog, with an optional date line. No network, no media — and the only module that is genuinely correct at CAM's 1 FPS default."
+      hint="Digital or analog, with an optional date line. No network, nothing to download — and the only thing here that looks exactly right even at CAM's 1-frame-a-second default."
     >
       <Field label="Face" htmlFor="clock-face">
         <Select
@@ -79,7 +79,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
       <Field
         label="Show seconds"
         htmlFor="clock-seconds"
-        description="The second hand ticks once per second — it never sweeps, so the face is identical at 1 FPS and at 40."
+        description="The second hand ticks once a second and never sweeps, so the face looks identical whether the panel is drawing 1 frame a second or 40."
       >
         <Toggle
           id="clock-seconds"
@@ -100,20 +100,22 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         />
       </Field>
 
-      <Field
-        label="Colour"
-        htmlFor="clock-theme"
-        description="Flat colours only. A gradient repaints every pixel of the face each second, which CAM's frame compressor charges for in achieved FPS."
-      >
-        <Select
-          id="clock-theme"
-          value={cfg.theme}
-          options={CLOCK_THEMES.map((t) => ({ value: t, label: THEME_LABELS[t] }))}
-          onChange={(value) => {
-            onChange({ ...cfg, theme: asOneOf(value, CLOCK_THEMES, cfg.theme) });
-          }}
-        />
-      </Field>
+      <Disclosure summary="Advanced" testId="clock-advanced">
+        <Field
+          label="Colour"
+          htmlFor="clock-theme"
+          description="Flat colours only. A gradient repaints every pixel of the face every second, and CAM charges for that in the frame rate you actually get."
+        >
+          <Select
+            id="clock-theme"
+            value={cfg.theme}
+            options={CLOCK_THEMES.map((t) => ({ value: t, label: THEME_LABELS[t] }))}
+            onChange={(value) => {
+              onChange({ ...cfg, theme: asOneOf(value, CLOCK_THEMES, cfg.theme) });
+            }}
+          />
+        </Field>
+      </Disclosure>
     </Panel>
   );
 }

@@ -11,8 +11,8 @@
  *
  * | File                     | What it is                                                    |
  * | ------------------------ | ------------------------------------------------------------- |
- * | `docs/assets/hero.gif`   | the same, moving — the README's hero (needs ffmpeg)           |
- * | `docs/assets/hero.png`   | the simulator bezel, Kraken Elite, playing the bundled demo   |
+ * | `docs/assets/hero.gif`   | the panel itself, moving — the README's hero (needs ffmpeg)   |
+ * | `docs/assets/hero.png`   | the home screen's halo, running the real display page         |
  * | `docs/assets/config-ui.png` | the configuration UI a CAM Configuration Browser opens      |
  * | `docs/assets/remote.png` | the phone remote, at a phone viewport                         |
  * | `docs/assets/diag.png`   | the diagnostics page                                          |
@@ -171,25 +171,47 @@ function reportSize(file) {
 // ---------------------------------------------------------------------------
 
 /**
- * The hero: the bezel preview, Elite preset, playing the bundled demo clip.
+ * Pretends a Kraken has already connected to this installation.
  *
- * `#/preview` runs the display in a real iframe inside a real round bezel, which
- * is precisely what the README wants to show — the app as it appears on a panel,
- * not a screenshot of a browser window pretending to be one.
+ * `displaySeen.ts` puts the CAM install card at the top of the home screen until
+ * something the DISPLAY published has been seen on the origin — correct for a
+ * first run, and not what the README is documenting. Setting the same latch the
+ * app sets is how these captures show the steady state.
+ */
+async function markDisplaySeen(page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+  });
+}
+
+/**
+ * The hero: the halo on the home screen, running the real display page.
+ *
+ * Until the Halo redesign this was `#/preview` — a display iframe inside a round
+ * bezel on a route of its own. That route folded into the home screen, and the
+ * halo IS the bezel now: the same real display document, at the same real panel
+ * size, in the frame the product actually presents it in.
+ *
+ * The clock is what the halo is showing, and that is not an accident. The video
+ * mirror is deliberately a stylized surface — a second decoder and a second set
+ * of ads on a page whose job is to watch the first one is a bad trade — so video
+ * is the one module whose halo would NOT be a photograph of the running app.
+ * `public/preview-640.png` below is the honest capture of video on the panel.
  */
 async function captureHero(browser) {
   const { context, page } = await freshPage(browser, { width: 740, height: 780 }, DOC_SCALE);
-  await page.goto(`${ORIGIN}/#/preview`, { waitUntil: 'networkidle' });
-  const bezel = page.locator('.kh-bezel');
-  await bezel.waitFor({ state: 'visible' });
+  await markDisplaySeen(page);
+  await page.goto(`${ORIGIN}/#/`, { waitUntil: 'networkidle' });
+  await page.getByTestId('module-chip-clock').click();
 
-  const frame = page.frameLocator('.kh-bezel iframe');
+  const halo = page.getByTestId('mirror');
+  await halo.waitFor({ state: 'visible' });
+  const frame = page.frameLocator('.kh-halo__frame');
   await frame.locator('.kh-stage').waitFor({ state: 'visible', timeout: 30_000 });
-  await frame.locator('video').waitFor({ state: 'attached', timeout: 30_000 });
-  await waitForHintToFade(frame);
+  await frame.locator('.kh-clock').waitFor({ state: 'visible', timeout: 30_000 });
 
   const file = join(assetsDir, 'hero.png');
-  await bezel.screenshot({ path: file });
+  await halo.screenshot({ path: file });
   reportSize(file);
   await context.close();
   return file;
@@ -197,7 +219,8 @@ async function captureHero(browser) {
 
 /** The configuration UI, as CAM's Configuration Browser opens it. */
 async function captureConfigUi(browser) {
-  const { context, page } = await freshPage(browser, { width: 1000, height: 820 }, DOC_SCALE);
+  const { context, page } = await freshPage(browser, { width: 1000, height: 700 }, DOC_SCALE);
+  await markDisplaySeen(page);
   await page.goto(`${ORIGIN}/#/`, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { level: 1, name: 'kraken-hub' }).waitFor();
   await page.locator('.kh-footer').waitFor();
@@ -218,11 +241,13 @@ async function captureConfigUi(browser) {
  * layout (code, topic id, QR) is identical either way.
  */
 async function captureRemote(browser) {
-  const { context, page } = await freshPage(browser, { width: 420, height: 1500 }, DOC_SCALE);
+  const { context, page } = await freshPage(browser, { width: 420, height: 900 }, DOC_SCALE);
   await page.goto(`${ORIGIN}/?transport=fake#/remote`, { waitUntil: 'networkidle' });
-  await page.getByRole('heading', { name: 'Pairing' }).waitFor();
-  await page.getByRole('button', { name: 'Generate code' }).click();
-  await page.locator('.kh-qr').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('pairing-card').waitFor();
+  await page.getByTestId('pair-rotate').click();
+  // Paired: the card collapses to "Paired with your PC · ROOM …", which is the
+  // state the design is actually about.
+  await page.getByTestId('paired-summary').waitFor({ state: 'visible', timeout: 15_000 });
   // Let the fake transport settle so the status chips are not mid-transition.
   await page.waitForTimeout(1500);
   const file = join(assetsDir, 'remote.png');
@@ -292,16 +317,18 @@ async function captureHeroGif(browser) {
   const FPS = 12;
   const frameDir = mkdtempSync(join(tmpdir(), 'kraken-hub-gif-'));
   const { context, page } = await freshPage(browser, { width: 900, height: 900 }, 1);
-  await page.goto(`${ORIGIN}/#/preview`, { waitUntil: 'networkidle' });
-  const bezel = page.locator('.kh-bezel');
-  await bezel.waitFor({ state: 'visible' });
-  const frame = page.frameLocator('.kh-bezel iframe');
-  await frame.locator('video').waitFor({ state: 'attached', timeout: 30_000 });
-  await waitForHintToFade(frame);
+  // The display page itself, at the panel's own size: a moving hero has to show
+  // the video actually playing, and the home screen's halo shows a stylized
+  // stand-in for video by design (see `captureHero`).
+  await page.goto(`${ORIGIN}/?kraken=1&sim=elite&fps=40`, { waitUntil: 'networkidle' });
+  const stage = page.locator('.kh-stage');
+  await stage.waitFor({ state: 'visible', timeout: 30_000 });
+  await page.locator('video').waitFor({ state: 'attached', timeout: 30_000 });
+  await waitForHintToFade(page);
 
   log(`grabbing ${String(FRAMES)} frames`);
   for (let i = 0; i < FRAMES; i += 1) {
-    await bezel.screenshot({ path: join(frameDir, `f${String(i).padStart(4, '0')}.png`) });
+    await stage.screenshot({ path: join(frameDir, `f${String(i).padStart(4, '0')}.png`) });
   }
 
   const out = join(assetsDir, 'hero.gif');

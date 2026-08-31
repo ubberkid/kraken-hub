@@ -9,7 +9,17 @@
 import { useEffect, useState } from 'react';
 
 import { PAN_LIMIT, ZOOM_MAX, ZOOM_MIN } from '../../render/types';
-import { Field, Notice, Panel, RangeInput, Row, Select, TextInput, Toggle } from '../../ui';
+import {
+  Disclosure,
+  Field,
+  Notice,
+  Panel,
+  RangeInput,
+  Row,
+  Select,
+  TextInput,
+  Toggle,
+} from '../../ui';
 
 import { readImageIndex, type ImageSummary } from './imageStore';
 import { primaryImageIssue, validateImageUrl } from './imageUrl';
@@ -83,12 +93,12 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
     <>
       <Panel
         title="Image"
-        hint="Paste a direct link to a picture or a GIF. The display downloads it into its own library and paints the local copy from then on, so it keeps working with the network unplugged."
+        hint="Paste a direct link to a picture or a GIF. Your Kraken keeps a copy and paints that from then on, so it goes on working with the network unplugged."
       >
         <Field
-          label="Image URL"
+          label="Picture link"
           htmlFor="image-url"
-          description="A direct link to the file — right-click the picture and copy the image address, not the page address."
+          description="A link to the file itself — right-click the picture and copy the image address, not the page address."
         >
           <TextInput
             id="image-url"
@@ -104,16 +114,16 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         )}
 
         <Field
-          label="Keep a local copy"
+          label="Keep a copy on this PC"
           htmlFor="image-download-mode"
-          description="Automatic downloads the bytes into the image library. When the server refuses a cross-origin fetch the display streams the picture instead — silently, and you still see it."
+          description="Keeping a copy means the picture is still there with the network unplugged. If the server refuses to hand over the bytes the display shows it straight from the link instead — quietly, and you still see the picture."
         >
           <Select
             id="image-download-mode"
             value={cfg.downloadMode}
             options={[
-              { value: 'auto', label: 'Automatic — download and keep' },
-              { value: 'stream-only', label: 'Stream only — never store' },
+              { value: 'auto', label: 'Keep a copy (recommended)' },
+              { value: 'stream-only', label: 'Never store anything' },
             ]}
             onChange={(value) => {
               patch({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
@@ -121,19 +131,25 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           />
         </Field>
 
-        <Field label="Background" htmlFor="image-background">
-          <TextInput
-            id="image-background"
-            value={cfg.background}
-            placeholder="#000000"
-            onChange={(background) => {
-              patch({ background });
-            }}
-          />
-        </Field>
+        <Disclosure summary="Advanced" testId="image-advanced">
+          <Field
+            label="Background colour"
+            htmlFor="image-background"
+            description="What shows around a picture that does not fill the panel."
+          >
+            <TextInput
+              id="image-background"
+              value={cfg.background}
+              placeholder="#000000"
+              onChange={(background) => {
+                patch({ background });
+              }}
+            />
+          </Field>
+        </Disclosure>
       </Panel>
 
-      <Panel title="Framing" hint="The same fit, zoom, pan and rotate math the video module uses.">
+      <Panel title="Framing" hint="How the picture sits in the panel.">
         <Field label="Fit" htmlFor="image-fit">
           <Select
             id="image-fit"
@@ -159,51 +175,53 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           />
         </Field>
 
-        <Row>
-          <Field label="Pan X" htmlFor="image-pan-x">
-            <RangeInput
-              id="image-pan-x"
-              value={cfg.render.offsetX}
-              min={-PAN_LIMIT}
-              max={PAN_LIMIT}
-              step={PAN_STEP}
-              onChange={(offsetX) => {
-                patchRender({ offsetX });
-              }}
-            />
-          </Field>
-          <Field label="Pan Y" htmlFor="image-pan-y">
-            <RangeInput
-              id="image-pan-y"
-              value={cfg.render.offsetY}
-              min={-PAN_LIMIT}
-              max={PAN_LIMIT}
-              step={PAN_STEP}
-              onChange={(offsetY) => {
-                patchRender({ offsetY });
-              }}
-            />
-          </Field>
-        </Row>
+        <Disclosure summary="Advanced" testId="image-framing-advanced">
+          <Row>
+            <Field label="Pan X" htmlFor="image-pan-x">
+              <RangeInput
+                id="image-pan-x"
+                value={cfg.render.offsetX}
+                min={-PAN_LIMIT}
+                max={PAN_LIMIT}
+                step={PAN_STEP}
+                onChange={(offsetX) => {
+                  patchRender({ offsetX });
+                }}
+              />
+            </Field>
+            <Field label="Pan Y" htmlFor="image-pan-y">
+              <RangeInput
+                id="image-pan-y"
+                value={cfg.render.offsetY}
+                min={-PAN_LIMIT}
+                max={PAN_LIMIT}
+                step={PAN_STEP}
+                onChange={(offsetY) => {
+                  patchRender({ offsetY });
+                }}
+              />
+            </Field>
+          </Row>
 
-        <Field label="Rotate" htmlFor="image-rotate">
-          <Select
-            id="image-rotate"
-            value={String(cfg.render.rotate)}
-            options={ROTATE_OPTIONS}
-            onChange={(value) => {
-              const rotate = ROTATIONS.find((r) => String(r) === value);
-              if (rotate !== undefined) patchRender({ rotate });
-            }}
-          />
-        </Field>
+          <Field label="Rotate" htmlFor="image-rotate">
+            <Select
+              id="image-rotate"
+              value={String(cfg.render.rotate)}
+              options={ROTATE_OPTIONS}
+              onChange={(value) => {
+                const rotate = ROTATIONS.find((r) => String(r) === value);
+                if (rotate !== undefined) patchRender({ rotate });
+              }}
+            />
+          </Field>
+        </Disclosure>
       </Panel>
 
       <Panel
         title="Slideshow"
-        hint="Cycles through every image in the library, newest first. Ten seconds is the floor: each advance hands CAM's frame compressor a picture with nothing in common with the last one, which is the most expensive thing this module can do."
+        hint="Cycles through every picture you have kept, newest first. Ten seconds is the floor: each change hands CAM a picture with nothing in common with the last one, which is the most expensive thing this can do."
       >
-        <Field label="Enabled" htmlFor="image-slideshow">
+        <Field label="Cycle through pictures" htmlFor="image-slideshow">
           <Toggle
             id="image-slideshow"
             checked={cfg.slideshow.enabled}
@@ -230,13 +248,13 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
       </Panel>
 
       <Panel
-        title="Image library"
-        hint="Everything the display has downloaded. Stored in NZXT CAM's browser storage on this PC, so it survives a reboot with no network."
+        title="Your pictures"
+        hint="Everything your Kraken has kept. Stored on this PC inside CAM's own browser storage, so it survives a reboot with no network."
       >
         {library.length === 0 ? (
           <p className="kh-hint">
-            Nothing stored yet. Paste a link above with “download and keep” on, and the display
-            fills this in the moment it fetches the bytes.
+            Nothing here yet. Paste a link above with “keep a copy” on, and this fills in the moment
+            the picture is fetched.
           </p>
         ) : (
           <ul className="kh-list">

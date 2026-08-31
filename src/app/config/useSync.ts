@@ -95,8 +95,9 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
   const diagAssembler = useRef(createDiagAssembler());
 
   useEffect(() => {
-    // No room means nothing to start; the values below are already `null` and
-    // the cleanup of the previous run has cleared any live handle.
+    // No room means nothing to start; the cleanup of the previous run has
+    // already stopped any live handle, and everything this hook reports is
+    // gated on `room` at the return below.
     if (room === null) return undefined;
     let disposed = false;
     // Read through a function so TypeScript cannot narrow it across an await —
@@ -105,12 +106,29 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
 
     void (async () => {
       const { startAppSync } = await import('../../sync/appSync');
+      const { readState } = await import('../../state/storage');
       const current = runtime.store.getSnapshot();
+      /*
+       * The persisted layer, read NOW rather than at boot.
+       *
+       * `appSync` re-resolves `persisted < remote < url` on every remote state
+       * frame and `replace()`s the snapshot with the result, so whatever it is
+       * handed here is the floor under this whole session. `runtime.persisted`
+       * is the document as it looked when the page booted, which silently
+       * discards anything committed since — and `sync.*` is exactly the family
+       * of settings that never travels on the wire, so nothing puts it back.
+       *
+       * Measured, not feared: the phone remote auto-joins from the pairing link
+       * by committing `sync.roomCode`, and the first state frame the display
+       * sent re-resolved against a boot-time document with no room in it,
+       * unpairing the phone about a second after it connected.
+       */
+      const persisted = readState().state;
       const handle = await startAppSync({
         role: runtime.role,
         clientId: clientId(),
         store: runtime.store,
-        persisted: runtime.persisted,
+        persisted,
         url: runtime.url,
         settings: { ...current.sync, roomCode: room, transport, mqttUrl, ntfyBase },
         onStatus: (s) => {
@@ -207,14 +225,28 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
     });
   }, []);
 
+  /*
+   * Everything is gated on there BEING a room, derived rather than cleared.
+   *
+   * Stopping the service does not erase what the last one told us, and React
+   * state survives the effect re-run that stopped it — so after "Forget this
+   * Kraken" the transport was genuinely down while the UI still read
+   * `mqtt — online` off a `SyncStatus` belonging to the room the user had just
+   * left. A stale "connected" is worse than no reading at all: it is the one
+   * thing somebody checks to decide whether the app is broken.
+   *
+   * Derived at the boundary rather than reset in an effect, because a reset is
+   * a second render of state React can already compute from `room`.
+   */
+  const live = room !== null;
   return {
-    status,
-    lastTele,
-    lastStats,
-    library,
-    lastError,
-    diagReport,
-    topicId,
+    status: live ? status : null,
+    lastTele: live ? lastTele : null,
+    lastStats: live ? lastStats : null,
+    library: live ? library : null,
+    lastError: live ? lastError : null,
+    diagReport: live ? diagReport : null,
+    topicId: live ? topicId : null,
     sendCmd,
     publishNow,
   };

@@ -9,6 +9,12 @@ So that is the **default** in kraken-hub, and it does not involve a file picker:
 > **Paste a URL. kraken-hub downloads it into its own clip library and plays the
 > local copy from then on.**
 
+You paste it into the row under the halo on the home screen, and the app narrates
+what it did in three cards: **YouTube video detected** (whatever it actually
+recognised), **Saving to your Kraken** with a live percentage, and **On screen
+now**. The point of writing it out is that this used to happen silently — the
+single biggest thing kraken-hub does for picture quality was invisible.
+
 Manual upload still exists, and it is documented below, but it is the fallback —
 not the headline.
 
@@ -86,8 +92,9 @@ browser storage is partitioned.
 
 ## Manual upload (the fallback)
 
-**In CAM → Lighting → your Kraken → Configure → Sources**, either drop files on
-the panel or use the picker. Each file is:
+**In CAM → Lighting → your Kraken → Configure**, then **Library** in the row
+under the halo (`#/library`). Either drop files on the panel or use the picker.
+Each file is:
 
 1. **Checked for a container Chromium can play.** `.mkv`, `.mka`, `.avi`,
    `.flv`, `.wmv`, `.rmvb` are rejected — Chromium has no Matroska or AVI demuxer
@@ -168,7 +175,7 @@ frame rate than a 60 fps action scene at the same bitrate.
 **Recommended:** ≤ 200 MB per clip, ≤ 2 GB for the whole library.
 
 kraken-hub reads `navigator.storage.estimate()` and refuses an add that would
-push usage past 90 % of the quota, naming both numbers in megabytes. The Sources
+push usage past 90 % of the quota, naming both numbers in megabytes. The Library
 panel shows a usage bar.
 
 On the first successful add — inside the user gesture, which is the only time the

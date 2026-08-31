@@ -18,8 +18,15 @@ import { videoModule } from './video';
 import type { AnyKrakenModule } from './types';
 
 /**
- * Order is the order of the module picker in the configuration UI: the
- * flagship first, then the two media-ish modules, then the sensor readout.
+ * Order is the order of the module chips on the home screen, and of the module
+ * picker everywhere else: **video, clock, stats, image**, exactly as the
+ * approved design puts them (docs/design/halo-prototype.html, screen 1).
+ *
+ * It is ordered by how often a chip is pressed, not by how the code is grouped.
+ * The old order paired video with image because both are "media"; in use, the
+ * clock is what people switch to when they want the panel to stop moving, and
+ * the stats readout is what they switch to when the machine is working. Image
+ * is the one that needs a library behind it first, so it sits last.
  *
  * `clock-lite` (M0's placeholder) was removed in M3 and replaced by `clock`;
  * state migration 3 → 4 rewrites `activeModuleId` and moves the stored config
@@ -27,9 +34,9 @@ import type { AnyKrakenModule } from './types';
  */
 export const MODULES: readonly AnyKrakenModule[] = [
   videoModule,
-  imageModule,
   clockModule,
   statsModule,
+  imageModule,
 ];
 
 export { DEFAULT_MODULE_ID };

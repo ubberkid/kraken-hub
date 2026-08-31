@@ -2,7 +2,7 @@
  * The stats module's settings panel. Config-only code (invariant I8).
  */
 
-import { Field, Notice, Panel, Select, Toggle } from '../../ui';
+import { Disclosure, Field, Notice, Panel, Select, Toggle } from '../../ui';
 
 import {
   STATS_LAYOUTS,
@@ -48,7 +48,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   return (
     <Panel
       title="System stats"
-      hint="Readings come from NZXT CAM's monitoring feed, once a second. Whatever CAM does not report is shown as “--” rather than as a zero."
+      hint="Readings come from NZXT CAM, once a second. Anything CAM does not report shows as “--” rather than as a zero."
     >
       <Field label="Layout" htmlFor="stats-layout">
         <Select
@@ -102,26 +102,28 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         />
       </Field>
 
-      <Field
-        label="Colour"
-        htmlFor="stats-theme"
-        description="Flat fills only — the dial arc is a single stroke. A glowing gauge would repaint the whole tile every second, which CAM's frame compressor charges for in achieved FPS."
-      >
-        <Select
-          id="stats-theme"
-          value={cfg.theme}
-          options={STATS_THEMES.map((t) => ({ value: t, label: THEME_LABELS[t] }))}
-          onChange={(value) => {
-            onChange({ ...cfg, theme: asOneOf(value, STATS_THEMES, cfg.theme) });
-          }}
-        />
-      </Field>
+      <Disclosure summary="Advanced" testId="stats-advanced">
+        <Field
+          label="Colour"
+          htmlFor="stats-theme"
+          description="Flat fills only — the dial arc is a single stroke. A glowing gauge would repaint the whole tile every second, and CAM charges for that in the frame rate you actually get."
+        >
+          <Select
+            id="stats-theme"
+            value={cfg.theme}
+            options={STATS_THEMES.map((t) => ({ value: t, label: THEME_LABELS[t] }))}
+            onChange={(value) => {
+              onChange({ ...cfg, theme: asOneOf(value, STATS_THEMES, cfg.theme) });
+            }}
+          />
+        </Field>
 
-      <Notice tone="warn">
-        There is no pump-speed reading. CAM exposes the cooler&apos;s liquid temperature and nothing
-        else, so this module does not show a pump RPM — a plausible-looking invented number is worse
-        than an absent one on a display people use to judge whether their loop is healthy.
-      </Notice>
+        <Notice tone="warn">
+          There is no pump-speed reading. CAM reports the cooler&apos;s liquid temperature and
+          nothing else, so this does not show a pump RPM — a plausible-looking invented number is
+          worse than an absent one on a screen people use to judge whether their loop is healthy.
+        </Notice>
+      </Disclosure>
     </Panel>
   );
 }

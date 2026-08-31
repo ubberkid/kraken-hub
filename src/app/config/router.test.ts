@@ -6,6 +6,9 @@ describe('parseRoute', () => {
   it('maps every documented hash route', () => {
     expect(parseRoute('#/')).toEqual({ name: 'home' });
     expect(parseRoute('')).toEqual({ name: 'home' });
+    expect(parseRoute('#/library')).toEqual({ name: 'library' });
+    // Renamed, not removed: an old bookmark must resolve, and `ConfigApp`
+    // rewrites the hash to `#/library` in place.
     expect(parseRoute('#/sources')).toEqual({ name: 'sources' });
     expect(parseRoute('#/remote')).toEqual({ name: 'remote' });
     expect(parseRoute('#/preview')).toEqual({ name: 'preview' });

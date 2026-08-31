@@ -142,6 +142,7 @@ export function DiagView({ runtime }: { runtime: ConfigRuntime }) {
             </table>
             <Row>
               <Button
+                testId="diag-copy-local"
                 onClick={() => {
                   copy(local);
                 }}
@@ -149,6 +150,7 @@ export function DiagView({ runtime }: { runtime: ConfigRuntime }) {
                 {copied ? 'Copied' : 'Copy JSON'}
               </Button>
               <Button
+                testId="diag-rerun"
                 onClick={() => {
                   setRunNonce((n) => n + 1);
                 }}
@@ -200,6 +202,7 @@ export function DiagView({ runtime }: { runtime: ConfigRuntime }) {
             <Row>
               <Button
                 primary
+                testId="diag-copy-display"
                 onClick={() => {
                   copy(display);
                 }}

@@ -4,6 +4,26 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      Phone chrome, for the remote.
+
+      The remote is opened by scanning a QR and is then very often added to a
+      home screen, so these decide what the browser paints around it: the
+      address bar and the status bar take `theme-color`, and the standalone
+      flags stop iOS drawing its own browser chrome over a page whose whole
+      layout assumes it owns the viewport. `#0C1017` is `--kh-ground`, so the
+      chrome and the page are the same colour rather than two dark greys.
+
+      Meta only, deliberately. This file is shared with the display page, which
+      CAM loads into a hidden webview that has no chrome at all — these tags are
+      inert there, and nothing about the LCD's critical path or its inline
+      critical CSS changes (invariant I8).
+    -->
+    <meta name="theme-color" content="#0C1017" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="kraken-hub" />
     <meta
       name="description"
       content="kraken-hub — video, image, clock and system-stats modules for NZXT Kraken LCDs."

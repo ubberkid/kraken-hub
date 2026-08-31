@@ -59,6 +59,12 @@ community integration uses.
 **CAM → Lighting → your Kraken → Mode: _Web Integration_ → _Edit_ on the Custom
 option → paste the URL → _Apply_.**
 
+If you opened kraken-hub in an ordinary browser first, the page does this for
+you: until a Kraken has ever connected, an **Add kraken-hub to CAM** card sits at
+the top of the home screen with the frame-rate step, this page's own address, and
+one-click _Open in CAM_ buttons. It disappears for good the first time the
+display actually reports in, and afterwards lives quietly under **About**.
+
 ```
 https://ubberkid.github.io/kraken-hub/
 ```
@@ -83,8 +89,8 @@ configuration UI.
 
 CAM now runs kraken-hub in **two browsers on the same origin**:
 
-- the **Configuration Browser** — the window _Configure_ opens, showing the setup
-  UI you are about to use;
+- the **Configuration Browser** — the window _Configure_ opens, showing the
+  configuration UI you are about to use;
 - the **Kraken Browser** — hidden, loaded with `?kraken=1`, captured frame by
   frame and streamed to the panel.
 
@@ -105,7 +111,7 @@ with no network involved. That is the "is this thing on?" test.
 
 ### Play a video
 
-**Sources → paste a URL.**
+**Library → paste a link.**
 
 The headline behaviour is that kraken-hub **downloads the video into its own clip
 library and plays the local copy from then on**. What happens next depends on
@@ -125,27 +131,39 @@ The full ingestion story, including manual upload, storage quota,
 
 ### Or pick a different module
 
-**Setup → Step 3 → Active module.** kraken-hub ships four: video, image/GIF,
-clock and system stats. Each has its own settings page, and only the active one's
-code is ever downloaded by the display.
+The four chips under the halo — **Video · Clock · Stats · Image** — are what is
+on the screen. Tap one and the panel changes immediately; only the active
+module's code is ever downloaded by the display. Under the chips is a line of the
+settings you actually change (`Loop 0:18 – 0:42 · Fill · Cover · Saved locally ✓`);
+pressing one opens that module's full settings in place, scrolled to and focused
+on the control the line names. There is no settings page to find.
 
-### Preview it without a Kraken
+### You are already previewing it
 
-**Preview** runs the real display page in a real iframe inside a bezel, at any
-device preset and any frame rate. Set it to **1 FPS** to see exactly what a user
-who never touched the CAM slider sees — it is the most useful thing on that page.
+The halo at the top of the home screen **is** the display page — the real one,
+booted the way CAM boots it, in an iframe on this same origin. Anything you
+change below is reflected above through the production storage path, so you never
+have to wonder what your cooler is showing. Video is the one exception: the halo
+draws a stand-in rather than running a second decoder, and the status line under
+it reports what is genuinely playing, from the display's own telemetry.
 
 ## Step 4 — pair your phone (optional)
 
-**Setup → Step 4 → Generate room code**, then open **Remote** and scan the QR.
+Open **Remote** from the row under the halo, and scan the QR on the pairing card
+with your phone's camera.
 
 ![The phone remote](assets/remote.png)
 
 <sub>Captured with the offline `?transport=fake` transport, so building the docs
 never touches a public broker. The layout is identical on a real one.</sub>
 
+- **There is nothing to type.** The QR is a link that carries the room code, so
+  the phone opens the remote and joins before the card first paints. It stays
+  paired afterwards, and a bookmark works too. To unpair, use **Forget this
+  Kraken** under _Pairing options_.
 - The code is **eight characters of Crockford base32** — no I, L, O or U, so
-  nothing is ambiguous read off a screen.
+  nothing is ambiguous read off a screen. You can still type it into
+  **Room code → Join** if the camera route is not available.
 - The QR encodes a URL whose room code sits in the **fragment**, which browsers
   never send to a server. The QR is generated in your browser; nothing is
   uploaded to make it.
@@ -220,7 +238,7 @@ profile:
 | Settings, room code, telemetry     | `localStorage`, under keys prefixed `kraken-hub:v1:` |
 | Clips, images and their thumbnails | IndexedDB, database `kraken-hub.v1`                  |
 
-**Sources → Clip library → Delete** removes an individual clip and its bytes,
+**Library → Your clips → Delete** removes an individual clip and its bytes,
 and the quota bar updates as it goes. There is not yet a single button that
 wipes everything at once — clearing site data for the origin from a browser
 pointed at the same URL does it. A one-click "reset all kraken-hub data" control

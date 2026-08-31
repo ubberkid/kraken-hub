@@ -283,7 +283,7 @@ test.describe('video module', () => {
 
 test.describe('sources page', () => {
   test('the manual upload fallback adds a clip to the library', async ({ page }) => {
-    await page.goto('/#/sources');
+    await page.goto('/#/library');
     await expect(page.locator('.kh-app')).toBeVisible();
 
     await page.locator('[data-testid="clip-file-input"]').setInputFiles(FIXTURE_PATH);
@@ -296,8 +296,8 @@ test.describe('sources page', () => {
   });
 
   test('downloading from the Sources page stores the clip', async ({ page }) => {
-    await page.goto('/#/sources');
-    await page.locator('#sources-url').fill(FIXTURE_URL);
+    await page.goto('/#/library');
+    await page.locator('#library-url').fill(FIXTURE_URL);
     await page.getByRole('button', { name: 'Download to library' }).click();
 
     const row = page.locator('.kh-clip[data-clip-id]');

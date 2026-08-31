@@ -30,12 +30,17 @@ import { Button, Chip, Field, Meter, Notice, Panel, Row, TextInput } from '../..
 import type { ConfigRuntime } from '../runtime';
 
 /**
- * Sources — the clip library and the download-first ingestion UI.
+ * Library — the clips this installation keeps, and how they get here.
  *
- * The featured flow is the top of this page: paste a URL, kraken-hub fetches the
- * bytes into IndexedDB, and the display plays the local copy from then on.
- * Manual upload is at the bottom, marked as the fallback it is, and it only
- * works inside CAM's Configuration Browser — CAM's two browsers share one
+ * Renamed from "Sources" in the Halo redesign, and the rename is the point:
+ * "sources" is a word out of the architecture (a source is what an adapter
+ * resolves), while "library" is the word for a shelf of clips. `#/sources`
+ * still resolves and redirects in place (`ConfigApp`).
+ *
+ * The featured flow is the top of this page: paste a link, kraken-hub fetches
+ * the bytes into IndexedDB, and the display plays the local copy from then on.
+ * Adding a file by hand is at the bottom, marked as the fallback it is, and it
+ * only works inside CAM's Configuration Browser — CAM's two browsers share one
  * storage partition, an ordinary browser tab and a phone do not
  * (design-videoEngine.md §5.1).
  */
@@ -77,7 +82,7 @@ function ClipThumb({ clip }: { clip: ClipRecord }) {
   return <img className="kh-clip__thumb" src={url} alt="" />;
 }
 
-export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
+export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   const [clips, setClips] = useState<ClipRecord[]>([]);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
   const [downloads, setDownloads] = useState<DownloadEntry[]>(() => [
@@ -177,11 +182,11 @@ export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
     <>
       <Panel
         title="Add a video"
-        hint="Paste a link. kraken-hub downloads the bytes into its own clip library and plays the local copy — that is what makes playback ad-free, chrome-free and offline-proof."
+        hint="Paste a link and kraken-hub keeps a copy on this PC, then plays that copy from then on — no ads, no player chrome, and it keeps working with the network unplugged."
       >
-        <Field label="Video URL" htmlFor="sources-url">
+        <Field label="Video link" htmlFor="library-url">
           <TextInput
-            id="sources-url"
+            id="library-url"
             value={url}
             placeholder="Paste a video link"
             onChange={setUrl}
@@ -194,20 +199,21 @@ export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
           <Button
             primary
             onClick={startDownload}
-            title="Fetch the bytes into the local clip library"
+            title="Fetch the bytes and keep them on this PC"
+            testId="library-download"
           >
             Download to library
           </Button>
         </Row>
         {message !== null && <Notice tone={message.tone}>{message.text}</Notice>}
         <p className="kh-hint">
-          The display downloads on its own too: set a URL from anywhere and CAM&rsquo;s hidden
-          browser fetches and stores it, with a progress card on the LCD.
+          Your Kraken does this on its own too: set a link from anywhere — your phone included — and
+          the hidden CAM window fetches and keeps it, showing progress on the panel.
         </p>
       </Panel>
 
       {downloads.length > 0 && (
-        <Panel title="Downloads">
+        <Panel title="Downloading now">
           <ul className="kh-cliplist">
             {downloads.map((d) => {
               const pct = progressPct(d);
@@ -241,29 +247,31 @@ export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
       )}
 
       <Panel
-        title="Clip library"
-        hint="Stored in CAM's browser storage on this PC. Clips play with no network at all."
+        title="Your clips"
+        hint="Kept on this PC, inside CAM's own browser storage. They play with the network unplugged."
       >
-        <Row>
+        <div className="kh-quota" data-testid="library-quota">
           <Meter
             pct={quotaPct}
             label={
               quota === null || quota.quotaBytes <= 0
-                ? 'usage unknown'
-                : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)}`
+                ? 'space in use — unknown'
+                : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
             }
           />
           <Chip tone={quota?.persisted === true ? 'ok' : 'warn'}>
             {quota?.persisted === true
-              ? 'Persistent'
-              : 'Best-effort — Chromium may evict clips under disk pressure'}
+              ? 'Kept for good'
+              : 'May be cleared if the disk fills up — pin the ones you care about'}
           </Chip>
-        </Row>
+        </div>
 
         {clips.length === 0 ? (
-          <p className="kh-hint">No clips yet. Paste a URL above, or drop a file below.</p>
+          <p className="kh-hint">
+            Nothing here yet. Paste a link above, or add a file at the bottom of the page.
+          </p>
         ) : (
-          <ul className="kh-cliplist">
+          <ul className="kh-cliplist" data-testid="library-clips">
             {clips.map((clip) => (
               <li className="kh-clip" key={clip.id} data-clip-id={clip.id}>
                 <ClipThumb clip={clip} />
@@ -271,30 +279,38 @@ export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
                   <div className="kh-clip__name">{clip.name}</div>
                   <div className="kh-clip__detail">
                     {duration(clip.durationSec)} · {mb(clip.size)} · {clip.width}×{clip.height}
+                    {clip.pinned ? ' · pinned' : ''}
                   </div>
                 </div>
-                <Button
-                  primary
-                  onClick={() => {
-                    playClip(clip);
-                  }}
-                >
-                  Play
-                </Button>
-                <Button
-                  onClick={() => {
-                    void setPinned(clip.id, !clip.pinned).then(refresh);
-                  }}
-                >
-                  {clip.pinned ? 'Unpin' : 'Pin'}
-                </Button>
-                <Button
-                  onClick={() => {
-                    void deleteClip(clip.id).then(refresh);
-                  }}
-                >
-                  Delete
-                </Button>
+                <div className="kh-clip__actions">
+                  <Button
+                    primary
+                    onClick={() => {
+                      playClip(clip);
+                    }}
+                  >
+                    Play
+                  </Button>
+                  <Button
+                    title={
+                      clip.pinned
+                        ? 'Allow this clip to be cleared when the disk fills up'
+                        : 'Never clear this clip automatically'
+                    }
+                    onClick={() => {
+                      void setPinned(clip.id, !clip.pinned).then(refresh);
+                    }}
+                  >
+                    {clip.pinned ? 'Unpin' : 'Pin'}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      void deleteClip(clip.id).then(refresh);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
@@ -302,8 +318,8 @@ export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
       </Panel>
 
       <Panel
-        title="Add a file (fallback)"
-        hint="Only needed when a server refuses a cross-origin read. Works in CAM's Configuration Browser only — CAM's two browsers share one storage partition; your phone and your normal browser do not."
+        title="Add a file by hand"
+        hint="Only needed when a server refuses to hand over the bytes. Works in CAM's own window only — CAM's two browsers share one storage area; your phone and your normal browser do not."
       >
         <div
           className={dragOver ? 'kh-dropzone kh-dropzone--over' : 'kh-dropzone'}
@@ -353,10 +369,10 @@ export function SourcesView({ runtime }: { runtime: ConfigRuntime }) {
           }}
         />
         <p className="kh-hint">
-          Square-crop before adding — every Kraken panel is square (round ones are a circle
-          inscribed in it), so a 1080×1080 clip has no wasted pixels and about a third of the
-          bitrate of a 1920×1080 master at equal quality. Drop audio with{' '}
-          <code className="kh-code">-an</code>; the LCD is always muted.
+          Crop to a square first. Every Kraken panel is square — the round ones are a circle cut out
+          of one — so a 1080×1080 clip wastes no pixels and needs about a third of the bitrate of a
+          1920×1080 master for the same picture. Drop the audio too (
+          <code className="kh-code kh-code--inline">-an</code>): the panel is always muted.
         </p>
       </Panel>
     </>

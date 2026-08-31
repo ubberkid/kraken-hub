@@ -15,19 +15,32 @@ up for — and the broker in the middle cannot read a single thing you send.
 ## Pair a phone in about a minute
 
 1. On the machine running CAM, open kraken-hub's configuration page (the one CAM
-   opens for you, or the same URL in any browser) and go to **Remote**.
+   opens for you, or the same URL in any browser) and follow **Remote** in the
+   row under the halo.
 2. Press **Generate code**. You get eight characters, like `H4KM7Q2V`.
-3. On your phone, either scan the QR code shown next to it, or open the same
-   site and type the code into **Room code → Join**.
-4. The status line turns green: `mqtt — online`. That is it — you are paired.
+3. Point your phone's camera at the QR on the pairing card. **That is the whole
+   step** — the phone opens the remote and joins before the card first paints.
+   Nothing to type, no Join button, no account.
+4. The line under the transport reads _Linked to your Kraken_. You are paired,
+   and you stay paired: a bookmark to that page reconnects on its own.
 
 The QR encodes an ordinary link of the form
-`https://<your-site>/#/remote?room=H4KM7Q2V`. It is generated **on your own
-machine** (`src/app/config/qr.ts`), never fetched from a QR service, because the
-link contains the room code and the room code is the only secret in this design.
+`https://<your-site>/#/remote?room=H4KM7Q2V`. The code rides in the **fragment**,
+which browsers strip before the request leaves the machine, so it never reaches
+an origin server, a CDN, a proxy, a `Referer` header or an analytics beacon. The
+QR is generated **on your own machine** (`src/app/config/qr.ts`), never fetched
+from a QR service, because the room code is the only secret in this design.
 
-The **Setup** page shows the same code, QR and link in a pairing card, so you do
-not have to go looking for it.
+If the camera route is not available — a desktop second browser, a locked-down
+phone — the same card has a **Room code → Join** field. Typing is the fallback,
+not the flow.
+
+### Unpairing
+
+**Forget this Kraken**, under _Pairing options_ on the pairing card, clears every
+place a room hides on that device: the remembered code, the shared state
+document, and the code still sitting in the page's own fragment from the link
+that opened it.
 
 ### Rotating a code
 
@@ -51,11 +64,18 @@ each other forever.
 
 ## What the remote can and cannot do
 
-**Can:** set the source URL (with the same validation the config page uses),
-play and hold, seek, drag an A–B loop, change fit / zoom / rotation, switch
-modules, pick from the clip library, watch live telemetry — position, achieved
-frame rate, the last error — and **pull a hardware report off the machine
-running CAM**, from any browser, without touching that machine.
+**Can:** play and hold, seek, drag an A–B loop, set the source URL (with the same
+validation the config page uses), change fit / zoom / rotation, switch modules,
+pick from the clip library, watch live telemetry — position, achieved frame rate,
+the last error — and **pull a hardware report off the machine running CAM**, from
+any browser, without touching that machine.
+
+The remote's surface is a **media remote**, not a settings mirror: a mini-halo, a
+title, the scrubber with its two loop handles, three transport buttons and one
+pairing card. Everything in the list above that is not transport — the source
+field, the module picker, framing, the clip list, the room settings — is intact
+one level down, under **More controls**, with the plumbing under **Diagnostics**
+beside the hardware-report pull.
 
 **Cannot:**
 
