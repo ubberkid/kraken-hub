@@ -12,3 +12,4 @@ blob-report
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea
+companion/resolver/build

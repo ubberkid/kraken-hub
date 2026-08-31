@@ -53,6 +53,7 @@ import {
 } from './loop/LoopEngine';
 import { createPolledLoop, type PolledLoop } from './loop/PolledLoop';
 import { createRenderController, type RenderController } from './render/RenderController';
+import { subscribeResolverPing } from './resolver/resolverPing';
 import { applyResolverPolicy, detect, type ProviderMatch } from './routing/detect';
 import { LOCAL_CLIP_SCHEME } from './routing/patterns';
 import { runFallbackChain } from './routing/sniff';
@@ -205,6 +206,8 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
   let pendingResume: number | null = null;
   let lastCheckpointAt = 0;
   let onPagehide: (() => void) | null = null;
+  /** The config window's "the downloader is up now" nudge (resolverPing.ts). */
+  let unsubscribeResolverPing: (() => void) | null = null;
 
   /** Stamps where we are, if the source is checkpointable at all. */
   function saveCheckpoint(): void {
@@ -1015,6 +1018,31 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       };
       window.addEventListener('pagehide', onPagehide);
 
+      /*
+       * The guided connect panel's nudge (see ./resolver/resolverPing.ts).
+       *
+       * A user who starts the companion while a YouTube link is already on the
+       * geometry engine has done everything asked of them; making them paste
+       * the link a second time to get the ad-free local copy would be a puzzle.
+       * The panel writes one timestamp, this restarts the source resolution —
+       * and drops the 60 s health memo first, because the answer it cached is
+       * precisely the one that just stopped being true.
+       */
+      unsubscribeResolverPing = subscribeResolverPing(() => {
+        if (cfg === null || cfg.resolver.policy === 'off') return;
+        void (async () => {
+          const client = await import('./resolver/resolverClient');
+          client.invalidateHealth();
+          publish({
+            code: 'resolver-reconnect',
+            severity: 'info',
+            provider: 'resolver',
+            message: 'the companion announced itself; re-resolving the source',
+          });
+          await startSession({});
+        })();
+      });
+
       await startSession({});
     },
 
@@ -1133,6 +1161,8 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       clearRetry();
       if (onPagehide !== null) window.removeEventListener('pagehide', onPagehide);
       onPagehide = null;
+      unsubscribeResolverPing?.();
+      unsubscribeResolverPing = null;
       void stopSession();
       controller?.destroy();
       controller = null;

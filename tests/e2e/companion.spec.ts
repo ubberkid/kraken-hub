@@ -1,10 +1,13 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
+
+import type { AddressInfo } from 'node:net';
 
 /**
  * M2.5 acceptance — the **real** companion process, end to end.
@@ -12,14 +15,21 @@ import { expect, test, type Page } from '@playwright/test';
  * `resolver.spec.ts` proves the client against a hand-written reference server
  * in the same file. This one proves the shipped program: it builds
  * `companion/resolver`, spawns `dist/cli.js` as its own OS process on a port the
- * kernel picked, points the app's resolver settings at it, and then does the two
- * things the plan says must be true:
+ * kernel picked, points the app's resolver settings at it, and then does the
+ * three things the plan says must be true:
  *
  *  1. paste a YouTube URL → resolves through the companion → downloads into the
  *     IndexedDB clip library with progress → plays → **kill the companion** →
  *     reload → still plays, from the local clip, forever;
  *  2. kill the companion *while it is downloading* → the display degrades to the
- *     geometry engine in silence, with no error card.
+ *     geometry engine in silence, with no error card;
+ *  3. install it AFTER pasting — the order every real user takes — and the
+ *     guided panel connects on its own and the pending link downloads with no
+ *     further click.
+ *
+ * The URL is typed into the home screen's paste box rather than seeded into
+ * localStorage, on purpose: seeding it is how this suite stayed green through a
+ * regression that made every paste look like an error (`paste-flow.spec.ts`).
  *
  * yt-dlp is never involved: `KRAKEN_HUB_RESOLVER_STUB` makes the companion serve
  * a fixture. Everything else — HTTP, CORS, Range, the job queue, the LRU cache,
@@ -43,6 +53,23 @@ interface Companion {
   dead: boolean;
 }
 
+/**
+ * A port nothing is listening on — for the one test that must configure the app
+ * BEFORE the companion exists, and therefore cannot let the kernel pick.
+ */
+function freePort(): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const probe = createServer();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as AddressInfo;
+      probe.close(() => {
+        resolve(port);
+      });
+    });
+  });
+}
+
 function runNpm(args: string[]): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, {
@@ -61,11 +88,11 @@ function runNpm(args: string[]): Promise<void> {
  * Spawns the compiled CLI on an ephemeral port and waits until `/health`
  * answers. `--port 0` lets the kernel choose, so two workers never collide.
  */
-async function startCompanion(opts: { delayMs?: number } = {}): Promise<Companion> {
+async function startCompanion(opts: { delayMs?: number; port?: number } = {}): Promise<Companion> {
   const cacheDir = mkdtempSync(join(tmpdir(), 'kh-e2e-resolver-'));
   const child: ChildProcessWithoutNullStreams = spawn(
     process.execPath,
-    [CLI, '--port', '0', '--cache-dir', cacheDir, '--log-level', 'debug'],
+    [CLI, '--port', String(opts.port ?? 0), '--cache-dir', cacheDir, '--log-level', 'debug'],
     {
       cwd: REPO_ROOT,
       env: {
@@ -204,17 +231,30 @@ test.describe('the shipped resolver companion', () => {
   });
 
   test('a YouTube URL is downloaded by the companion into the clip library, and outlives it', async ({
+    context,
     page,
   }) => {
     // A delay long enough that `/resolve` MUST answer 202 and the client MUST
     // poll `/job` — the flow a real yt-dlp download takes.
     const companion = await startCompanion({ delayMs: 400 });
     try {
-      await seed(page, {
-        url: YT_URL,
+      // The URL arrives the way a user's URL actually arrives: typed into the
+      // home screen's paste box, not written into localStorage by the test.
+      // Seeding it directly would have let the paste flow break — and it did,
+      // see `paste-flow.spec.ts` — with this suite still green.
+      // Seeded on the CONFIG page only. Both pages share the origin, so an init
+      // script on the display would rewrite the state the paste just committed
+      // and the display would boot on the demo clip.
+      const config = await context.newPage();
+      await seed(config, {
+        url: '',
         downloadMode: 'auto',
         resolver: { policy: 'youtube-only', port: companion.port, token: '' },
       });
+      await config.goto('/');
+      await config.fill('[data-testid="paste-input"]', YT_URL);
+      await config.click('[data-testid="paste-submit"]');
+
       await page.goto('/?kraken=1&sim=elite');
 
       // A YouTube link became a LOCAL blob. No iframe, no error card.
@@ -238,6 +278,17 @@ test.describe('the shipped resolver companion', () => {
       expect(done, 'a completed download entry').toBeDefined();
       expect(Number(done?.['receivedBytes'])).toBeGreaterThan(0);
       expect(done?.['clipId']).toBeTruthy();
+      // The job is filed under the URL the USER pasted, not the loopback stream
+      // it was fetched from — which is what lets the home screen tell this
+      // link's story rather than some earlier link's.
+      expect(done?.['sourceUrl']).toBe(YT_URL);
+
+      // And the paste flow on the config page says so, in its terminal state.
+      const flow = config.locator('[data-testid="paste-flow"]');
+      await expect(flow).toHaveAttribute('data-flow-stage', 'stored', { timeout: 20_000 });
+      await expect(flow).toContainText('kept in your library');
+      // With a companion running, the "get the downloader" offer must not appear.
+      await expect(config.locator('[data-testid="resolver-get"]')).toHaveCount(0);
 
       expect(await clipCount(page)).toBe(1);
     } finally {
@@ -316,5 +367,74 @@ test.describe('the shipped resolver companion', () => {
     });
     expect(codes).toContain('resolver-fallback');
     expect(codes).not.toContain('provider-unavailable');
+  });
+
+  /**
+   * The guided install, in the order a real person does it: paste first,
+   * install second.
+   *
+   * Everything that makes this hard is a consequence of CAM running two
+   * browsers: the panel that notices the companion is in the CONFIGURATION
+   * window, and the video it has to rescue is in the DISPLAY window, which
+   * resolved this source before the companion existed and memoized "no
+   * companion" for 60 s. The user has to press nothing.
+   */
+  test('installing the downloader while the panel waits connects it and downloads the pending link', async ({
+    context,
+  }) => {
+    const port = await freePort();
+    const config = await context.newPage();
+    const display = await context.newPage();
+
+    // Hermetic: the geometry engine's iframe never has to reach YouTube.
+    await display.route(/^https:\/\/(www\.youtube|www\.youtube-nocookie|i\.ytimg)\./, (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }),
+    );
+
+    // Seeded on the CONFIG page only — see the note in the test above.
+    await seed(config, {
+      url: '',
+      downloadMode: 'auto',
+      resolver: { policy: 'youtube-only', port, token: '' },
+    });
+
+    await config.goto('/');
+    await config.fill('[data-testid="paste-input"]', YT_URL);
+    await config.click('[data-testid="paste-submit"]');
+    await display.goto('/?kraken=1&sim=elite');
+
+    // Nothing is installed, so the embed is playing and the home screen offers
+    // the downloader instead of complaining about it.
+    await expect(display.locator('.kh-video__yt')).toHaveCount(1, { timeout: 30_000 });
+    await expect(display.locator('.kh-video__card')).toHaveCount(0);
+    await expect(config.locator('[data-testid="paste-flow"]')).toHaveAttribute(
+      'data-flow-stage',
+      'youtube-embed',
+      { timeout: 20_000 },
+    );
+    await config.click('[data-testid="resolver-get"]');
+    await expect(config.locator('[data-testid="resolver-connect"]')).toBeVisible();
+
+    // The user goes and runs the program. The panel is polling; nothing else
+    // happens on this page.
+    const companion = await startCompanion({ port });
+    try {
+      await expect(config.locator('[data-testid="resolver-connected"]')).toBeVisible({
+        timeout: 30_000,
+      });
+
+      // …and with zero further clicks the display re-resolves the link it has
+      // been playing all along, through the companion, into the clip library.
+      await expect.poll(() => mediaSrc(display), { timeout: 60_000 }).toMatch(/^blob:/);
+      await expect(display.locator('.kh-video__card')).toHaveCount(0);
+      expect(await clipCount(display)).toBe(1);
+      await expect(config.locator('[data-testid="paste-flow"]')).toHaveAttribute(
+        'data-flow-stage',
+        'stored',
+        { timeout: 20_000 },
+      );
+    } finally {
+      await companion.kill();
+    }
   });
 });

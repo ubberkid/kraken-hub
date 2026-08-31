@@ -7,6 +7,8 @@ import { visualizer } from 'rollup-plugin-visualizer';
 import { defineConfig, type PluginOption } from 'vite';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
+import { normalizeRepoUrl } from './src/buildInfo';
+
 const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf8'),
 ) as { version: string; repository?: { url?: string } };
@@ -19,11 +21,7 @@ const pkg = JSON.parse(
  * still holds. Empty when the manifest names no repository — callers must cope.
  */
 function repoUrlSync(): string {
-  const raw = pkg.repository?.url ?? '';
-  return raw
-    .replace(/^git\+/, '')
-    .replace(/^git:/, 'https:')
-    .replace(/\.git$/, '');
+  return normalizeRepoUrl(pkg.repository?.url ?? '');
 }
 
 /** Short git SHA, or 'dev' outside a checkout (tarball installs, CI without git). */
@@ -201,9 +199,21 @@ export default defineConfig(() => ({
               test: /[\\/]src[\\/]modules[\\/]video[\\/]adapters[\\/](?:twitch|vimeo|streamable)\.adapter\.ts$/,
               priority: 91,
             },
+            /**
+             * `.ts` only, and that `$` is invariant I8 in one character.
+             *
+             * `resolver/` also holds the guided connect panel, which is a React
+             * component that imports `src/ui`. This group outranks `config-ui`,
+             * so an extension-agnostic test would pull the panel — and with it
+             * the whole config vocabulary — into the chunk `display.ts`
+             * dynamically imports for `resolverClient`, putting the
+             * configuration UI on the LCD's network path. Same doctrine as
+             * `module-video` above: config panels are `.tsx` and split out on
+             * their own.
+             */
             {
               name: 'provider-resolver',
-              test: /[\\/]src[\\/]modules[\\/]video[\\/](?:resolver[\\/]|adapters[\\/]resolver\.adapter\.ts$)/,
+              test: /[\\/]src[\\/]modules[\\/]video[\\/](?:resolver[\\/][^/\\\\]*\.ts$|adapters[\\/]resolver\.adapter\.ts$)/,
               priority: 91,
             },
             /**

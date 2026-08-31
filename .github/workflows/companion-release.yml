@@ -1,0 +1,193 @@
+name: companion release
+
+# Builds the standalone Windows companion and publishes it at ONE stable URL:
+#
+#   https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe
+#
+# That URL is printed in the README, in docs/getting-started.md and in the app's
+# own copy, so it must never 404. Two things keep it alive, and both matter:
+#
+#  1. `/releases/latest/` resolves to the newest NON-PRERELEASE release for the
+#     whole repository — not the newest release of this workflow. So the rolling
+#     `resolver-latest` release created here is deliberately not a prerelease,
+#     and it competes with the app's own `vX.Y.Z` releases for "latest".
+#
+#  2. ⚠️  THEREFORE: **every app release must also attach this exe.** The moment
+#     an app tag publishes a release without it, the stable download URL starts
+#     resolving to a release where that filename does not exist and every
+#     download link in the docs breaks. `release.yml` has a `companion` job that
+#     builds and attaches it for exactly this reason. Do not remove it, and if
+#     you add another workflow that creates a non-prerelease release, attach the
+#     exe there too.
+#
+# Triggers:
+#   - push of a `resolver-v*` tag → a permanent release at that tag.
+#   - workflow_dispatch          → create/refresh the rolling `resolver-latest`.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'resolver-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: companion-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build the Windows exe
+    # windows-latest, because a Node SEA is the host's own `node` binary with a
+    # blob injected into it. There is no cross-compilation: a Windows .exe can
+    # only be produced on Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # typecheck + lint + tests + tsc build. An exe built from code that does
+      # not pass its own suite is not a release candidate.
+      - name: Companion checks
+        run: npm run check --workspace kraken-hub-resolver
+        env:
+          KRAKEN_HUB_RESOLVER_NO_DOWNLOAD: '1'
+
+      - name: Build the single executable
+        run: npm run build:sea --workspace kraken-hub-resolver
+
+      # Starts the real exe on an ephemeral port and drives the real v1
+      # protocol — /health, /resolve → /job → /stream — with the stub extractor,
+      # so nothing touches the network. This is the step that catches a SEA
+      # which injected perfectly and dies on first run.
+      - name: Smoke-test the exe
+        run: npm run smoke:sea --workspace kraken-hub-resolver
+        env:
+          KRAKEN_HUB_RESOLVER_NO_DOWNLOAD: '1'
+
+      - name: Upload the exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: kraken-hub-resolver-win-x64
+          path: companion/resolver/build/sea/kraken-hub-resolver-win-x64.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the exe
+        uses: actions/download-artifact@v4
+        with:
+          name: kraken-hub-resolver-win-x64
+          path: artifact
+
+      # A tag push releases at that tag and keeps it forever. A manual dispatch
+      # moves the rolling `resolver-latest` tag to whatever commit was chosen.
+      - name: Work out the tag
+        id: target
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "title=Kraken Hub Resolver $GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "rolling=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=resolver-latest" >> "$GITHUB_OUTPUT"
+            echo "title=Kraken Hub Resolver (rolling)" >> "$GITHUB_OUTPUT"
+            echo "rolling=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # actions/checkout leaves its credentials in .git/config, so this pushes
+      # with the same token the job already has contents: write for.
+      - name: Move the rolling tag
+        if: steps.target.outputs.rolling == 'true'
+        run: |
+          git tag -f resolver-latest "$GITHUB_SHA"
+          git push -f origin refs/tags/resolver-latest
+
+      - name: Write the release notes
+        run: |
+          version="$(node -p "require('./companion/resolver/package.json').version")"
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          The standalone **kraken-hub companion** for Windows — resolver v${version}, built from \`${GITHUB_SHA}\`.
+
+          ## Install
+
+          1. Download **kraken-hub-resolver-win-x64.exe** below.
+          2. Double-click it. Windows SmartScreen will warn about an unrecognised
+             app, because this build is not code-signed — choose **More info →
+             Run anyway**.
+          3. Leave the window open. kraken-hub finds it by itself; there is
+             nothing to paste and nothing to configure.
+
+          Optional: run it once with \`--install-autostart\` to have it start at
+          logon, and \`--uninstall-autostart\` to undo that. Both write only to
+          your own \`HKCU\` Run key, so neither needs administrator rights.
+
+          Nothing here is required to use kraken-hub. With no companion running,
+          YouTube falls back to the geometry engine and everything else streams
+          as usual. Read the security posture before you install it:
+          <https://github.com/ubberkid/kraken-hub/blob/main/companion/resolver/README.md>
+
+          ## Other platforms
+
+          macOS and Linux users build it from a clone:
+          \`npm install && npm run build:sea --workspace kraken-hub-resolver\`,
+          or just run \`node companion/resolver/dist/cli.js\`.
+          EOF
+
+      # `gh release create` fails when the release already exists, so the
+      # rolling release is created-or-edited. `--clobber` on upload replaces an
+      # asset of the same name rather than erroring — which is the whole point
+      # of a rolling release.
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.target.outputs.tag }}
+          TITLE: ${{ steps.target.outputs.title }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --prerelease=false \
+              --draft=false \
+              --target "$GITHUB_SHA"
+          else
+            # Never --prerelease: /releases/latest/download/ skips prereleases,
+            # and this release exists to BE that target.
+            gh release create "$TAG" \
+              --title "$TITLE" \
+              --notes-file "$RUNNER_TEMP/notes.md" \
+              --target "$GITHUB_SHA"
+          fi
+          gh release upload "$TAG" \
+            "artifact/kraken-hub-resolver-win-x64.exe#Windows x64 standalone (no Node required)" \
+            --clobber
+
+      - name: Confirm the stable URL resolves to this build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="$(gh release view --json tagName --jq .tagName)"
+          echo "The repository's /releases/latest is now: $latest"
+          if ! gh release view "$latest" --json assets \
+               --jq '.assets[].name' | grep -qx 'kraken-hub-resolver-win-x64.exe'; then
+            echo "::error::/releases/latest ($latest) has no kraken-hub-resolver-win-x64.exe, so the documented download URL is broken. Attach the exe to that release."
+            exit 1
+          fi

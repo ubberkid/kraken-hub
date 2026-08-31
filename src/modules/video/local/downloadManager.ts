@@ -51,6 +51,14 @@ export type DownloadState = 'queued' | 'downloading' | 'storing' | 'done' | 'err
 export interface DownloadEntry {
   id: string;
   url: string;
+  /**
+   * The URL this download BELONGS to — the link the user pasted, which for the
+   * resolver path is not the URL the bytes came from (that is a loopback
+   * `/stream/<opaque>`). The config window matches the mirror against the
+   * configured source with this, so a finished or failed job from an earlier
+   * link can never be mistaken for the story of the current one.
+   */
+  sourceUrl: string;
   name: string;
   state: DownloadState;
   receivedBytes: number;
@@ -58,6 +66,14 @@ export interface DownloadEntry {
   totalBytes: number | null;
   attempt: number;
   error: string | null;
+  /**
+   * WHY it failed, in the vocabulary the code reasons in — not the browser's
+   * words. `'cors'` is the load-bearing one: it means "the bytes could not be
+   * *kept*", never "the video could not be *played*", and a UI that cannot tell
+   * the two apart ends up showing `Failed to fetch` for a video that is playing
+   * perfectly well. `null` while running and on success.
+   */
+  reason: DownloadFailureReason | null;
   clipId: string | null;
   startedAt: number;
   updatedAt: number;
@@ -84,13 +100,26 @@ export function listDownloads(): DownloadEntry[] {
   return [...entries.values()].sort((a, b) => b.startedAt - a.startedAt);
 }
 
-/** Reads the mirror written by the OTHER window (display ↔ config). */
+/**
+ * Reads the mirror written by the OTHER window (display ↔ config).
+ *
+ * The mirror survives reloads and upgrades, so an entry written by an older
+ * build has neither `sourceUrl` nor `reason`. Both are filled in here rather
+ * than at every reader: a missing `sourceUrl` is the URL itself, and a missing
+ * `reason` is "not known", which the UI must render as a plain outcome rather
+ * than guessing at CORS.
+ */
 export function readMirroredDownloads(): DownloadEntry[] {
   const raw = readRaw(DOWNLOADS_SUFFIX);
   if (raw === null) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as DownloadEntry[]) : [];
+    if (!Array.isArray(parsed)) return [];
+    return (parsed as Partial<DownloadEntry>[]).map((entry) => ({
+      ...(entry as DownloadEntry),
+      sourceUrl: entry.sourceUrl ?? entry.url ?? '',
+      reason: entry.reason ?? null,
+    }));
   } catch {
     return [];
   }
@@ -363,12 +392,14 @@ export function downloadToClip(url: string, opts: DownloadOptions = {}): Promise
   const entry: DownloadEntry = {
     id,
     url,
+    sourceUrl: opts.sourceUrl ?? url,
     name: opts.name ?? fileNameFromUrl(url),
     state: 'queued',
     receivedBytes: 0,
     totalBytes: null,
     attempt: 1,
     error: null,
+    reason: null,
     clipId: null,
     startedAt: Date.now(),
     updatedAt: Date.now(),
@@ -405,6 +436,7 @@ export function downloadToClip(url: string, opts: DownloadOptions = {}): Promise
       if (last.blob === null) {
         entry.state = last.reason === 'aborted' ? 'aborted' : 'error';
         entry.error = last.message;
+        entry.reason = last.reason;
         emit(entry, true);
         publish({
           code:
@@ -432,6 +464,7 @@ export function downloadToClip(url: string, opts: DownloadOptions = {}): Promise
       if (!stored.ok || stored.clip === null) {
         entry.state = 'error';
         entry.error = stored.message ?? 'The clip could not be stored.';
+        entry.reason = stored.failure === 'quota-exceeded' ? 'quota' : 'store-failed';
         emit(entry, true);
         return {
           ok: false,

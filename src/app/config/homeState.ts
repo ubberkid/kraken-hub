@@ -23,9 +23,12 @@
  */
 
 import { readDisplayReport } from '../../diag/report';
+import { detect } from '../../modules/video/routing/detect';
 import { LOCAL_CLIP_RE } from '../../modules/video/routing/patterns';
 import { readTeleMirror } from '../../modules/video/telemetry/videoTelemetry';
 import { DEVICE_PRESETS, type DevicePresetId } from '../../platform/devicePresets';
+
+import type { DownloadEntry } from '../../modules/video/local/downloadManager';
 
 /** Panel facts as the DISPLAY reported them. Never inferred from this window. */
 export interface DisplayFacts {
@@ -103,6 +106,130 @@ export function formatSeconds(sec: number | null | undefined): string {
   const m = Math.floor(total / SECONDS_PER_MINUTE);
   const s = total % SECONDS_PER_MINUTE;
   return `${String(m)}:${s < PAD_BELOW ? '0' : ''}${String(s)}`;
+}
+
+// ---------------------------------------------------------------------------
+// The download story
+// ---------------------------------------------------------------------------
+
+/**
+ * What the step-cards under the paste box are allowed to say.
+ *
+ * The names are outcomes, not failures, because **a download is an enhancement
+ * layered on playback and its failure is never a failure of playback**. Three of
+ * the five are terminal-and-fine:
+ *
+ *  - `streaming` — the server sent no `Access-Control-Allow-Origin`, so `fetch`
+ *    cannot READ bytes that a plain `<video src>` plays without complaint. Most
+ *    of the web is like this. The video is on the panel; only the local copy is
+ *    missing.
+ *  - `youtube-embed` — no companion, so the geometry engine is playing the
+ *    video, exactly as designed (§6.4: *"users never see a hard error for a
+ *    resolver miss"*). The card is an invitation, not a diagnosis.
+ *  - `unsaved` — something else went wrong while keeping the copy (a 500, no
+ *    room on disk). Still not an error card: the display's own fallback chain
+ *    has already put something on the panel or shown its own card.
+ *
+ * The regression this type exists to prevent: the redesign rendered a browser
+ * `TypeError` ("Failed to fetch") as the second step's copy for `streaming`, for
+ * the FIRST entry in a mirror nobody prunes — so one CORS-less link left every
+ * later paste, YouTube included, looking broken.
+ */
+export type FlowStage = 'downloading' | 'stored' | 'streaming' | 'unsaved' | 'youtube-embed';
+
+export interface FlowState {
+  stage: FlowStage;
+  /** `null` for `youtube-embed`, which is a story about a download NOT started. */
+  entry: DownloadEntry | null;
+}
+
+/**
+ * The download entry that belongs to `url` — and only to `url`.
+ *
+ * Matched on `sourceUrl` as well as `url` because the resolver path fetches a
+ * loopback `/stream/<opaque>` on the user's behalf; the job is still the story
+ * of the YouTube link they pasted. Entries arrive newest-first
+ * (`listDownloads()` sorts by `startedAt`), so the first match is the current
+ * attempt.
+ */
+export function pickDownloadEntry(
+  url: string,
+  entries: readonly DownloadEntry[],
+): DownloadEntry | null {
+  const target = url.trim();
+  if (target === '') return null;
+  return entries.find((e) => e.sourceUrl === target || e.url === target) ?? null;
+}
+
+/**
+ * The whole paste-flow state machine, as one pure function.
+ *
+ * `null` means "say nothing", which is the honest answer far more often than
+ * the redesign assumed: a local clip, the demo, a source with no download story
+ * to tell, or a job the user cancelled.
+ */
+export function describeFlow(input: {
+  url: string;
+  entries: readonly DownloadEntry[];
+  /** From the DISPLAY's telemetry — this window never probes the companion. */
+  resolverHealthy: boolean;
+}): FlowState | null {
+  const url = input.url.trim();
+  if (url === '' || LOCAL_CLIP_RE.test(url)) return null;
+
+  const entry = pickDownloadEntry(url, input.entries);
+  if (entry !== null) {
+    switch (entry.state) {
+      case 'queued':
+      case 'downloading':
+      case 'storing':
+        return { stage: 'downloading', entry };
+      case 'done':
+        return { stage: 'stored', entry };
+      case 'error':
+        return { stage: entry.reason === 'cors' ? 'streaming' : 'unsaved', entry };
+      default:
+        // `aborted` — the user asked for it to stop, and a card explaining what
+        // they just did to themselves is noise.
+        return null;
+    }
+  }
+
+  // No job, because none was ever startable: a YouTube page URL is not
+  // something `fetch` can turn into a file, and without the companion nothing
+  // can. That is a state worth NAMING — the video is playing through the embed
+  // and one program away from being a permanent, ad-free local copy.
+  if (!input.resolverHealthy && detect(url).provider === 'youtube-embed') {
+    return { stage: 'youtube-embed', entry: null };
+  }
+  return null;
+}
+
+/** True only while the DISPLAY's own telemetry says the companion answered. */
+export function resolverHealthyFromTele(
+  packet: { resolver?: { healthy: boolean } } | null,
+): boolean {
+  return packet?.resolver?.healthy === true;
+}
+
+/**
+ * A human sentence for a download that could not be kept, in OUR words.
+ *
+ * Never `err.message`: "Failed to fetch" is Chrome telling a programmer that a
+ * promise rejected, and putting it on the home screen is how a working video
+ * comes to look like a broken one.
+ */
+export function failureLine(entry: DownloadEntry | null): string {
+  switch (entry?.reason) {
+    case 'quota':
+      return 'There is no room left on this PC for a copy, so your Kraken is playing it from the link.';
+    case 'network':
+      return 'The download did not finish, so your Kraken is playing it from the link.';
+    case 'store-failed':
+      return 'The copy could not be saved to this PC, so your Kraken is playing it from the link.';
+    default:
+      return 'A copy could not be kept, so your Kraken is playing it from the link.';
+  }
 }
 
 /**

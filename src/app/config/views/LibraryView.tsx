@@ -221,9 +221,17 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
                 <li className="kh-clip" key={d.id}>
                   <div className="kh-clip__meta">
                     <div className="kh-clip__name">{d.name}</div>
+                    {/*
+                      A CORS refusal is a fact about the SERVER, not a failure of
+                      this app: the display streams the video either way. Saying
+                      "error — Failed to fetch" here (the browser's words, for a
+                      video that is playing) is the same mistake the home screen's
+                      step-cards made, so this list speaks the same language.
+                    */}
                     <div className="kh-clip__detail">
-                      {d.state}
-                      {d.error === null ? '' : ` — ${d.error}`}
+                      {d.reason === 'cors'
+                        ? 'streaming — this server does not allow saving a copy'
+                        : `${d.state}${d.error === null ? '' : ` — ${d.error}`}`}
                     </div>
                     <Meter
                       pct={pct}

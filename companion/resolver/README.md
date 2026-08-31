@@ -15,23 +15,55 @@ behind them.
 
 ## Run it
 
-```bash
-npx kraken-hub-resolver
+### Windows — the standalone exe
+
+**[kraken-hub-resolver-win-x64.exe](https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe)** — download, double-click, done.
+
+That is the whole install. It is a single file with the Node runtime baked into
+it, so nothing else has to be present on the machine. It binds
+`http://127.0.0.1:8976`, and the app finds it by itself: kraken-hub health-checks
+the port once, silently, and starts routing YouTube links through it. Nothing to
+paste, nothing to configure.
+
+Windows SmartScreen will warn about an unrecognised app the first time, because
+the build is not code-signed — **More info → Run anyway**. The exe is built and
+smoke-tested in public CI ([`.github/workflows/companion-release.yml`](../../.github/workflows/companion-release.yml));
+if you would rather not trust a binary, build your own with `npm run build:sea`.
+
+Closing the window stops the companion. To start it at logon instead:
+
+```
+kraken-hub-resolver-win-x64.exe --install-autostart
+kraken-hub-resolver-win-x64.exe --uninstall-autostart
 ```
 
-That is the whole install. It binds `http://127.0.0.1:8976`, and the app finds it
-by itself: kraken-hub health-checks the port once, silently, and starts routing
-YouTube links through it. Nothing to paste, nothing to configure.
+That writes (and removes) one `REG_SZ` value under
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, pointing at the exe you ran
+it from. `HKCU` is your own hive, so it never asks for administrator rights, and
+it is the same key you can inspect in `regedit` yourself. Autostart is Windows
+only — CAM is a Windows product, and on macOS or Linux the flag prints a note and
+does nothing.
 
-From a clone of this repo:
+### macOS, Linux, or from a clone
+
+There is no prebuilt binary for other platforms and **no `npx` install**: the
+package is not published to npm today. That may change later; until it does, run
+it from a clone:
 
 ```bash
 npm install
-npm run build --workspace kraken-hub-resolver
+npm run build:companion
 node companion/resolver/dist/cli.js
 ```
 
-**Requirements:** Node ≥ 20. `yt-dlp` is found in this order: an explicit
+Or build the same kind of standalone binary for your own platform:
+
+```bash
+npm run build:sea --workspace kraken-hub-resolver   # → companion/resolver/build/sea/
+npm run smoke:sea --workspace kraken-hub-resolver   # starts it and drives the v1 protocol
+```
+
+**Requirements (from a clone):** Node ≥ 20. The exe needs nothing at all. `yt-dlp` is found in this order: an explicit
 `--yt-dlp <path>`, then a working `yt-dlp` on your `PATH` (probed with
 `--version`), then a previously auto-downloaded copy, then a checksum-verified
 download (see below). `ffmpeg` is optional — with it, sources
@@ -50,6 +82,9 @@ best _progressive_ rendition ≤ `maxHeight` is used instead of failing.
 | `--yt-dlp <path>`    | `PATH`, else download | Use a specific yt-dlp. Otherwise `PATH` wins over the download. |
 | `--ffmpeg <path>`    | auto (`which ffmpeg`) | Use a specific ffmpeg for muxing.                               |
 | `--log-level <l>`    | `info`                | `silent` \| `error` \| `warn` \| `info` \| `debug`.             |
+
+Plus two Windows-only actions that do not start the server:
+`--install-autostart` and `--uninstall-autostart` (see above).
 
 The default cache directory is `~/Library/Caches/kraken-hub-resolver` on macOS,
 `%LOCALAPPDATA%\kraken-hub-resolver\Cache` on Windows and

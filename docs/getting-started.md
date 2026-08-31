@@ -179,11 +179,33 @@ in [remote-control.md](remote-control.md).
 
 ## Step 5 — optional: ad-free, full-quality YouTube
 
+**[Download kraken-hub-resolver-win-x64.exe](https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe)**, then double-click it.
+
+That is the whole setup: one file, no Node, no installer. Two things to expect
+the first time —
+
+- **SmartScreen.** Windows will say it "protected your PC" because the build is
+  not code-signed. Choose **More info → Run anyway**. (Signing costs money this
+  project does not have; the source and the build workflow are both public, and
+  you can build the exe yourself with `npm run build:sea --workspace kraken-hub-resolver`.)
+- **Leave the window open.** Closing it stops the companion. To have it start at
+  logon instead, run it once as `kraken-hub-resolver-win-x64.exe --install-autostart`
+  — that writes one value to your own `HKCU` Run key, needs no administrator
+  rights, and `--uninstall-autostart` takes it back out.
+
+On **macOS or Linux**, or if you would rather build it yourself, run it from a
+clone of the repo:
+
 ```bash
-npx kraken-hub-resolver
+npm install
+npm run build:companion
+node companion/resolver/dist/cli.js
 ```
 
-That is the whole setup. The companion is a small Node program that runs on your
+There is no `npx` install today — the package is not on npm, and that may change
+later. The download above is the supported path.
+
+The companion is a small program that runs on your
 own PC, binds `127.0.0.1` and nothing else, and turns a pasted link into a plain
 video file the app can fetch. kraken-hub finds it by itself with one silent
 health check; a YouTube URL then downloads into your clip library and plays like

@@ -138,14 +138,23 @@ because it is the evidence that justifies the fallback existing. Please report i
 
 ## The companion is not detected
 
-**Symptom.** You are running `npx kraken-hub-resolver` but YouTube still plays
-through the geometry engine, and the video module's **Local downloader** card
-reads _Not detected_ rather than _Downloader detected_.
+**Symptom.** The companion is running but YouTube still plays through the
+geometry engine, and the video module's **Local downloader** card reads
+_Not detected_ rather than _Downloader detected_.
 
 **Causes.**
 
-- **It is not actually running**, or it exited. Check its terminal;
-  `curl http://127.0.0.1:8976/health` should return JSON.
+- **It is not actually running**, or it exited. Its window prints a banner
+  ending in "kraken-hub will detect this automatically" while it is up; closing
+  that window stops it. `curl http://127.0.0.1:8976/health` should return JSON.
+- **SmartScreen ate it.** On Windows the unsigned exe shows "Windows protected
+  your PC" and does nothing until you pick **More info → Run anyway**. If you
+  dismissed that dialog, the companion never started.
+- **You are looking for an `npx` command.** There isn't one — the package is not
+  published to npm. On Windows, download
+  [kraken-hub-resolver-win-x64.exe](https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe);
+  elsewhere, run `npm install && npm run build:companion && node companion/resolver/dist/cli.js`
+  from a clone.
 - **A different port.** The default is `8976`. If you started it with `--port`,
   set the same port under **Local downloader → Advanced**.
 - **A token is set on one side only.** `--token` locks the companion; the app has

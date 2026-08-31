@@ -19,7 +19,10 @@ import tseslint from 'typescript-eslint';
  *    loopback helper in `server.ts`.
  */
 export default defineConfig(
-  globalIgnores(['dist/**', 'node_modules/**', 'coverage/**']),
+  // `build/**` is the single-executable output; `scripts/**` is packaging glue
+  // that runs under plain Node and is outside every tsconfig, so the
+  // type-aware rules have no program to check it against.
+  globalIgnores(['dist/**', 'build/**', 'node_modules/**', 'coverage/**', 'scripts/**']),
 
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,

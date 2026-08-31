@@ -45,8 +45,10 @@ prints nothing but this file.)
       leave it empty and they render as nothing, which is the deliberate
       fallback. → `git+https://github.com/ubberkid/kraken-hub.git`
 - [x] **`companion/resolver/package.json` → `repository.url`.** Same string. It
-      also appears in the package the user runs as `npx kraken-hub-resolver`, so
-      it is the link an npm page shows.
+      also appears in the companion's own package metadata, so it is the link an
+      npm page would show if this were ever published. (It is not: the companion
+      ships as a standalone `.exe` attached to a GitHub release, and nothing in
+      the docs promises an `npx` install.)
 - [x] **`README.md`** — the three badge URLs, the CI badge's workflow path, and
       both one-click CAM install links (CAM and CAM Beta). The **SET YOUR REPO**
       comment block has been deleted. The "Not published yet" NOTE stays until

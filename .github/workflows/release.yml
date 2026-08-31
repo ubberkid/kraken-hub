@@ -21,8 +21,52 @@ permissions:
   contents: read
 
 jobs:
+  # ⚠️  Do not delete this job.
+  #
+  # The documented companion download is a stable URL:
+  #   /releases/latest/download/kraken-hub-resolver-win-x64.exe
+  # and GitHub resolves `/releases/latest/` to the newest NON-PRERELEASE release
+  # for the whole repository. An app release is such a release, so the moment a
+  # `vX.Y.Z` release ships without the exe attached, it becomes "latest" and
+  # every download link in the README and the docs 404s.
+  #
+  # So: every app release carries the companion exe too. It is built here rather
+  # than copied from the rolling `resolver-latest` release, so the binary
+  # attached to a tag is built from that tag's own source.
+  companion:
+    name: companion exe (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the single executable
+        run: npm run build:sea --workspace kraken-hub-resolver
+
+      - name: Smoke-test the exe
+        run: npm run smoke:sea --workspace kraken-hub-resolver
+        env:
+          KRAKEN_HUB_RESOLVER_NO_DOWNLOAD: '1'
+
+      - name: Upload the exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: kraken-hub-resolver-win-x64
+          path: companion/resolver/build/sea/kraken-hub-resolver-win-x64.exe
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: release
+    needs: companion
     runs-on: ubuntu-latest
     permissions:
       # The only elevated permission in the repository, scoped to this one job:
@@ -59,6 +103,12 @@ jobs:
             exit 1
           fi
 
+      - name: Download the companion exe
+        uses: actions/download-artifact@v4
+        with:
+          name: kraken-hub-resolver-win-x64
+          path: companion-exe
+
       - name: Extract the changelog section
         run: node scripts/changelog-section.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes.md"
 
@@ -82,4 +132,21 @@ jobs:
             --notes-file "$RUNNER_TEMP/notes.md" \
             --verify-tag \
             $prerelease \
-            "$RUNNER_TEMP/kraken-hub-$GITHUB_REF_NAME.zip#Built site (dist)"
+            "$RUNNER_TEMP/kraken-hub-$GITHUB_REF_NAME.zip#Built site (dist)" \
+            "companion-exe/kraken-hub-resolver-win-x64.exe#Companion for Windows x64 (optional, no Node required)"
+
+      # A stable-URL regression is invisible until someone clicks the README
+      # link, so it is asserted here instead of discovered later. Only a
+      # non-prerelease can become "latest", so the check is skipped for one.
+      - name: Confirm /releases/latest still serves the companion exe
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="$(gh release view --json tagName --jq .tagName)"
+          echo "The repository's /releases/latest is now: $latest"
+          if ! gh release view "$latest" --json assets \
+               --jq '.assets[].name' | grep -qx 'kraken-hub-resolver-win-x64.exe'; then
+            echo "::error::/releases/latest ($latest) has no kraken-hub-resolver-win-x64.exe, so the documented download URL is broken."
+            exit 1
+          fi

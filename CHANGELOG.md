@@ -29,6 +29,41 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Added
 
+- **“Get the downloader” — the guided connect panel.**
+  (`src/modules/video/resolver/ResolverConnectPanel.tsx`.) The resolver
+  companion is optional and always will be, but _optional_ had become _hidden_:
+  its only mention lived three disclosures deep in the video settings, so the
+  ad-free permanent local copy — the best thing this product does — was
+  effectively unshipped for anyone who had not read the README. The no-companion
+  YouTube card and the video panel's “Not detected” card now both carry a
+  primary CTA (`data-testid="resolver-get"`) that opens it.
+  - **One download button.** NZXT CAM is a Windows application, so the PC with a
+    Kraken attached is a Windows PC; everyone else is a developer and gets the
+    copyable `npx kraken-hub-resolver` line. The link is
+    `…/releases/latest/download/kraken-hub-resolver-win-x64.exe`, built by
+    `releaseAssetUrl()` in `src/buildInfo.ts` from `package.json`'s
+    `repository.url` — so a fork offers its own build and invariant I4 holds —
+    through GitHub's `latest` redirect, so it never needs a version number. The
+    asset itself is built by a follow-up change; the link resolves once it is.
+  - **The SmartScreen warning, in advance.** An unsigned open-source binary
+    trips Windows' reputation check, and a user who meets that dialog with no
+    warning concludes the app is malware. The steps say it before it happens.
+  - **Live detection, then it just happens.** While the panel is open the
+    companion is probed every 2 s with the 60 s health memo dropped each time.
+    On the first healthy answer the panel flips to _Connected ✓_ and writes one
+    timestamp to `kraken-hub:v1:video:resolver:ping`
+    (`src/modules/video/resolver/resolverPing.ts`); the **display** window —
+    which is where the video is, and which memoized “no companion” before the
+    user installed one — drops its own memo and re-resolves the source it is
+    already playing. The link pasted before installing anything downloads and
+    plays with nothing to press and nothing to paste again. Proved end to end
+    against the real companion process in `tests/e2e/companion.spec.ts`.
+  - `vite.config.ts`: the `provider-resolver` chunk group now matches `.ts$`
+    only. That `$` is invariant I8 in one character — the group outranks
+    `config-ui`, so without it the new `.tsx` panel (and with it the whole config
+    vocabulary) would have been pulled into the chunk `display.ts` imports for
+    `resolverClient`, putting the configuration UI on the LCD's network path.
+
 - **“Halo” — the configuration UI, rebuilt around the screen itself.** The
   approved design direction is
   [`docs/design/halo-prototype.html`](docs/design/halo-prototype.html) (“Halo”,
@@ -396,6 +431,45 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
   purely additive, so an interrupted `versionchange` cannot leave the existing
   video library half-migrated, and no video query has to filter on `kind`
   forever.
+- **The companion now ships as a standalone Windows executable** — one file,
+  with the Node runtime inside it, at a permanent URL:
+  `/releases/latest/download/kraken-hub-resolver-win-x64.exe`. The previous
+  instruction everywhere was `npx kraken-hub-resolver`, which asked a user who
+  wants ad-free video on an LCD to first install Node, and which 404s regardless
+  because the package was never published. Built with Node's Single Executable
+  Application support (`companion/resolver/sea-config.json`,
+  `scripts/build-sea.mjs`): `tsc` as usual, then esbuild collapses `dist/` into
+  the one CommonJS file SEA requires — a format conversion, not an optimisation,
+  and nothing external is pulled in because the package still has zero runtime
+  dependencies — then the blob is injected into a copy of the host's own `node`
+  with `postject`. `npm run smoke:sea` starts the built binary on an ephemeral
+  port and drives the real v1 protocol against it (`/health`, `/resolve` →
+  `/job` → `/stream`, unknown id → 404) with the stub extractor, because a SEA
+  can be injected perfectly and still die on its first `require`.
+- **`--install-autostart` / `--uninstall-autostart` on the companion CLI**
+  (`companion/resolver/src/autostart.ts`). Windows only, by product decision:
+  CAM is a Windows application. One `REG_SZ` value under
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, written with the
+  `reg.exe` that ships in every Windows — no native dependency, no shortcut
+  parsing, and `HKCU` means it never asks for administrator rights. The value
+  points at whatever executable invoked it, so the standalone exe registers
+  itself and a `node dist/cli.js` checkout registers both paths, each quoted.
+  Command construction is a pure module and the tests assert the exact argv;
+  `reg.exe` is never executed in a test. On macOS and Linux the flags print
+  "run it manually" and exit 0.
+- **A startup banner.** Someone who double-clicked an exe gets a window that
+  says the port, that "kraken-hub will detect this automatically", that closing
+  the window stops it, and that `--install-autostart` exists. The structured log
+  lines are still there underneath for whoever has to debug it later.
+- **`.github/workflows/companion-release.yml`** — builds the exe on
+  `windows-latest` (there is no cross-compiling a SEA), runs the companion's own
+  suite, smoke-tests the binary, and publishes it. A `resolver-v*` tag makes a
+  permanent release; a manual dispatch moves a rolling `resolver-latest`
+  release. Deliberately never a prerelease, because `/releases/latest/` skips
+  those and this release exists to be that target. Both this workflow and
+  `release.yml` end by asserting that whatever `/releases/latest` now resolves
+  to actually carries the exe — a broken download link is otherwise invisible
+  until someone clicks it.
 
 ### Changed
 
@@ -573,8 +647,67 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
   matches `.ts$` only, so each `*.tsx` panel had been landing in its own orphan
   chunk — an extra round trip per module, on the page where a round trip is
   least useful.
+- **Every documented way to install the companion, swept for a promise that
+  does not resolve.** `npx kraken-hub-resolver` appeared in `README.md`,
+  `docs/getting-started.md`, `docs/resolver-protocol.md`,
+  `docs/troubleshooting.md` and `companion/resolver/README.md`, and none of it
+  worked: the package is not on npm. The primary instruction is now the exe
+  download, with the SmartScreen "More info → Run anyway" step stated up front
+  rather than left as a surprise, and the autostart tip next to it. The
+  developer path — `npm install && npm run build:companion && node
+companion/resolver/dist/cli.js` — is the documented fallback for macOS, Linux
+  and anyone building from source. Publishing to npm may still happen; until it
+  does, nothing promises it.
+- **`release.yml` now builds and attaches the companion exe to every app
+  release.** Not a nicety: GitHub resolves `/releases/latest/` to the newest
+  non-prerelease release for the _whole repository_, so the first `vX.Y.Z`
+  release shipped without the exe would silently break the download URL printed
+  in the README and in the app itself. The job header says so, and the release
+  step verifies it.
 
 ### Fixed
+
+- **Every pasted link looked like an error, and none of them were.** Reported
+  verbatim as _“Any youtube or direct link I put in there just gives me an error
+  saying it can't do it. Saying it can't do a cross origin read.”_ The display
+  was playing all of them; what had broken was the story the home screen told
+  about them. Three faults, all in the Halo redesign's step cards:
+  - **The mirror was read as a queue.** `DownloadFlow` picked
+    `entries.find(e => e.state !== 'done' && e.state !== 'aborted')` — which
+    matches a **failed** entry — from a `kraken-hub:v1:video:downloads` ring that
+    nothing prunes, and the entry was never checked against the URL that is
+    actually configured. One CORS-less MP4 therefore poisoned every later paste
+    for good: reproduced with three pastes in a row, where a YouTube link and a
+    download that genuinely **succeeded** both rendered the first link's failure.
+    `describeFlow()` in `src/app/config/homeState.ts` now keys the story on the
+    configured URL (matching `sourceUrl` as well as `url`, so the resolver's
+    loopback fetch is still filed under the link the user pasted), and is a pure
+    function with its own tests.
+  - **A browser `TypeError` was user-facing copy.** The failed step rendered
+    `entry.error` — literally `Failed to fetch` — under “Saving to your Kraken”.
+    A CORS refusal is a fact about the _server_, not a failure of playback: a
+    plain `<video src>` needs no CORS at all, which is why `downloadManager`
+    classifies it as `'cors'`, records `download-cors-blocked` at **warn**, and
+    the display streams on. `DownloadEntry` now carries that `reason` (and its
+    `sourceUrl`) across the mirror, so the config windows can tell an expected
+    downgrade from a real fault. The terminal states are honest and never red:
+    _“Streaming from the link — this server does not allow saving a copy”_, and
+    the third step still lights, because the video **is** on screen.
+  - **A YouTube link with no companion told no story at all.** It now gets an
+    accent-toned card — _“Playing through YouTube”_ — that says a local copy is
+    one program away, instead of leaving the best thing the app does undiscovered.
+  - `src/app/config/views/LibraryView.tsx` spoke the same browser-error dialect
+    in its “Downloading now” list; it now says _“streaming — this server does not
+    allow saving a copy”_ for `reason === 'cors'`.
+  - Pinned by `tests/e2e/paste-flow.spec.ts`: a YouTube link, a CORS-less MP4 and
+    a CORS-clean MP4 (the last two served by real Node servers on real ports,
+    because CORS is the whole subject), each asserting that the display reaches
+    playback, that **no error card** appears, and that the step cards say the
+    right terminal thing — plus the reported sequence, where a failure from an
+    earlier link must not become the story of the next one.
+  - `tests/e2e/companion.spec.ts` now types the URL into the home screen's paste
+    box instead of seeding it into `localStorage`. Seeding it is how that suite
+    stayed green through this regression.
 
 - **MQTT never connected on real hardware: an ESM/CJS interop break the test
   suite structurally could not see.** The first hardware report from a Kraken

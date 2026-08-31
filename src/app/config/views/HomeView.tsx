@@ -11,6 +11,7 @@ import {
   readMirroredDownloads,
   type DownloadEntry,
 } from '../../../modules/video/local/downloadManager';
+import { ResolverConnectPanel } from '../../../modules/video/resolver/ResolverConnectPanel';
 import {
   primaryIssue,
   validateUrl,
@@ -23,11 +24,15 @@ import { withModuleConfig } from '../../../state/selectors';
 import { Meter, Notice } from '../../../ui';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import {
+  describeFlow,
+  failureLine,
   formatSeconds,
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
+  resolverHealthyFromTele,
   sourceName,
+  type FlowState,
 } from '../homeState';
 
 import { CamSetupCard } from './CamSetupCard';
@@ -139,6 +144,8 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
   const [draft, setDraft] = useState('');
   const [issue, setIssue] = useState<ValidationIssue | null>(null);
   const [openOps, setOpenOps] = useState(false);
+  /** The guided connect panel, opened by "Get the downloader". */
+  const [connectOpen, setConnectOpen] = useState(false);
   /** The control the last-pressed inline op named, until it has been focused. */
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
   const setupDone = hasDisplayBeenSeen();
@@ -203,6 +210,14 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
 
   const ops = describeOps(activeId, state);
   const status = describeStatus({ activeId, tele, videoCfg, clipNames, now });
+  const flow =
+    activeId === videoModule.id
+      ? describeFlow({
+          url: videoCfg.url,
+          entries: downloads,
+          resolverHealthy: resolverHealthyFromTele(tele),
+        })
+      : null;
 
   return (
     <section className="kh-home" data-testid="home">
@@ -288,7 +303,26 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
         </div>
       )}
 
-      <DownloadFlow entries={downloads} />
+      {flow !== null && (
+        <DownloadFlow
+          flow={flow}
+          url={videoCfg.url}
+          onGetDownloader={() => {
+            setConnectOpen(true);
+          }}
+        />
+      )}
+
+      {connectOpen && (
+        <div className="kh-home__connect">
+          <ResolverConnectPanel
+            resolver={videoCfg.resolver}
+            onClose={() => {
+              setConnectOpen(false);
+            }}
+          />
+        </div>
+      )}
 
       <div className="kh-mods" role="group" aria-label="What's on the screen">
         {modules.map((m) => (
@@ -371,53 +405,113 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
  * Driven by the real `kraken-hub:v1:video:downloads` mirror, which the DISPLAY
  * writes while it fetches: CAM's two browsers share a storage partition, so
  * this window watches a download running in the other one with zero network.
- * Nothing is rendered when nothing has been downloaded.
+ *
+ * **What this component is not allowed to do**, and got wrong once (see
+ * `homeState.FlowStage`): treat a download that did not happen as a video that
+ * did not play. A download is an enhancement on top of playback. Every terminal
+ * state below is therefore an *outcome* — kept locally, streaming instead,
+ * playing through YouTube — and the only red card in the product stays where it
+ * belongs, on the display, for a link that genuinely cannot be played.
+ *
+ * Which entry the story is about is decided by `describeFlow`, keyed on the URL
+ * that is configured RIGHT NOW. The mirror is a ring nobody prunes, so a job
+ * from a link three pastes ago is not this link's story.
  */
-function DownloadFlow({ entries }: { entries: readonly DownloadEntry[] }) {
-  const active = entries.find((e) => e.state !== 'done' && e.state !== 'aborted');
-  const entry = active ?? entries[0];
-  if (entry === undefined || entry.state === 'aborted') return null;
-
-  const pct = progressPct(entry);
-  const stored = entry.state === 'done';
-  const failed = entry.state === 'error';
+function DownloadFlow({
+  flow,
+  url,
+  onGetDownloader,
+}: {
+  flow: FlowState;
+  url: string;
+  onGetDownloader: () => void;
+}) {
+  const { stage, entry } = flow;
+  const pct = entry === null ? null : progressPct(entry);
+  // Everything except an in-flight download is finished business: the video is
+  // on the panel, whatever happened to the copy.
+  const settled = stage !== 'downloading';
 
   return (
-    <ol className="kh-flow" data-testid="paste-flow">
+    <ol className="kh-flow" data-testid="paste-flow" data-flow-stage={stage}>
       <li className="kh-step kh-step--on">
         <span className="kh-step__ic" aria-hidden="true">
           ▶
         </span>
         <span className="kh-step__text">
-          <b>{detectedHeadline(entry.url)}</b>
-          <small>{entry.name}</small>
+          <b>{detectedHeadline(entry?.sourceUrl ?? url)}</b>
+          <small>{entry?.name ?? sourceLabel(url)}</small>
         </span>
       </li>
-      <li className={entry.state === 'queued' ? 'kh-step' : 'kh-step kh-step--on'}>
-        <span className="kh-step__ic" aria-hidden="true">
-          ↓
-        </span>
-        <span className="kh-step__text">
-          <b>Saving to your Kraken</b>
-          <small>
-            {failed
-              ? (entry.error ?? 'Could not download — playing from the link instead.')
-              : downloadingLine(entry, pct)}
-          </small>
-          {!failed && <Meter pct={pct} />}
-        </span>
-      </li>
-      <li className={stored ? 'kh-step kh-step--on' : 'kh-step'}>
+
+      {stage === 'youtube-embed' ? (
+        <li className="kh-step kh-step--on kh-step--offer" data-testid="paste-step-downloader">
+          <span className="kh-step__ic" aria-hidden="true">
+            ↓
+          </span>
+          <span className="kh-step__text">
+            <b>Playing through YouTube</b>
+            <small>
+              Ads and all. A local copy needs the downloader — a small program on this PC that
+              fetches the video once and then plays it forever, ad-free.
+            </small>
+            <div className="kh-step__actions">
+              <button
+                type="button"
+                className="kh-btn kh-btn--primary"
+                data-testid="resolver-get"
+                onClick={onGetDownloader}
+              >
+                Get the downloader
+              </button>
+            </div>
+          </span>
+        </li>
+      ) : (
+        <li
+          className={
+            stage === 'downloading' && entry?.state === 'queued' ? 'kh-step' : 'kh-step kh-step--on'
+          }
+        >
+          <span className="kh-step__ic" aria-hidden="true">
+            ↓
+          </span>
+          <span className="kh-step__text">
+            <b>
+              {stage === 'stored' || stage === 'downloading'
+                ? 'Saving to your Kraken'
+                : 'Streaming from the link'}
+            </b>
+            <small>
+              {stage === 'streaming'
+                ? 'This server does not allow saving a copy, so your Kraken is playing it straight from the web.'
+                : stage === 'unsaved'
+                  ? failureLine(entry)
+                  : entry === null
+                    ? ''
+                    : downloadingLine(entry, pct)}
+            </small>
+            {(stage === 'downloading' || stage === 'stored') && <Meter pct={pct} />}
+          </span>
+        </li>
+      )}
+
+      <li className={settled ? 'kh-step kh-step--on' : 'kh-step'}>
         <span className="kh-step__ic" aria-hidden="true">
           ✓
         </span>
         <span className="kh-step__text">
           <b>On screen now</b>
-          <small>Kept in your library</small>
+          <small>{stage === 'stored' ? 'Kept in your library' : 'Playing on your Kraken'}</small>
         </span>
       </li>
     </ol>
   );
+}
+
+/** The first step's second line before any job exists to name the file. */
+function sourceLabel(url: string): string {
+  return sourceName(url, new Map());
 }
 
 const BYTES_PER_MB = 1_048_576;

@@ -18,8 +18,10 @@ _additive and optional_ so that a v1 client keeps working against a v2 companion
 and vice versa.
 
 > **The reference implementation ships in [`companion/resolver`](../companion/resolver/README.md)**
-> — an npm workspace in this repo, published as `kraken-hub-resolver` and run
-> with `npx kraken-hub-resolver`. The contract was frozen before either side was
+> — an npm workspace in this repo, shipped to end users as a single standalone
+> Windows executable
+> ([download](https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe)),
+> and run from a clone everywhere else. The contract was frozen before either side was
 > written, precisely so that the two could be built independently — and so that
 > anyone else can write a compatible companion. Its test suite runs the real
 > server against the web app's own parsers, imported across the workspace, so
@@ -212,8 +214,11 @@ mitigations below exist because that is true, not to make it sound smaller.
 What [`companion/resolver/`](../companion/resolver/README.md) does — stated here
 so an independent implementation can match it:
 
-- **Node ≥ 20 CLI**, `npx kraken-hub-resolver`, Windows/macOS/Linux. CAM is a
-  Windows application, so Windows is a first-class target, not a port.
+- **Node ≥ 20 CLI**, Windows/macOS/Linux. CAM is a Windows application, so
+  Windows is a first-class target, not a port — and it is the only platform that
+  gets a prebuilt artifact: a single standalone `.exe` with the Node runtime
+  inside it, so a user needs no toolchain. Elsewhere the CLI is run from a clone.
+  (Nothing in this contract depends on how the companion is packaged.)
 - Wraps **yt-dlp**, preferring `--yt-dlp <path>`, then a working copy on `PATH`,
   and only then auto-downloading the platform binary **with checksum
   verification**.
@@ -223,7 +228,9 @@ so an independent implementation can match it:
   request for minutes.
 - **LRU disk cache**, default 4 GB, in the OS cache directory, with eviction.
 - Flags: `--port`, `--cache-dir`, `--token`, plus `--max-cache-gb`,
-  `--max-height`, `--yt-dlp`, `--ffmpeg`, `--log-level`.
+  `--max-height`, `--yt-dlp`, `--ffmpeg`, `--log-level`. Two further flags are
+  packaging, not protocol: `--install-autostart` / `--uninstall-autostart`
+  (Windows only) manage a per-user `HKCU` Run entry and exit without listening.
 - Maps every failure onto the closed error enum above.
 
 **Status: shipped.** All of it is verified by

@@ -6,12 +6,17 @@ import { removeRaw, writeRaw } from '../../platform/storage';
 
 import {
   LOW_FPS_THRESHOLD,
+  describeFlow,
+  failureLine,
   formatSeconds,
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
+  resolverHealthyFromTele,
   sourceName,
 } from './homeState';
+
+import type { DownloadEntry } from '../../modules/video/local/downloadManager';
 
 /** A report is only trusted when the DISPLAY wrote it — see `readDisplayFacts`. */
 function seedReport(device: Record<string, unknown>, mode = 'display'): void {
@@ -110,6 +115,127 @@ describe('formatSeconds', () => {
     expect(formatSeconds(null)).toBe('—');
     expect(formatSeconds(Number.NaN)).toBe('—');
     expect(formatSeconds(-1)).toBe('—');
+  });
+});
+
+/**
+ * The regression these pin, in the words of the person who reported it: *"Any
+ * youtube or direct link I put in there just gives me an error saying it can't
+ * do it. Saying it can't do a cross origin read."*
+ *
+ * Nothing was broken about playback — the display was playing every one of
+ * those links. The home screen was showing the FIRST entry of an unpruned
+ * download mirror, forever, with the browser's own `TypeError` as its copy. One
+ * CORS-less MP4 therefore made every later paste look like a failure, including
+ * a YouTube link that never starts a download at all and a later download that
+ * actually succeeded.
+ */
+describe('describeFlow', () => {
+  const MP4 = 'https://cdn.example.test/clip.mp4';
+  const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+  function entry(over: Partial<DownloadEntry> = {}): DownloadEntry {
+    return {
+      id: 'a',
+      url: MP4,
+      sourceUrl: MP4,
+      name: 'clip.mp4',
+      state: 'downloading',
+      receivedBytes: 10,
+      totalBytes: 100,
+      attempt: 1,
+      error: null,
+      reason: null,
+      clipId: null,
+      startedAt: 1,
+      updatedAt: 2,
+      ...over,
+    };
+  }
+
+  const noCompanion = { resolverHealthy: false };
+
+  it('says nothing at all for the demo, a local clip, or an empty box', () => {
+    expect(describeFlow({ url: '', entries: [], ...noCompanion })).toBeNull();
+    expect(
+      describeFlow({ url: 'kraken-hub-clip:abcd1234', entries: [], ...noCompanion }),
+    ).toBeNull();
+  });
+
+  it('tells the story of the CURRENT url, never of a job three pastes ago', () => {
+    const stale = entry({ state: 'error', reason: 'cors', error: 'Failed to fetch' });
+    // The exact shape of the bug: a dead entry for another link, and a YouTube
+    // url on screen. It must not borrow that entry's failure.
+    const flow = describeFlow({ url: YT, entries: [stale], ...noCompanion });
+    expect(flow?.stage).toBe('youtube-embed');
+    expect(flow?.entry).toBeNull();
+  });
+
+  it('does not let a failed entry outrank a newer successful one', () => {
+    const done = entry({ id: 'b', state: 'done', clipId: 'c1', startedAt: 9 });
+    const failed = entry({ id: 'a', state: 'error', reason: 'cors', startedAt: 1 });
+    // Newest first, the order `listDownloads()` publishes.
+    expect(describeFlow({ url: MP4, entries: [done, failed], ...noCompanion })?.stage).toBe(
+      'stored',
+    );
+  });
+
+  it('calls a CORS refusal what it is — streaming, not failure', () => {
+    const flow = describeFlow({
+      url: MP4,
+      entries: [entry({ state: 'error', reason: 'cors', error: 'Failed to fetch' })],
+      ...noCompanion,
+    });
+    expect(flow?.stage).toBe('streaming');
+  });
+
+  it('separates a genuine keep failure from a CORS refusal', () => {
+    expect(
+      describeFlow({
+        url: MP4,
+        entries: [entry({ state: 'error', reason: 'quota', error: 'no room' })],
+        ...noCompanion,
+      })?.stage,
+    ).toBe('unsaved');
+  });
+
+  it('matches the resolver path by the url the user pasted, not the loopback one', () => {
+    const job = entry({
+      url: 'http://127.0.0.1:8976/stream/opaque',
+      sourceUrl: YT,
+      state: 'downloading',
+    });
+    expect(describeFlow({ url: YT, entries: [job], resolverHealthy: true })?.stage).toBe(
+      'downloading',
+    );
+  });
+
+  it('offers the downloader for YouTube only while no companion is answering', () => {
+    expect(describeFlow({ url: YT, entries: [], ...noCompanion })?.stage).toBe('youtube-embed');
+    // With one running, the display is about to publish a real job — inviting
+    // the user to install what they already installed would be a lie.
+    expect(describeFlow({ url: YT, entries: [], resolverHealthy: true })).toBeNull();
+  });
+
+  it('says nothing for a plain link with no job, and nothing for a cancelled one', () => {
+    expect(describeFlow({ url: MP4, entries: [], ...noCompanion })).toBeNull();
+    expect(
+      describeFlow({ url: MP4, entries: [entry({ state: 'aborted' })], ...noCompanion }),
+    ).toBeNull();
+  });
+
+  it('reads companion health only from what the DISPLAY published', () => {
+    expect(resolverHealthyFromTele(null)).toBe(false);
+    expect(resolverHealthyFromTele({ resolver: { healthy: false } })).toBe(false);
+    expect(resolverHealthyFromTele({ resolver: { healthy: true } })).toBe(true);
+  });
+
+  it('never puts the browser’s own words on the home screen', () => {
+    const line = failureLine(
+      entry({ state: 'error', reason: 'network', error: 'Failed to fetch' }),
+    );
+    expect(line).not.toContain('Failed to fetch');
+    expect(line).toContain('playing it from the link');
   });
 });
 

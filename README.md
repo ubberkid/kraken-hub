@@ -165,13 +165,32 @@ panel says so plainly rather than inventing a number.
 
 ## Optional: ad-free, full-quality YouTube
 
+**[Download kraken-hub-resolver-win-x64.exe](https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe)** and double-click it.
+
+That is the entire setup — one file, nothing to install, no Node required. The
+first time you run it Windows SmartScreen will warn about an unrecognised app,
+because the build is not code-signed: choose **More info → Run anyway**. Leave
+the window open while you use it, or run it once with `--install-autostart` to
+have it start at logon.
+
+<details>
+<summary>macOS, Linux, or building it yourself</summary>
+
+The exe is the only prebuilt artifact. Everywhere else, run it from a clone:
+
 ```bash
-npx kraken-hub-resolver
+npm install
+npm run build:companion
+node companion/resolver/dist/cli.js
 ```
 
-That is the entire setup. The companion is a small Node program that runs on your
-PC, binds `127.0.0.1` and nothing else, and turns a pasted link into a plain video
-file the app can fetch. kraken-hub finds it by itself — one silent health check —
+(Publishing to npm may happen later; there is no `npx` install today.)
+
+</details>
+
+The companion is a small program that runs on your PC, binds `127.0.0.1` and
+nothing else, and turns a pasted link into a plain video file the app can fetch.
+kraken-hub finds it by itself — one silent health check —
 and from then on a YouTube URL **downloads into your clip library and plays like
 any other local clip**: no ads, no player chrome, full quality, real pause, a
 seamless A‑B loop, and it keeps playing with the companion stopped and the

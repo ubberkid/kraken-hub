@@ -1023,6 +1023,78 @@ html.kh-config-mode .kh-app {
   margin-top: 6px;
 }
 
+/*
+ * The offer step: "your video is playing, and one program away from being a
+ * permanent ad-free copy".
+ *
+ * An accent rim, not a warning rim. This card is the only place most users will
+ * ever hear that the downloader exists, so a muted footnote is the same as not
+ * shipping it — but nothing here has gone wrong, and colouring it like the
+ * error states would make a working YouTube video look broken, which is the
+ * exact regression the flow was rebuilt to end.
+ */
+.kh-step--offer {
+  border-color: var(--kh-accent-line);
+  background: linear-gradient(180deg, var(--kh-accent-bg), var(--kh-panel) 70%);
+  align-items: flex-start;
+}
+
+.kh-step__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ---- the guided connect panel ------------------------------------------ */
+.kh-home__connect,
+.kh-connect {
+  width: 100%;
+  max-width: 27rem;
+  margin: 12px auto 0;
+  text-align: left;
+}
+
+.kh-connect {
+  padding: 1rem 1.1rem 1.1rem;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-accent-line);
+  border-radius: var(--kh-r-panel);
+}
+
+.kh-connect__title {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.kh-connect__lede {
+  margin: 0 0 0.9rem;
+  color: var(--kh-muted);
+  font-size: 0.85rem;
+}
+
+.kh-connect__steps {
+  margin: 0.9rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--kh-ink-2);
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.kh-connect__alt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0.9rem 0 0;
+  color: var(--kh-muted);
+  font-size: 0.8rem;
+}
+
 /* ---- module chips ------------------------------------------------------- */
 .kh-mods {
   display: flex;

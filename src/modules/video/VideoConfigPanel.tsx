@@ -18,6 +18,7 @@ import {
   Toggle,
 } from '../../ui';
 
+import { ResolverConnectPanel } from './resolver/ResolverConnectPanel';
 import { primaryIssue, validateUrl } from './routing/validate';
 import {
   PAN_LIMIT,
@@ -524,6 +525,8 @@ function LocalDownloaderCard({
   // the config chunk and defeat the dynamic import everywhere else.
   const [health, setHealth] = useState<HealthState | null>(null);
   const [checking, setChecking] = useState(false);
+  /** The guided install, in place — the same panel the home screen opens. */
+  const [connect, setConnect] = useState(false);
 
   const probe = useCallback(async (): Promise<void> => {
     setChecking(true);
@@ -577,13 +580,35 @@ function LocalDownloaderCard({
           keeps playing with the downloader stopped.
         </Notice>
       ) : (
-        <Notice tone="warn">
-          {`${health?.reason ?? 'Not checked yet.'} kraken-hub works without it — YouTube links fall back to the built-in player automatically, with no error. To install it, run `}
-          <Code inline>npx kraken-hub-resolver</Code>
-          {' in a terminal on this PC and leave it running, then press “Check again”. See '}
-          <Code inline>docs/resolver-protocol.md</Code>
-          {' for what it does and what it does not.'}
-        </Notice>
+        <>
+          <Notice tone="warn">
+            {`${health?.reason ?? 'Not checked yet.'} kraken-hub works without it — YouTube links fall back to the built-in player automatically, with no error. `}
+            {connect ? '' : 'Press “Get the downloader” for the one-click install, or see '}
+            {connect ? null : <Code inline>docs/resolver-protocol.md</Code>}
+            {connect ? '' : ' for what it does and what it does not.'}
+          </Notice>
+          {connect ? (
+            <ResolverConnectPanel
+              resolver={cfg.resolver}
+              onClose={() => {
+                setConnect(false);
+                void probe();
+              }}
+            />
+          ) : (
+            <Row>
+              <Button
+                primary
+                testId="resolver-get"
+                onClick={() => {
+                  setConnect(true);
+                }}
+              >
+                Get the downloader
+              </Button>
+            </Row>
+          )}
+        </>
       )}
 
       <Disclosure summary="Advanced" testId="downloader-advanced">

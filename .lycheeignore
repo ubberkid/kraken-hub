@@ -22,3 +22,12 @@
 # document's measurements; several are expected to answer 403 by design.
 ^https://www\.youtube\.com/youtubei
 ^https://.*\.googlevideo\.com
+
+# --- the companion download, before its first release ------------------------
+# The stable URL `/releases/latest/download/kraken-hub-resolver-win-x64.exe` is
+# a redirect GitHub only serves once a non-prerelease release carries that
+# asset. `.github/workflows/companion-release.yml` (and `release.yml`) both fail
+# the build if the newest release lacks it, which is a stronger check than a
+# link fetch — so lychee is excused from a URL that 404s until the first
+# release exists.
+^https://github\.com/ubberkid/kraken-hub/releases/latest/download/

@@ -8,11 +8,21 @@
  * `node:http`, `node:crypto`, `node:fs`, `node:child_process` cover all of it.
  */
 
+import { spawnSync } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import {
+  autostartCommandLine,
+  AutostartError,
+  AUTOSTART_REG_KEY,
+  AUTOSTART_VALUE_NAME,
+  installCommand,
+  uninstallCommand,
+  UNSUPPORTED_PLATFORM_MESSAGE,
+} from './autostart.js';
 import { ClipCache } from './cache.js';
 import { createLogger, isLogLevel, type LogLevel } from './log.js';
 import { createResolverServer, DEFAULT_MAX_HEIGHT, DEFAULT_PORT } from './server.js';
@@ -37,6 +47,8 @@ export interface CliOptions {
   logLevel: LogLevel;
   help: boolean;
   version: boolean;
+  installAutostart: boolean;
+  uninstallAutostart: boolean;
 }
 
 /** The OS cache directory, per platform convention. */
@@ -74,6 +86,8 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
     logLevel: 'info',
     help: false,
     version: false,
+    installAutostart: false,
+    uninstallAutostart: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -86,6 +100,12 @@ export function parseArgs(argv: string[], env: NodeJS.ProcessEnv = process.env):
       case '--version':
       case '-v':
         opts.version = true;
+        break;
+      case '--install-autostart':
+        opts.installAutostart = true;
+        break;
+      case '--uninstall-autostart':
+        opts.uninstallAutostart = true;
         break;
       case '--port': {
         const port = Number(requireValue(argv, i, '--port'));
@@ -147,7 +167,10 @@ export const USAGE = `${PACKAGE_NAME} ${VERSION}
   The optional kraken-hub companion: it turns a page URL into a plain video file
   on 127.0.0.1 so the app can download it into its own clip library.
 
-  Usage: npx ${PACKAGE_NAME} [options]
+  Usage: ${PACKAGE_NAME} [options]
+
+         Windows: double-click kraken-hub-resolver-win-x64.exe, or run it here.
+         From a clone: node companion/resolver/dist/cli.js [options]
 
   --port <n>            Port to bind on 127.0.0.1 (default ${String(DEFAULT_PORT)}; 0 = pick a free one)
   --cache-dir <path>    Where clips are kept (default: the OS cache directory)
@@ -159,10 +182,81 @@ export const USAGE = `${PACKAGE_NAME} ${VERSION}
   --log-level <level>   silent | error | warn | info | debug (default info)
   --version, --help
 
+  Windows only:
+  --install-autostart   Start the companion at logon (per-user, no admin)
+  --uninstall-autostart Remove that entry again
+
   It binds 127.0.0.1 ONLY. Read the security note in the README before you
   install it: any page in your browser can ask a running companion to download
   a video.
 `;
+
+/**
+ * The one place `reg.exe` is actually executed. Kept apart from
+ * `./autostart.js` — which only builds argument vectors — so the tests can
+ * assert on the exact command without a registry anywhere near them.
+ */
+export function runAutostart(mode: 'install' | 'uninstall'): number {
+  if (process.platform !== 'win32') {
+    process.stdout.write(`${UNSUPPORTED_PLATFORM_MESSAGE}\n`);
+    return 0;
+  }
+
+  let command;
+  if (mode === 'install') {
+    try {
+      command = installCommand(autostartCommandLine(process.execPath, process.argv[1]));
+    } catch (cause) {
+      process.stderr.write(`${cause instanceof AutostartError ? cause.message : String(cause)}\n`);
+      return 1;
+    }
+  } else {
+    command = uninstallCommand();
+  }
+
+  const result = spawnSync(command.file, [...command.args], { stdio: 'pipe', encoding: 'utf8' });
+  if (result.error !== undefined) {
+    process.stderr.write(`could not run reg.exe: ${result.error.message}\n`);
+    return 1;
+  }
+  if (result.status !== 0) {
+    // `reg delete` on a value that is not there exits non-zero. Removing
+    // something already absent is the outcome the user asked for, so say so.
+    if (mode === 'uninstall') {
+      process.stdout.write('Autostart was not installed. Nothing to remove.\n');
+      return 0;
+    }
+    process.stderr.write(result.stderr === '' ? result.stdout : result.stderr);
+    return 1;
+  }
+
+  process.stdout.write(
+    mode === 'install'
+      ? `Autostart installed.\n  ${AUTOSTART_REG_KEY}\\${AUTOSTART_VALUE_NAME}\nThe companion will start the next time you log in. Undo with --uninstall-autostart.\n`
+      : 'Autostart removed.\n',
+  );
+  return 0;
+}
+
+/**
+ * What someone who double-clicked an exe needs to read: it is working, nothing
+ * else has to be configured, and there is one thing they might want next.
+ */
+export function banner(port: number): string {
+  return [
+    ``,
+    `  kraken-hub-resolver ${VERSION} is running.`,
+    ``,
+    `  Listening on http://127.0.0.1:${String(port)}`,
+    `  kraken-hub will detect this automatically — there is nothing to paste`,
+    `  and nothing to configure. Leave this window open while you use it.`,
+    ``,
+    `  Tip: run with --install-autostart to start it at logon (Windows only).`,
+    `  Press Ctrl+C to stop.`,
+    ``,
+    ``,
+  ].join('\n');
+}
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   let opts: CliOptions;
@@ -181,6 +275,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     process.stdout.write(`${VERSION}\n`);
     return 0;
   }
+  if (opts.installAutostart) return runAutostart('install');
+  if (opts.uninstallAutostart) return runAutostart('uninstall');
 
   const log = createLogger(opts.logLevel);
   await mkdir(opts.cacheDir, { recursive: true });
@@ -226,6 +322,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   try {
     const port = await app.listen(opts.port);
+    // The banner is for the person who double-clicked an exe; the log lines are
+    // for whoever has to debug it later. Both, unless logging is off entirely.
+    if (opts.logLevel !== 'silent') process.stdout.write(banner(port));
     log.info(`${PACKAGE_NAME} ${VERSION} listening on http://127.0.0.1:${String(port)}`);
     log.info(`cache: ${opts.cacheDir} (max ${String(opts.maxCacheBytes / GB)} GB)`);
     if (opts.token !== '') log.info('token required on every request');

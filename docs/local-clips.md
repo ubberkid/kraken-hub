@@ -72,6 +72,13 @@ other progressive file and keeps it. The companion is the download path for
 manifests, and for YouTube, for the same reason: something has to turn many
 segments into one file, and a static web page cannot.
 
+On Windows that is one file to download and double-click —
+[kraken-hub-resolver-win-x64.exe](https://github.com/ubberkid/kraken-hub/releases/latest/download/kraken-hub-resolver-win-x64.exe),
+with no Node and no installer; [getting-started.md](getting-started.md#step-5--optional-ad-free-full-quality-youtube)
+has the SmartScreen and autostart notes. On macOS and Linux you run it from a
+clone (`npm install && npm run build:companion && node companion/resolver/dist/cli.js`).
+There is no `npx` install: the package is not on npm today.
+
 ### Why the _display_ does the downloading
 
 CAM opens two browser windows on the same origin: a visible **Configuration

@@ -199,6 +199,24 @@ test.describe('config boot', () => {
 
     await page.addInitScript(() => {
       localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+      // The story belongs to the source configured RIGHT NOW: the entry seeded
+      // below is this window's business only because it is a download of the
+      // link on the screen. (For a while the flow showed the first entry of a
+      // mirror nobody prunes, whatever was playing — see `paste-flow.spec.ts`.)
+      // The entry itself is deliberately written in the OLD shape, with no
+      // `sourceUrl` and no `reason`, because that is what an upgrade finds.
+      localStorage.setItem(
+        'kraken-hub:v1:state',
+        JSON.stringify({
+          schema: 2,
+          rev: 1,
+          updatedAt: Date.now(),
+          writerId: 'e2e-config',
+          writerRole: 'config',
+          activeModuleId: 'video',
+          modules: { video: { v: 1, cfg: { url: 'https://youtu.be/jfKfPfyJRdk' } } },
+        }),
+      );
     });
     await page.goto('/');
     await page.evaluate(
