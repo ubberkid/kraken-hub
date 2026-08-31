@@ -42,7 +42,10 @@ export default defineConfig(() => ({
   // and http://127.0.0.1 alike. Never emit a root-relative asset URL.
   base: './',
   build: {
-    // Conservative until hardware report H18 tells us the CAM webview's Chromium.
+    // H18 is confirmed on CAM 4.76.5: Electron 32.1.0 / Chromium 128 (see the
+    // hardware-checklist known results). `chrome108` is therefore conservative,
+    // not wrong, and it stays — one CAM build on one machine is not a floor,
+    // and an older CAM on an older PC is exactly what the margin is for.
     target: ['chrome108'],
     // No inline script → `script-src 'self'` stays possible.
     modulePreload: { polyfill: false },

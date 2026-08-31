@@ -186,10 +186,56 @@ export function createAdapter(): VideoAdapter {
   let lastTimeUpdate = 0;
   let tornDown = false;
   let remounting = false;
+  /**
+   * §2.5, and a production bug (CAM 4.76.5, Electron 32.1.0 / Chromium 128).
+   *
+   * `new YT.Player(el, …)` returns IMMEDIATELY, but the IFrame API only grafts
+   * `mute`, `playVideo`, `seekTo`, `getCurrentTime` … onto that object once the
+   * postMessage handshake with the embed completes and `onReady` fires. Before
+   * then the object is a bare shell: `player.mute` is `undefined`, and `?.`
+   * does NOT help — optional chaining guards a null receiver, not a missing
+   * method.
+   *
+   * `display.ts` calls `adapter.setMuted(true)` and `adapter.play()` the
+   * instant `mount()` resolves, which is long before the handshake on a slow
+   * webview. On hardware that produced
+   * `TypeError: r?.mute is not a function` → `source-unplayable`, i.e. YouTube
+   * never played at all on the device the whole engine exists for.
+   *
+   * The rule this flag enforces: **no player API method may be invoked until
+   * `onReady` has fired.** Anything issued earlier is queued in `pending` and
+   * replayed, in order, from the `onReady` handler.
+   */
+  let ready = false;
+  const pending: ((p: YtApi.Player) => void)[] = [];
 
   const emit = (e: AdapterEvent): void => {
     if (!tornDown) ctx?.emit(e);
   };
+
+  /** The player, but only once its methods actually exist. */
+  function live(): YtApi.Player | null {
+    return ready ? player : null;
+  }
+
+  /** Run now if the handshake is done, otherwise queue it for `onReady`. */
+  function whenReady(fn: (p: YtApi.Player) => void): void {
+    if (tornDown) return;
+    const p = live();
+    if (p !== null) {
+      fn(p);
+      return;
+    }
+    pending.push(fn);
+  }
+
+  function flushPending(p: YtApi.Player): void {
+    const queued = pending.splice(0, pending.length);
+    for (const fn of queued) {
+      if (tornDown) return;
+      fn(p);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Geometry
@@ -251,10 +297,17 @@ export function createAdapter(): VideoAdapter {
 
   function destroyPlayer(): void {
     try {
-      player?.destroy();
+      // `destroy` is grafted on with the rest of the API, so a player that
+      // never reached `onReady` does not have one. Removing the iframe is the
+      // whole teardown in that case.
+      live()?.destroy();
     } catch {
       /* a player whose iframe already went away throws; that is not a failure */
     }
+    ready = false;
+    // A queued call belongs to the player that is going away. Replaying it
+    // against the next one would re-issue a stale seek after a ladder step.
+    pending.length = 0;
     player = null;
     iframe?.remove();
     iframe = null;
@@ -277,18 +330,28 @@ export function createAdapter(): VideoAdapter {
     // entire quality mechanism.
     player = new api.Player(el, {
       events: {
-        onReady: () => {
+        onReady: (ev) => {
           if (tornDown) return;
-          player?.mute();
-          duration = player?.getDuration() ?? Number.NaN;
-          if (resumeAt > 0) player?.seekTo(resumeAt, true);
-          player?.playVideo();
+          // `ev.target` is the same object, but taking it from the event means
+          // this never depends on the assignment below having run yet.
+          const p = player ?? ev.target;
+          player = p;
+          // The gate opens HERE and nowhere else. Everything below this line —
+          // including the queue flush — is the first legal API traffic.
+          ready = true;
+          // The embed URL already carries `mute=1`; this is the belt to that
+          // brace, and it is now issued at the only moment it is callable.
+          p.mute();
+          duration = p.getDuration();
+          if (resumeAt > 0) p.seekTo(resumeAt, true);
+          p.playVideo();
           emit({ type: 'durationchange', duration });
           emit({ type: 'ready', duration, caps: capabilities });
+          flushPending(p);
         },
         onStateChange: (e) => {
           if (tornDown) return;
-          const t = player?.getCurrentTime() ?? lastTime;
+          const t = live()?.getCurrentTime() ?? lastTime;
           mask?.onPlayerState(e.data, t);
           switch (e.data) {
             case YT_STATE.playing:
@@ -302,8 +365,10 @@ export function createAdapter(): VideoAdapter {
             case YT_STATE.ended:
               // The end guard should have prevented this; if it fires anyway,
               // going back to the start beats leaving the end screen up.
-              player?.seekTo(IMPLICIT_LOOP_START_SEC, true);
-              player?.playVideo();
+              whenReady((p) => {
+                p.seekTo(IMPLICIT_LOOP_START_SEC, true);
+                p.playVideo();
+              });
               emit({ type: 'ended' });
               break;
             case YT_STATE.paused:
@@ -337,7 +402,7 @@ export function createAdapter(): VideoAdapter {
   function remountAtWidth(width: number): void {
     if (remounting || tornDown) return;
     remounting = true;
-    const resumeAt = player?.getCurrentTime() ?? lastTime;
+    const resumeAt = live()?.getCurrentTime() ?? lastTime;
     destroyPlayer();
     void buildPlayer(Math.max(0, Math.floor(resumeAt)), width)
       .catch(() => {
@@ -363,7 +428,9 @@ export function createAdapter(): VideoAdapter {
   function tick(): void {
     rafId = null;
     if (tornDown) return;
-    const p = player;
+    // Pre-ready the player has no methods at all, so the whole body below is
+    // gated on `live()` rather than on `player !== null`.
+    const p = live();
     if (p !== null) {
       const t = p.getCurrentTime();
       if (Number.isFinite(t)) lastTime = t;
@@ -459,7 +526,7 @@ export function createAdapter(): VideoAdapter {
         initialWidth: computeForWidth(ladderOverride).elementW,
         perf: next.config.perf,
         getSignals: () => ({
-          loadedFraction: player?.getVideoLoadedFraction() ?? 0,
+          loadedFraction: live()?.getVideoLoadedFraction() ?? 0,
           duration,
           currentTime: lastTime,
         }),
@@ -493,14 +560,21 @@ export function createAdapter(): VideoAdapter {
     async play() {
       held = false;
       microAnchor = Number.NaN;
-      player?.setPlaybackRate(NORMAL_RATE);
-      player?.playVideo();
+      whenReady((p) => {
+        p.setPlaybackRate(NORMAL_RATE);
+        p.playVideo();
+      });
       return Promise.resolve();
     },
 
     async hold() {
-      const p = player;
-      if (p === null) return Promise.resolve();
+      const p = live();
+      if (p === null) {
+        // Nothing to hold yet. Re-enter once the handshake lands, so whichever
+        // strategy the config asks for runs against a real player.
+        if (player !== null) whenReady(() => void adapter.hold());
+        return Promise.resolve();
+      }
 
       if (ctx?.config.youtube.pauseStrategy === 'maskedPause') {
         // §2.6's documented alternative: the overlay is still raised, we just
@@ -516,7 +590,7 @@ export function createAdapter(): VideoAdapter {
           };
           requestAnimationFrame(step);
         });
-        if (!tornDown) player?.pauseVideo();
+        if (!tornDown) live()?.pauseVideo();
         held = true;
         emit({ type: 'held' });
         return;
@@ -542,12 +616,16 @@ export function createAdapter(): VideoAdapter {
       } else {
         mask?.onSeekIssued(target);
       }
-      player?.seekTo(target, true);
+      whenReady((p) => {
+        p.seekTo(target, true);
+      });
       return Promise.resolve();
     },
 
     async setRate(r) {
-      player?.setPlaybackRate(clamp(r, RATE_MIN, RATE_MAX));
+      whenReady((p) => {
+        p.setPlaybackRate(clamp(r, RATE_MIN, RATE_MAX));
+      });
       return Promise.resolve();
     },
 
@@ -560,13 +638,17 @@ export function createAdapter(): VideoAdapter {
     },
 
     getBufferedEnd() {
-      const fraction = player?.getVideoLoadedFraction() ?? 0;
+      const fraction = live()?.getVideoLoadedFraction() ?? 0;
       return Number.isFinite(duration) && duration > 0 ? fraction * duration : 0;
     },
 
     setMuted(m) {
-      if (m) player?.mute();
-      else player?.unMute();
+      // display.ts calls this the instant `mount()` resolves — routinely
+      // BEFORE `onReady`. That call is what crashed on hardware.
+      whenReady((p) => {
+        if (m) p.mute();
+        else p.unMute();
+      });
     },
 
     getQuality() {

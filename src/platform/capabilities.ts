@@ -2,8 +2,10 @@
  * One-shot capability probe.
  *
  * This is how the community answers the research doc's must-verify-on-hardware
- * list (H02, H17, H18): the CAM webview's Chromium version, its codec matrix
- * and its API surface are all unknown to us and cannot be assumed.
+ * list (H02, H17, H18). One report is in — CAM 4.76.5 is Electron 32.1.0 /
+ * Chromium 128 with a full codec matrix, WebGPU and WebCodecs (see the
+ * hardware-checklist known results) — but HEVC and AV1 are decided by the GPU,
+ * not by CAM, so nothing here is ever assumed. The probe still runs.
  */
 
 const CODEC_PROBES: readonly { id: string; type: string }[] = [

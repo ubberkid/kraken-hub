@@ -69,6 +69,14 @@ account, no telemetry — that:
 > full-screen video reaches fewer frames per second than the slider value. That
 > mechanism — not resolution — is the other half of why video looks bad on these
 > panels.
+>
+> **Measured, on one device:** with the slider at 40, the page's own render holds
+> a locked 40 fps on a Kraken Elite (rAF p50 = p95 = 40, zero long frames; CAM
+> 4.76.5 — [H12](docs/hardware-checklist.md#known-results)). So the app is not
+> the bottleneck. What CAM then _captures_ and compresses is a different number,
+> and it is still unmeasured —
+> [H09–H11](docs/hardware-checklist.md) need a phone recording the panel at
+> 60 fps, and nobody has done it yet.
 
 ## 60-second quickstart
 

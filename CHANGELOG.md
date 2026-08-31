@@ -187,6 +187,42 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **The first hardware report is in, and the docs say what was measured rather
+  than what was assumed.** A maintainer's Kraken Elite on CAM 4.76.5
+  (2026-08-31, app 0.1.0 `2f556b4`) closes seven automatic rows, written up in
+  a new **Known results** section in
+  [`docs/hardware-checklist.md`](docs/hardware-checklist.md):
+  - **H01** `nzxtRaw` = `{ width: 640, height: 640, shape: "circle", targetFps: 40 }`.
+  - **H02** `devicePixelRatio` = 1 — the crop math's assumption holds. The
+    hidden Kraken Browser reports `screen` as 0×0 with a 640×640 viewport, so
+    screen dimensions are useless there.
+  - **H03** `window.nzxt` injected at 34 ms, attempt 1, zero re-injections.
+  - **H12** in-page rAF locked at 40 fps (p50 = p95 = 40, `achievedFps` 39.9999,
+    zero long frames) — the page is not the bottleneck.
+  - **H14** `viaEvent: 3`, `viaPoll: 0` — the `storage` event is reliable across
+    CAM's two browsers. The unconditional 1 s poll **stays**: one CAM build is
+    not every CAM build.
+  - **H17** full codec matrix including HEVC and AV1, element _and_ MSE. Both
+    are GPU-dependent, so this is not a platform guarantee.
+  - **H18** Electron 32.1.0 / Chromium 128, WebGPU and WebCodecs present,
+    `storage.persisted` true with a ~1.49 TB quota.
+  - Markers tied to those H-ids now read "confirmed on CAM 4.76.5" and keep the
+    caveat, in `src/platform/geometry.ts`, `src/modules/video/youtube/geometry.ts`,
+    `src/platform/capabilities.ts`, `src/state/storage.ts`,
+    `tests/e2e/storage-sync.spec.ts`, `vite.config.ts`,
+    `docs/remote-control.md`, `docs/troubleshooting.md` and
+    `docs/design/design-ossDx.md`. **`build.target` stays `chrome108`** —
+    Chromium 128 makes it conservative, not wrong, and an older CAM on an older
+    PC is what the margin is for.
+  - **H05 and H13 are only partially closed** and stay open: the iframe
+    constructs and the API script loads, but nobody has photographed the panel
+    to prove the crop hides every piece of chrome; `storage.persisted` is true,
+    but no clip has been proven to survive a CAM restart. **H22 is untouched** —
+    the reporter's device is an Elite, and H22 is a claim about a Kraken Plus.
+    H04, H06–H11, H15, H16, H19–H21 and H23 remain open.
+  - The README's frame-rate callout now cites the measured 40 fps in-page render
+    and says plainly that CAM's _capture_ rate (H09–H11) is still unmeasured.
+
 - **The repository slug is real.** Every placeholder owner/repo and Pages URL is
   now `ubberkid/kraken-hub` and `https://ubberkid.github.io/kraken-hub/`
   (the literals are deliberately not repeated here, so the grep in
@@ -301,6 +337,59 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
   least useful.
 
 ### Fixed
+
+- **MQTT never connected on real hardware: an ESM/CJS interop break the test
+  suite structurally could not see.** The first hardware report from a Kraken
+  Elite (CAM 4.76.5) logged, on every boot,
+  `mqtt connect failed — trying the next transport` /
+  `TypeError: (intermediate value).connect is not a function`. Sync silently
+  demoted to ntfy and had presumably been doing so since MQTT shipped.
+  - Cause: mqtt's `exports` map is condition-dependent. Node — and therefore
+    vitest — takes `"default": "./build/index.js"`, real ESM with a **named**
+    `connect`. A browser takes `"browser" → "import": "./dist/mqtt.esm.js"`,
+    an esbuild bundle whose only export is `default`. Rolldown emits a chunk
+    whose namespace is `{ default }` and nothing else, so
+    `(await import('mqtt')).connect` is `undefined` in the one environment that
+    ships. Verified by loading the built `assets/sync-mqtt-*.js` in Chromium:
+    `Object.keys(ns)` is `['default']`, `ns.connect` is `undefined`,
+    `ns.default.connect` is the function.
+  - `src/sync/transports/MqttTransport.ts` now resolves through
+    `resolveMqttConnect()` — `m.connect`, then `m.default?.connect`, then a
+    callable `m.default` — and when nothing is callable throws an error that
+    **names every shape it found** (`describeMqttModule()`), so the next
+    bundler change produces a report instead of another bare `TypeError`.
+  - `src/sync/transports/mqttInterop.test.ts` pins it two ways: against the
+    **real** `mqtt` package imported exactly as the transport imports it, and
+    against each synthetic namespace shape including the browser one node
+    resolution can never produce. No broker is contacted.
+
+- **YouTube was broken on the only device it exists for: player methods were
+  called before `onReady`.** The same hardware report carried
+  `source-unplayable: r?.mute is not a function` and
+  `video/display mount failed`. `new YT.Player()` returns immediately, but the
+  IFrame API only grafts `mute`, `playVideo`, `seekTo`, `getCurrentTime` … onto
+  that object once the postMessage handshake completes — and `display.ts` calls
+  `adapter.setMuted(true)` and `adapter.play()` the instant `mount()` resolves.
+  Optional chaining did not help: `?.` guards a null receiver, not a missing
+  method.
+  - `src/modules/video/adapters/youtubeEmbed.adapter.ts` now has one gate. A
+    `ready` flag flips only inside `onReady`; `live()` returns the player only
+    past that point, and every externally-triggered call (`setMuted`, `play`,
+    `hold`, `seek`, `setRate`) goes through `whenReady()`, which runs the call
+    now or **queues it in order** and replays it from `onReady`. The rAF tick,
+    the quality watchdog's signal read, `getBufferedEnd()` and the ladder
+    remount all read through `live()`. `destroyPlayer()` clears the gate and
+    the queue, so a queued seek is never replayed against the next player.
+  - The embed URL already carries `mute=1`; the belt-and-braces `mute()` call
+    now happens at the only moment it is callable.
+  - **`tests/support/fakeYouTube.ts` was the reason this shipped**: it handed
+    out working methods the moment the constructor ran, which no real player
+    ever does. Every method now sits behind a getter that, before the fake fires
+    ready, records `preready:<name>` and returns `undefined` — the real API's
+    behaviour, TypeError and all. `readPrereadyCalls()` makes that assertable,
+    and `tests/e2e/youtube.spec.ts` gains two regressions that assert **zero**
+    player-method calls pre-ready and that the deferred calls still land. Both
+    fail against the old adapter.
 
 - **The configuration page could not scroll, so everything below the fold was
   unreachable.** `index.html`'s inline critical CSS pins `html`, `body` and

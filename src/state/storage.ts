@@ -4,10 +4,12 @@
  *
  * CAM opens two Chromium browsers on the same origin — a visible Configuration
  * Browser and the hidden Kraken Browser — so localStorage plus the `storage`
- * event IS the sanctioned config→display channel. It is also UNVERIFIED whether
- * that event fires reliably inside the CAM webview (H14), which is why the 1 s
- * poll below is unconditional rather than a fallback that has to be triggered.
- * The `{ viaEvent, viaPoll }` counters are how the community finds out.
+ * event IS the sanctioned config→display channel. Whether that event fires
+ * reliably inside the CAM webview is H14, and it is now confirmed on CAM 4.76.5
+ * (see the hardware-checklist known results): every observed change arrived by
+ * event, `viaPoll` was 0. The 1 s poll below stays unconditional anyway — one
+ * CAM build on one machine is not every CAM build, and the poll costs a string
+ * compare. The `{ viaEvent, viaPoll }` counters are how that stays honest.
  */
 
 import { createLogger } from '../lib/log';

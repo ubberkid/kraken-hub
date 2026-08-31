@@ -4,10 +4,12 @@ import { expect, test, type Page } from '@playwright/test';
  * The single most important e2e in the project.
  *
  * CAM opens two Chromium browsers on the SAME origin, so localStorage plus the
- * `storage` event is the sanctioned config→display channel. It is unverified
- * whether that event fires reliably inside the CAM webview (H14), which is why
- * a 1 s poll runs unconditionally — and why the second case here proves the app
- * still converges with `storage` events suppressed entirely.
+ * `storage` event is the sanctioned config→display channel. That the event
+ * fires reliably inside the CAM webview (H14) is confirmed on CAM 4.76.5 — see
+ * the hardware-checklist known results, `viaPoll` 0 — but a 1 s poll still runs
+ * unconditionally, because other CAM builds are unmeasured. The second case
+ * here is what proves the app converges with `storage` events suppressed
+ * entirely.
  */
 const STATE_KEY = 'kraken-hub:v1:state';
 

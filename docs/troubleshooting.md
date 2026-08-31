@@ -126,10 +126,11 @@ showing the old thing.
 `storage` event. If the event does not fire, the change waits.
 
 **Fix.** It should resolve itself within one second: kraken-hub runs an
-**unconditional 1-second poll** alongside the event listener, precisely because
-it is unverified whether the `storage` event fires reliably inside CAM's webview
-([H14](hardware-checklist.md)). If it takes longer than that, the display page is
-not running — reopen it from CAM.
+**unconditional 1-second poll** alongside the event listener. On CAM 4.76.5 the
+`storage` event is confirmed reliable ([H14](hardware-checklist.md#known-results),
+`viaPoll` 0), so in practice the event does the work — the poll is there because
+other CAM versions are unmeasured. If it takes longer than a second, the display
+page is not running — reopen it from CAM.
 
 The diagnostics report counts the two paths separately
 (`storage.delivery.viaEvent` / `viaPoll`). **Any nonzero `viaPoll` is a finding**,

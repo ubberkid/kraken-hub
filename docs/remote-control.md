@@ -158,8 +158,10 @@ There are two independent slots.
 **The local slot** always runs, needs no room code, and never touches the
 network. It is how the CAM Configuration Browser and the hidden Kraken Browser
 talk: they share an origin, so `localStorage` plus the `storage` event is the
-sanctioned channel (plus an unconditional 1-second poll, because it is
-unverified whether that event fires reliably inside CAM's webview — **H14**).
+sanctioned channel (plus an unconditional 1-second poll). The event is reliable
+on CAM 4.76.5 — **H14**, confirmed, see the
+[known results](hardware-checklist.md#known-results) — and the poll stays anyway,
+because other CAM versions are unmeasured and it costs nothing.
 
 **The network slot** holds at most one transport:
 

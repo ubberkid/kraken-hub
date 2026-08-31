@@ -58,6 +58,7 @@ const FAKE_API_SCRIPT = String.raw`
     var rate = 1;
     var playing = false;
     var dead = false;
+    var readyFired = false;
     var last = performance.now();
 
     rec.playerCount += 1;
@@ -77,33 +78,62 @@ const FAKE_API_SCRIPT = String.raw`
     }
     requestAnimationFrame(step);
 
-    self.playVideo = function () {
-      rec.calls.push('playVideo');
-      playing = true;
-      last = performance.now();
-      if (state !== 1) setState(1);
+    /*
+     * REAL TIMING, deliberately.
+     *
+     * new YT.Player() returns a bare object: the IFrame API grafts its methods
+     * on only after the postMessage handshake, i.e. at onReady. A fake that
+     * hands out working methods immediately cannot see the production bug where
+     * setMuted(true) ran before the handshake and threw
+     * "r?.mute is not a function" on hardware.
+     *
+     * So every method sits behind a getter that, before ready, records
+     * preready:<name> and returns undefined -- exactly what the real API does,
+     * TypeError and all. Those entries in rec.calls are the assertable signal.
+     */
+    var impl = {
+      playVideo: function () {
+        rec.calls.push('playVideo');
+        playing = true;
+        last = performance.now();
+        if (state !== 1) setState(1);
+      },
+      /* Recorded, never expected. See the file header. */
+      pauseVideo: function () {
+        rec.calls.push('pauseVideo');
+        playing = false;
+        setState(2);
+      },
+      seekTo: function (sec) {
+        rec.calls.push('seekTo:' + Number(sec).toFixed(2));
+        t = Number(sec);
+        last = performance.now();
+      },
+      mute: function () { rec.calls.push('mute'); },
+      unMute: function () { rec.calls.push('unMute'); },
+      setPlaybackRate: function (r) { rec.calls.push('setPlaybackRate:' + r); rate = r; },
+      getAvailablePlaybackRates: function () { return [0.25, 0.5, 1, 1.5, 2]; },
+      getCurrentTime: function () { return t; },
+      getDuration: function () { return duration; },
+      getVideoLoadedFraction: function () { return loaded; },
+      getPlaybackQuality: function () { return quality; },
+      getPlayerState: function () { return state; },
+      destroy: function () { rec.calls.push('destroy'); dead = true; playing = false; },
     };
-    /* Recorded, never expected. See the file header. */
-    self.pauseVideo = function () {
-      rec.calls.push('pauseVideo');
-      playing = false;
-      setState(2);
-    };
-    self.seekTo = function (sec) {
-      rec.calls.push('seekTo:' + Number(sec).toFixed(2));
-      t = Number(sec);
-      last = performance.now();
-    };
-    self.mute = function () { rec.calls.push('mute'); };
-    self.unMute = function () { rec.calls.push('unMute'); };
-    self.setPlaybackRate = function (r) { rec.calls.push('setPlaybackRate:' + r); rate = r; };
-    self.getAvailablePlaybackRates = function () { return [0.25, 0.5, 1, 1.5, 2]; };
-    self.getCurrentTime = function () { return t; };
-    self.getDuration = function () { return duration; };
-    self.getVideoLoadedFraction = function () { return loaded; };
-    self.getPlaybackQuality = function () { return quality; };
-    self.getPlayerState = function () { return state; };
-    self.destroy = function () { rec.calls.push('destroy'); dead = true; playing = false; };
+
+    Object.keys(impl).forEach(function (name) {
+      Object.defineProperty(self, name, {
+        configurable: true,
+        enumerable: true,
+        get: function () {
+          if (!readyFired) {
+            rec.calls.push('preready:' + name);
+            return undefined;
+          }
+          return impl[name];
+        },
+      });
+    });
 
     /* Drive states and quality reports from the test. */
     rec.emitState = function (s) { setState(s); };
@@ -116,6 +146,7 @@ const FAKE_API_SCRIPT = String.raw`
 
     setTimeout(function () {
       if (dead) return;
+      readyFired = true;
       if (events.onReady) events.onReady({ target: self });
       if (events.onPlaybackQualityChange) {
         events.onPlaybackQualityChange({ target: self, data: quality });
@@ -163,6 +194,19 @@ export async function installFakeYouTube(page: Page, cfg: FakeYouTubeConfig = {}
   // No poster: the mask controller must fall back to its flat colour, which is
   // also what performance mode uses, so this exercises the third fallback.
   await page.route('https://i.ytimg.com/**', (route) => route.abort());
+}
+
+/**
+ * Every player method the adapter reached for BEFORE the fake fired `onReady`.
+ *
+ * On the real API those reads return `undefined` and the call throws, which is
+ * how `r?.mute is not a function` reached hardware. Any non-empty result here
+ * is that bug, reproduced.
+ */
+export async function readPrereadyCalls(page: Page): Promise<string[]> {
+  return (await readFakeCalls(page))
+    .filter((c) => c.startsWith('preready:'))
+    .map((c) => c.slice('preready:'.length));
 }
 
 /** Everything the fake recorded, read out of the page. */

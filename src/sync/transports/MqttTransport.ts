@@ -73,8 +73,73 @@ interface MqttClientLike {
   end(force: boolean, opts: Record<string, never>, cb: () => void): void;
 }
 
-interface MqttModuleLike {
-  connect(url: string, opts: Record<string, unknown>): MqttClientLike;
+/** `mqtt.connect(url, opts)`, however the bundle happens to expose it. */
+export type MqttConnectFn = (url: string, opts: Record<string, unknown>) => MqttClientLike;
+
+/**
+ * ESM/CJS interop for `await import('mqtt')`. This is not defensive
+ * boilerplate — it is a production bug that dev and vitest cannot see.
+ *
+ * mqtt's `package.json` exports map is condition-dependent:
+ *
+ *   - **node / vitest** take `"default": "./build/index.js"`, real ESM with a
+ *     named `connect` export. `m.connect` is a function. Everything works.
+ *   - **the browser build** takes `"browser" → "import": "./dist/mqtt.esm.js"`,
+ *     an esbuild bundle whose last line is literally `export default ZT();` —
+ *     it has **no named exports at all**. Rolldown therefore emits a chunk
+ *     whose namespace carries only `default`, and `namespace.connect` is
+ *     `undefined`.
+ *
+ * On a real Kraken Elite (CAM 4.76.5, Electron 32.1.0 / Chromium 128) that
+ * surfaced as `TypeError: (intermediate value).connect is not a function`, and
+ * `SyncService` dutifully logged `mqtt connect failed — trying the next
+ * transport` and demoted to ntfy on every boot.
+ *
+ * Verified by loading the emitted `assets/sync-mqtt-*.js` chunk in Chromium
+ * after `npm run build`. The app-side import is
+ * `import('./sync-mqtt-*.js').then((e) => e.t)`, and that namespace is:
+ *
+ *     Object.keys(ns)      → ['default']      // no `connect` anywhere on it
+ *     typeof ns.connect    → 'undefined'      // ← the production TypeError
+ *     typeof ns.default.connect → 'function'  // ← the real one
+ *
+ * So the order below puts the named export (correct in node, absent in the
+ * browser) first and the default-wrapped namespace second, and both resolutions
+ * work unchanged.
+ */
+export function resolveMqttConnect(m: unknown): MqttConnectFn | null {
+  const ns = m as { connect?: unknown; default?: unknown } | null | undefined;
+  if (ns === null || ns === undefined) return null;
+  if (typeof ns.connect === 'function') return (ns.connect as MqttConnectFn).bind(ns);
+  const def = ns.default as { connect?: unknown } | null | undefined;
+  if (def !== null && def !== undefined && typeof def.connect === 'function') {
+    return (def.connect as MqttConnectFn).bind(def);
+  }
+  if (typeof ns.default === 'function') return ns.default as MqttConnectFn;
+  return null;
+}
+
+function shapeOf(v: unknown): string {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return 'array';
+  return typeof v;
+}
+
+/**
+ * Names every shape actually found, so a future bundler change produces a
+ * report a maintainer can act on rather than another bare `TypeError`.
+ */
+export function describeMqttModule(m: unknown): string {
+  const ns = m as { connect?: unknown; default?: unknown } | null | undefined;
+  const def = ns?.default as { connect?: unknown } | null | undefined;
+  const keys = ns === null || ns === undefined ? [] : Object.keys(ns).slice(0, 12);
+  return [
+    `module=${shapeOf(m)}`,
+    `connect=${shapeOf(ns?.connect)}`,
+    `default=${shapeOf(ns?.default)}`,
+    `default.connect=${shapeOf(def === null || def === undefined ? undefined : def.connect)}`,
+    `keys=[${keys.join(',')}]`,
+  ].join(' ');
 }
 
 export function createMqttTransport(): SyncTransport {
@@ -95,9 +160,16 @@ export function createMqttTransport(): SyncTransport {
       };
 
       // Lazy, and only here. The display's critical path never sees this.
-      const mod = (await import('mqtt')) as unknown as MqttModuleLike;
+      const mod: unknown = await import('mqtt');
+      const mqttConnect = resolveMqttConnect(mod);
+      if (mqttConnect === null) {
+        throw new Error(
+          `mqtt module exposes no callable connect() — ${describeMqttModule(mod)}. ` +
+            'This is an ESM/CJS interop break in the bundle, not a broker problem.',
+        );
+      }
 
-      const c = mod.connect(o.mqttUrl, {
+      const c = mqttConnect(o.mqttUrl, {
         clientId: `kh_${o.clientId}`,
         clean: true,
         keepalive: MQTT_KEEPALIVE_SEC,

@@ -6,6 +6,7 @@ import {
   emitQuality,
   installFakeYouTube,
   readFakeCalls,
+  readPrereadyCalls,
 } from '../support/fakeYouTube';
 
 /**
@@ -269,5 +270,47 @@ test.describe('§2.7 quality ladder', () => {
     // `perf: 'quality'` means the user pinned it, so we hold rather than step
     // down; either way, stepping UP under network pressure is never right.
     await expect(iframe(page)).toHaveAttribute('width', '1920');
+  });
+});
+
+/**
+ * The `onReady` gate (regression for `TypeError: r?.mute is not a function`).
+ *
+ * `new YT.Player()` returns immediately but the API only grafts its methods on
+ * at the handshake, and `display.ts` calls `setMuted(true)` then `play()` the
+ * instant `mount()` resolves. On a real Kraken Elite (CAM 4.76.5) that raced
+ * and the video module died with `source-unplayable` before a frame existed.
+ *
+ * `readyDelayMs` is stretched far past the mount so the race is not a race:
+ * every pre-ready call the adapter could make has already been made by the time
+ * this asserts.
+ */
+test.describe('§2.5 — no player API call before onReady', () => {
+  test('mounts, mutes and plays without touching a single method pre-ready', async ({ page }) => {
+    await installFakeYouTube(page, { readyDelayMs: 3000 });
+    await seed(page, {});
+    await page.goto('/?kraken=1&sim=elite');
+
+    await expect(iframe(page)).toBeAttached({ timeout: 15_000 });
+    // Mounted, and display.ts has already issued setMuted(true) + play().
+    expect(await readPrereadyCalls(page)).toEqual([]);
+
+    // …and the deferred calls are not dropped: they land once ready fires.
+    await expect.poll(() => readFakeCalls(page), { timeout: 15_000 }).toContain('playVideo');
+    expect(await readFakeCalls(page)).toContain('mute');
+    expect(await readPrereadyCalls(page)).toEqual([]);
+  });
+
+  test('a seek issued before the handshake is queued, not thrown away', async ({ page }) => {
+    await installFakeYouTube(page, { readyDelayMs: 2500, duration: 600 });
+    await seed(page, {});
+    await page.goto('/?kraken=1&sim=elite');
+    await expect(iframe(page)).toBeAttached({ timeout: 15_000 });
+
+    await expect.poll(() => readFakeCalls(page), { timeout: 15_000 }).toContain('playVideo');
+    expect(await readPrereadyCalls(page)).toEqual([]);
+    // The error card is the visible symptom of the hardware bug; it must not
+    // be there.
+    await expect(page.locator('.kh-video__card')).toHaveCount(0);
   });
 });

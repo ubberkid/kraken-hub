@@ -1,13 +1,21 @@
 # Hardware checklist (H01–H23)
 
-kraken-hub is built from NZXT's public documentation, three rounds of live
-protocol probing, and exactly zero hours of access to a Kraken LCD by the people
-who wrote most of it. Every claim in these docs that rests on documentation
-rather than measurement carries the marker `⚠ not verified on hardware` and a
-link to an **H-id** on this page.
+kraken-hub is built from NZXT's public documentation and three rounds of live
+protocol probing. Every claim in these docs that rests on documentation rather
+than measurement carries the marker `⚠ not verified on hardware` and a link to an
+**H-id** on this page.
 
 This is that page. Each H-id is one unknown, with the steps that close it and the
 fields to record. **Closing an H-id means sweeping the docs for its marker.**
+
+As of 2026-08-31 the first hardware report has landed: a maintainer's **Kraken
+Elite on CAM 4.76.5**, against app 0.1.0 (`2f556b4`). It closes the automatic
+identity, timing, storage-delivery and capability rows — **H01, H02, H03, H12,
+H14, H17, H18** — and they are written up under
+[Known results](#known-results). Everything else on this page is still open, and
+one device is one device: a different CAM build, a different GPU or a different
+Kraken model can and will differ, especially for hardware-decoded codecs
+(**H17**) and `devicePixelRatio` (**H02**).
 
 If you own a Kraken — especially a **Kraken Plus** or a **Kraken Z**, where the
 tables below are almost entirely empty — walking even part of this list is the
@@ -116,12 +124,12 @@ Status column:
 
 ### Identity and geometry
 
-| ID      | Unknown                        | How to measure                                                                                                                | Record                                                                                                         | Status |
-| ------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------ |
-| **H01** | Device identity                | Automatic. `device.nzxtRaw` is exactly what CAM injected, verbatim, with no defaulting applied.                               | `width`, `height`, `shape`, `targetFps`, plus your CAM version and model name (type them into the report form) | auto   |
-| **H02** | `devicePixelRatio`             | Automatic. The geometry math assumes **1**; if it is not 1 on your device, the crop constants need a second look.             | `device.dpr`, `device.screen.{width,height,innerWidth,innerHeight}`                                            | auto   |
-| **H03** | `window.nzxt` injection timing | Automatic. Timed from `performance.timeOrigin` to the first successful read, counting retries of the 200 ms × 10 ladder.      | `injection.firstSeenMs`, `injection.attempts`, `injection.reinjections`, `injection.present`                   | auto   |
-| **H22** | Kraken Plus specifics          | H01 + H02 on a Kraken Plus, plus one straight-on photo of the panel. This is the one genuinely blank row in the README table. | everything from H01/H02, and whether the shape is really `circle`                                              | auto   |
+| ID      | Unknown                        | How to measure                                                                                                                | Record                                                                                                         | Status                                                                         |
+| ------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **H01** | Device identity                | Automatic. `device.nzxtRaw` is exactly what CAM injected, verbatim, with no defaulting applied.                               | `width`, `height`, `shape`, `targetFps`, plus your CAM version and model name (type them into the report form) | auto — ✅ confirmed on CAM 4.76.5 (Elite; [known results](#known-results))     |
+| **H02** | `devicePixelRatio`             | Automatic. The geometry math assumes **1**; if it is not 1 on your device, the crop constants need a second look.             | `device.dpr`, `device.screen.{width,height,innerWidth,innerHeight}`                                            | auto — ✅ confirmed on CAM 4.76.5 (one Elite; [known results](#known-results)) |
+| **H03** | `window.nzxt` injection timing | Automatic. Timed from `performance.timeOrigin` to the first successful read, counting retries of the 200 ms × 10 ladder.      | `injection.firstSeenMs`, `injection.attempts`, `injection.reinjections`, `injection.present`                   | auto — ✅ confirmed on CAM 4.76.5 (Elite; [known results](#known-results))     |
+| **H22** | Kraken Plus specifics          | H01 + H02 on a Kraken Plus, plus one straight-on photo of the panel. This is the one genuinely blank row in the README table. | everything from H01/H02, and whether the shape is really `circle`                                              | auto                                                                           |
 
 ### The monitoring feed
 
@@ -134,18 +142,21 @@ interesting thing you could report.
 
 ### Playback and media
 
-| ID      | Unknown                     | How to measure                                                                                                                                                                                                                                                                  | Record                                                                                  | Status |
-| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------ |
-| **H05** | Cross-origin iframe allowed | Set the video module's source to any YouTube URL and open the display. If the picture appears, the CAM webview permits a third-party iframe and the IFrame API reached `onReady`. **Then photograph the panel** and confirm no player chrome is visible anywhere in the circle. | works / blank / error card; chrome visible anywhere? how long until first frame?        | manual |
-| **H06** | Muted autoplay              | Automatic in effect: if the bundled demo clip plays on a cold boot with no state, muted autoplay works.                                                                                                                                                                         | plays / does not play, and the error card text if not                                   | manual |
-| **H07** | Unmuted autoplay            | Turn **Audio** on in the video module and reload the display.                                                                                                                                                                                                                   | plays / `NotAllowedError` / plays but silent                                            | manual |
-| **H08** | Audio routing               | With audio on and a clip with sound, listen. The webview's output device is unknown to us.                                                                                                                                                                                      | audible from the PC's speakers? which output device? does CAM have its own mixer entry? | manual |
-| **H17** | Codec support               | Automatic. `canPlayType` **and** `MediaSource.isTypeSupported` for H.264, HEVC, AV1, VP9, VP8, AAC, Opus, FLAC.                                                                                                                                                                 | the whole `capabilities.codecs` matrix                                                  | auto   |
-| **H18** | API surface                 | Automatic. Chromium version, Electron version, WebGL/WebGPU/WebCodecs/`crypto.subtle`/`navigator.storage`/EventSource/BroadcastChannel, `hardwareConcurrency`, `deviceMemory`.                                                                                                  | `capabilities.userAgent`, `capabilities.chromiumVersion`, `capabilities.features`       | auto   |
+| ID      | Unknown                     | How to measure                                                                                                                                                                                                                                                                  | Record                                                                                  | Status                                                                                                                                                     |
+| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **H05** | Cross-origin iframe allowed | Set the video module's source to any YouTube URL and open the display. If the picture appears, the CAM webview permits a third-party iframe and the IFrame API reached `onReady`. **Then photograph the panel** and confirm no player chrome is visible anywhere in the circle. | works / blank / error card; chrome visible anywhere? how long until first frame?        | manual                                                                                                                                                     |
+| **H06** | Muted autoplay              | Automatic in effect: if the bundled demo clip plays on a cold boot with no state, muted autoplay works.                                                                                                                                                                         | plays / does not play, and the error card text if not                                   | manual                                                                                                                                                     |
+| **H07** | Unmuted autoplay            | Turn **Audio** on in the video module and reload the display.                                                                                                                                                                                                                   | plays / `NotAllowedError` / plays but silent                                            | manual                                                                                                                                                     |
+| **H08** | Audio routing               | With audio on and a clip with sound, listen. The webview's output device is unknown to us.                                                                                                                                                                                      | audible from the PC's speakers? which output device? does CAM have its own mixer entry? | manual                                                                                                                                                     |
+| **H17** | Codec support               | Automatic. `canPlayType` **and** `MediaSource.isTypeSupported` for H.264, HEVC, AV1, VP9, VP8, AAC, Opus, FLAC.                                                                                                                                                                 | the whole `capabilities.codecs` matrix                                                  | auto — ✅ confirmed on CAM 4.76.5 (Elite; [known results](#known-results)). HEVC and AV1 are **GPU-dependent** — still worth reporting from other machines |
+| **H18** | API surface                 | Automatic. Chromium version, Electron version, WebGL/WebGPU/WebCodecs/`crypto.subtle`/`navigator.storage`/EventSource/BroadcastChannel, `hardwareConcurrency`, `deviceMemory`.                                                                                                  | `capabilities.userAgent`, `capabilities.chromiumVersion`, `capabilities.features`       | auto — ✅ confirmed on CAM 4.76.5 (Elite; [known results](#known-results))                                                                                 |
 
 `capabilities.chromiumVersion` is the number the build target
 (`chrome108` in `vite.config.ts`) is guessing at. It is worth reporting on its
-own.
+own. One report is in: CAM 4.76.5 runs **Electron 32.1.0 / Chromium 128**, so
+`chrome108` is conservative rather than wrong. It stays where it is until more
+than one CAM build has been seen — an older CAM on an older machine is exactly
+the case the conservative target exists for.
 
 ### Frame rate — the measurements that matter most
 
@@ -157,12 +168,12 @@ put numbers on it.
 the pattern, record 5 s of the LCD on a phone at 60 fps, then count **distinct
 counter values per second** in the footage. Report the slider value alongside.
 
-| ID      | Unknown                         | How to measure                                                                                                                                    | Record                                                                      | Status |
-| ------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------ |
-| **H09** | Achieved FPS — flat content     | `?kraken=1&diag=1&pattern=flat` — a near-static frame whose only moving element is a large counter incremented once per `rAF`.                    | `capture_fps_flat`, plus `targetFps`                                        | auto   |
-| **H10** | Achieved FPS — full-bleed video | Play the bundled demo clip full-screen (`?kraken=1&demo=1`) and record. The dedicated `&pattern=video` overlay with the counter is not built yet. | `capture_fps_video` — expected well below H09                               | M4     |
-| **H11** | Achieved FPS — YouTube engine   | Same, with a YouTube URL configured. `&pattern=youtube` is likewise not built yet.                                                                | `capture_fps_youtube`                                                       | M4     |
-| **H12** | In-page render FPS              | Automatic — a 3 s `rAF` sampler. This separates "the page is slow" from "CAM captures slowly", and they are very different bugs.                  | `timings.rafFps` (p50/p95/max), `timings.achievedFps`, `timings.longFrames` | auto   |
+| ID      | Unknown                         | How to measure                                                                                                                                    | Record                                                                      | Status                                                                     |
+| ------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **H09** | Achieved FPS — flat content     | `?kraken=1&diag=1&pattern=flat` — a near-static frame whose only moving element is a large counter incremented once per `rAF`.                    | `capture_fps_flat`, plus `targetFps`                                        | auto                                                                       |
+| **H10** | Achieved FPS — full-bleed video | Play the bundled demo clip full-screen (`?kraken=1&demo=1`) and record. The dedicated `&pattern=video` overlay with the counter is not built yet. | `capture_fps_video` — expected well below H09                               | M4                                                                         |
+| **H11** | Achieved FPS — YouTube engine   | Same, with a YouTube URL configured. `&pattern=youtube` is likewise not built yet.                                                                | `capture_fps_youtube`                                                       | M4                                                                         |
+| **H12** | In-page render FPS              | Automatic — a 3 s `rAF` sampler. This separates "the page is slow" from "CAM captures slowly", and they are very different bugs.                  | `timings.rafFps` (p50/p95/max), `timings.achievedFps`, `timings.longFrames` | auto — ✅ confirmed on CAM 4.76.5 (Elite; [known results](#known-results)) |
 
 If H12 is high and H09 is low, the bottleneck is CAM's capture and compression
 pipeline, and no amount of optimising kraken-hub will help. If both are low, it
@@ -170,14 +181,14 @@ is us.
 
 ### Storage and liveness
 
-| ID      | Unknown                     | How to measure                                                                                                                                                                                    | Record                                                                                                                                        | Status |
-| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| **H13** | IndexedDB persistence       | Add a clip (Sources → paste a URL, or upload a small file). Note it plays. **Quit CAM completely** (tray icon → Quit, not just close the window), relaunch, and reopen the display.               | survived CAM restart? survived a PC reboot? `storage.persisted`, `storage.usageBytes`, `storage.quotaBytes`                                   | manual |
-| **H14** | `storage` event reliability | Automatic, and cumulative. Open the display, then change any setting in the Configuration Browser a few times.                                                                                    | `storage.delivery.{viaEvent, viaPoll, viaMem}` — **any nonzero `viaPoll` is the finding**, because it is what justifies the 1 s poll fallback | auto   |
-| **H15** | localStorage persistence    | Same restart protocol as H13, watching whether the configured source and (later) the room code survive.                                                                                           | survived / cleared                                                                                                                            | manual |
-| **H16** | Page lifecycle              | Leave it running. Then: change a CAM setting; then sleep and wake the PC.                                                                                                                         | does CAM reload the page on a settings change? does the panel freeze after sleep and does it recover? roughly how many reloads per day?       | manual |
-| **H21** | LCD dimming / sleep         | Leave the display untouched for 30 minutes.                                                                                                                                                       | dims? sleeps entirely? on what timer? does it wake on its own?                                                                                | manual |
-| **H23** | `pagehide` on teardown      | With a clip playing past the 10 s mark, close the LCD window from CAM (or change a CAM setting so it reloads the page), then reopen it. Playback should resume roughly where it was, not at zero. | did it resume? by how far was it off? does `kraken-hub:v1:video:positionCheckpoint` exist after the close?                                    | manual |
+| ID      | Unknown                     | How to measure                                                                                                                                                                                    | Record                                                                                                                                        | Status                                                                                   |
+| ------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **H13** | IndexedDB persistence       | Add a clip (Sources → paste a URL, or upload a small file). Note it plays. **Quit CAM completely** (tray icon → Quit, not just close the window), relaunch, and reopen the display.               | survived CAM restart? survived a PC reboot? `storage.persisted`, `storage.usageBytes`, `storage.quotaBytes`                                   | manual                                                                                   |
+| **H14** | `storage` event reliability | Automatic, and cumulative. Open the display, then change any setting in the Configuration Browser a few times.                                                                                    | `storage.delivery.{viaEvent, viaPoll, viaMem}` — **any nonzero `viaPoll` is the finding**, because it is what justifies the 1 s poll fallback | auto — ✅ confirmed on CAM 4.76.5 (Elite; `viaPoll` 0 — [known results](#known-results)) |
+| **H15** | localStorage persistence    | Same restart protocol as H13, watching whether the configured source and (later) the room code survive.                                                                                           | survived / cleared                                                                                                                            | manual                                                                                   |
+| **H16** | Page lifecycle              | Leave it running. Then: change a CAM setting; then sleep and wake the PC.                                                                                                                         | does CAM reload the page on a settings change? does the panel freeze after sleep and does it recover? roughly how many reloads per day?       | manual                                                                                   |
+| **H21** | LCD dimming / sleep         | Leave the display untouched for 30 minutes.                                                                                                                                                       | dims? sleeps entirely? on what timer? does it wake on its own?                                                                                | manual                                                                                   |
+| **H23** | `pagehide` on teardown      | With a clip playing past the 10 s mark, close the LCD window from CAM (or change a CAM setting so it reloads the page), then reopen it. Playback should resume roughly where it was, not at zero. | did it resume? by how far was it off? does `kraken-hub:v1:video:positionCheckpoint` exist after the close?                                    | manual                                                                                   |
 
 H16's freeze-after-sleep case is a known failure mode of the CAM webview and the
 reason kraken-hub runs a liveness watchdog. Whether the watchdog actually
@@ -310,12 +321,61 @@ Attach the display JSON as a fenced code block, and any photographs of the panel
 
 Updated by maintainers from submitted hardware reports.
 
-| Device            | Reporter | H-ids closed | Report |
-| ----------------- | -------- | ------------ | ------ |
-| Kraken Elite 640  | —        | —            | —      |
-| Kraken Plus       | —        | —            | —      |
-| Kraken Z 320      | —        | —            | —      |
-| Kraken (2023) 240 | —        | —            | —      |
+| Device            | Reporter                | H-ids closed                      | Report                                        |
+| ----------------- | ----------------------- | --------------------------------- | --------------------------------------------- |
+| Kraken Elite 640  | maintainer (own device) | H01, H02, H03, H12, H14, H17, H18 | CAM 4.76.5, 2026-08-31, app 0.1.0 (`2f556b4`) |
+| Kraken Plus       | —                       | —                                 | —                                             |
+| Kraken Z 320      | —                       | —                                 | —                                             |
+| Kraken (2023) 240 | —                       | —                                 | —                                             |
 
-Every row is empty. That is the honest state of this project's hardware
-knowledge, and it is why this page exists.
+Three of the four rows are still empty, and that is still the honest state of
+this project's hardware knowledge.
+
+### Kraken Elite — CAM 4.76.5
+
+**Source for every row below:** maintainer's Kraken Elite, CAM 4.76.5,
+2026-08-31, app 0.1.0 (`2f556b4`). Windows, CAM frame-rate slider at its
+maximum. Read it as **one device on one CAM build**, not as a platform
+guarantee.
+
+| ID      | Measured                                                                                                                                                                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **H01** | `device.nzxtRaw` = `{ width: 640, height: 640, shape: "circle", targetFps: 40 }` — exactly the documented Elite geometry, with no defaulting applied.                                                                                                                                |
+| **H02** | `devicePixelRatio` = **1**. The crop math's assumption holds. The hidden Kraken Browser reports `screen` as **0×0** with a 640×640 viewport, so screen dimensions are useless there — never derive geometry from them.                                                               |
+| **H03** | `window.nzxt` injected at **34 ms**, on **attempt 1**, with **0 re-injections**, `present: true`. The 200 ms × 10 retry ladder never needed a second rung — but it costs nothing and a slower machine is exactly what it is for.                                                     |
+| **H12** | In-page rAF is **locked at 40 fps**: `rafFps` p50 = p95 = **40**, `achievedFps` **39.9999**, `longFrames` **0**. The page renders precisely at the slider value and drops nothing. What CAM then _captures_ (H09–H11) is a separate, still-unmeasured number.                        |
+| **H14** | `storage.delivery` = `viaEvent: 3`, `viaPoll: 0`. The `storage` event is reliable across CAM's two browsers on this build — **no change was ever caught by the poll alone**. The unconditional 1 s poll stays: it is cheap, and a single device is not evidence for every CAM build. |
+| **H17** | Full codec matrix, `canPlayType` **and** `MediaSource.isTypeSupported`: H.264, VP8, VP9, **AV1**, **HEVC**, AAC, Opus, FLAC. HEVC and AV1 are decided by the **GPU and its drivers**, not by CAM — do not read this row as "the platform supports HEVC".                             |
+| **H18** | **Electron 32.1.0 / Chromium 128**. WebGPU and WebCodecs both present, alongside WebGL2, `crypto.subtle`, `navigator.storage`, EventSource, BroadcastChannel and IndexedDB. `navigator.storage.persisted()` = **true** with a **~1.49 TB** quota.                                    |
+
+Two things this report also produced, both now fixed, both worth keeping on the
+record because they are the reason a hardware report is worth more than a code
+review:
+
+- `mqtt connect failed — trying the next transport` /
+  `TypeError: (intermediate value).connect is not a function` — the browser
+  bundle's mqtt namespace has no named `connect`. MQTT never once connected on
+  hardware; sync silently ran on ntfy.
+- `source-unplayable: r?.mute is not a function` — the YouTube adapter called a
+  player method before `onReady`. **The entire YouTube engine failed on the one
+  device it exists for**, while every test passed.
+
+**Partially closed:**
+
+- **H05** — the cross-origin iframe _constructs_ and the IFrame API script
+  loads inside the CAM webview, so a third-party iframe is permitted. The rest
+  of H05 is not closed: `onReady` never got a fair run on this report (the
+  adapter crashed before it, see above), and **nobody has photographed the panel
+  to confirm the crop hides every piece of player chrome**. H05 stays open.
+- **H13** — `storage.persisted` is `true` with a ~1.49 TB quota, which is the
+  _precondition_ for the clip library surviving. Whether a clip actually
+  survives quitting CAM and rebooting the PC is the measurement, and it has not
+  been made. H13 stays open.
+
+**Still completely open:** the capture-side FPS numbers (**H09**–**H11**), the
+monitoring feed (**H04**), autoplay and audio (**H06**–**H08**), localStorage
+and lifecycle across restarts (**H15**, **H16**), network reachability
+(**H19**), the ring target (**H20**), idle dimming (**H21**), `pagehide` on
+teardown (**H23**) — and **H22**, which this report cannot touch at all: the
+reporter's device is an Elite, and H22 is a claim about a **Kraken Plus**. That
+row is still the emptiest one on the page.

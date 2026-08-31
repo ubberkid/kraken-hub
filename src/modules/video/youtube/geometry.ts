@@ -20,7 +20,10 @@ export interface GeomInput {
   /** `window.nzxt.v1.width/height`. Never hardcode 640 (invariant I3). */
   displayW: number;
   displayH: number;
-  /** `clamp(devicePixelRatio || 1, 1, 3)`. UNVERIFIED on hardware (H02). */
+  /**
+   * `clamp(devicePixelRatio || 1, 1, 3)`. H02, confirmed as 1 on CAM 4.76.5
+   * (see the hardware-checklist known results); other devices may differ.
+   */
   dpr: number;
   /** >= 1 for cover. */
   zoom: number;

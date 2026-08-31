@@ -24,7 +24,11 @@ export interface Geometry {
   height: number;
   shape: Shape;
   targetFps: number;
-  /** `window.devicePixelRatio`. UNVERIFIED on hardware (H02) — reported, never assumed. */
+  /**
+   * `window.devicePixelRatio`. H02, confirmed as 1 on CAM 4.76.5 (see the
+   * hardware-checklist known results) — but that is one device, so it stays
+   * reported and never assumed.
+   */
   dpr: number;
   source: 'nzxt' | 'sim' | 'url' | 'fallback';
   /** Practical inset for text and UI. Content inside it is safe to read. */
