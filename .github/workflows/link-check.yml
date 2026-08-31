@@ -34,7 +34,7 @@ jobs:
     name: internal links (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `--offline` resolves relative paths and anchors against the checkout and
       # never opens a socket. That makes this job fully deterministic: it can
@@ -58,7 +58,7 @@ jobs:
     # else's server being slow.
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check external links
         uses: lycheeverse/lychee-action@v2
