@@ -110,9 +110,12 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
       <div className="kh-shell">
         {/*
           No tab bar (prototype screen 1: "six tabs → zero").
-          The wordmark is a link home; the sections live behind the home
-          screen's own quiet `Remote · Library · Diagnostics ⌄` row, and About
-          sits in the footer next to the version line.
+
+          The wordmark is a link home. The two destinations live in the home
+          screen's own quiet `Remote · Library` row — Diagnostics was a third
+          entry there until round 1 found it was not a destination but an
+          errand, and the same errand as About; both are one page behind the
+          footer's version line now.
         */}
         <header className="kh-header">
           <a className="kh-wordmark" href="#/" data-testid="wordmark">

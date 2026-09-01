@@ -58,15 +58,17 @@ Things the design intended, or a reader would reasonably expect, that are not
 there. Listed here so nobody has to discover them by being surprised.
 
 - **No one-click "reset all kraken-hub data".** Individual clips can be deleted
-  from the clip library, and the storage inspector shows every key, but there is
-  no single control that wipes state, clips and room code together.
+  from the Library, but there is no single control that wipes state, clips and
+  room code together, and no storage inspector listing the keys — the About
+  page's technical detail reports only whether persistence was granted.
   ([getting-started.md](getting-started.md#removing-everything))
 - **The storage namespace is not path-scoped.** It is the fixed origin-scoped
   prefix `kraken-hub:v1:`, so two kraken-hub deployments under one
   `<user>.github.io` share one configuration. The design specified a
   path-normalized namespace; that did not ship.
   ([self-hosting.md](self-hosting.md#nothing-is-hardcoded))
-- **The diagnostics page lists the sync endpoints but never probes them.** H19 —
+- **The About page's technical detail lists the sync endpoints but never probes
+  them.** H19 —
   whether CAM's webview can reach `broker.emqx.io` or `ntfy.sh` at all — needs a
   deliberate opt-in probe that has not been built. Live status for a _paired_
   room is on the Remote page and is real.

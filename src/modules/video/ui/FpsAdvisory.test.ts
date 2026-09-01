@@ -92,6 +92,17 @@ describe('rendering', () => {
     expect(text).toContain(CAM_PATH_FRAME_RATE);
   });
 
+  /**
+   * Round 3: the body ended in a hardcoded "(40 on Elite)" on every panel,
+   * including the two it is wrong for. The ceiling is passed in from
+   * `devicePresets` now, and an unknown panel gets no ceiling at all.
+   */
+  it('quotes the ceiling of the panel it was given, and none when it was given none', () => {
+    expect(renderFpsCard(1, 25).textContent).toContain('25 FPS on this panel');
+    expect(renderFpsCard(1, 40).textContent).not.toContain('Elite');
+    expect(renderFpsCard(1).textContent).not.toContain('on this panel');
+  });
+
   it('shrinks to a badge that says the number and nothing else', () => {
     const el = renderFpsBadge(1);
     expect(el.textContent).toBe('1 FPS ⚠');

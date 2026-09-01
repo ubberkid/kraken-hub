@@ -29,6 +29,142 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **The design audit's third round: every fix installs the assertion that makes
+  its whole class unrepresentable.** (Design audit round 3 — findings F1–F8, plus
+  the minors and the collateral.) The audit's core criticism was not that rounds
+  1 and 2 fixed the wrong things — it was that they fixed measured **symptoms**:
+  the panel's height rather than the page's budget, an enumerated list of tap
+  targets rather than the control inventory, one screen's vocabulary rather than
+  the app's. So each finding below is answered twice: once in the product, and
+  once in a test that a fourth instance of the same mistake cannot get past.
+
+  - **The Advanced door was inert at CAM's window (F1).** `ui.css` carried
+    `.kh-home .kh-disclosure { max-height: calc(100dvh - 268px); overflow-y: auto }`
+    inside `@media (max-height: 640px)` — a "floor under the promise" that, with
+    the options and Advanced both open at 866×537, silently swallowed **929 px**.
+    Pressing Advanced rotated a chevron, produced a scrollbar inside a box, and
+    changed nothing else a user could see. The cap is deleted. Opening Advanced
+    promotes the panel to an honest full-height flow that scrolls the **page**,
+    visibly and expectedly, with the nav row and the footer in flow below it, and
+    scrolls the door you just opened into view so the press has an answer.
+    `.kh-home[data-advanced]` says which of the two promises is in force.
+  - **The budget is the page, and it always was (F2).** With the options open and
+    Advanced closed, the composition overflowed CAM's 866×537 window by 14 to
+    77 px on every module — the panel ended above the fold and `.kh-more`, this
+    app's entire navigation, was bisected by it. Round 2's assertions had passed
+    throughout, because they measured the panel's last pixel and called it the
+    composition. **A component is never the unit of measurement again:**
+    `home-composition.spec.ts` asserts `document.scrollHeight <= clientHeight`
+    for **every module × {closed, options, options + Advanced}** at 866×537, with
+    the nav and footer whole, `scrollY` still 0, and nothing scrolling inside its
+    own box. The rhythm was tightened to hold it: the short-viewport block now
+    compresses the shell, the header, the footer and the options rows, and the
+    first-run band shrinks the halo while it is on screen rather than pushing the
+    navigation off the bottom of the first screen anybody ever sees.
+  - **The first open of a module's options no longer animates against a
+    placeholder (F3).** `ModuleSettingsView` used `React.lazy`, so the panel's
+    opening spring ran for 380 ms against Suspense's `Loading settings…` — a
+    different height from the real content — and then hard-cut when the chunk
+    landed. Prefetching alone does not fix it: `lazy()` starts its import on its
+    first render and suspends on that render even when the module is cached. The
+    component is resolved **before the element exists** now, out of a cache
+    (`views/configPanels.ts`) that `HomeView` warms whenever the active module
+    changes — choosing a module is a decision to look at it. The panel's first
+    render is the real panel; the cold path renders nothing for a beat rather
+    than something the wrong size.
+  - **The flagship receipt never left the screen (F4).** Round 2 gave the paste
+    receipt a retirement and hard-coded the stages allowed to use it — `accepted`
+    and `stored` — which excluded the single most common thing anybody does with
+    this app. A YouTube link produced a 219 px three-card ladder that stayed for
+    the session, asserting that a video was playing next to a halo showing it
+    playing and a status line saying it was playing: **one fact, four times.**
+    The rule is a question about a stage now rather than a list
+    (`homeState.receiptPersists`, an exhaustive `switch` over `FlowStage`, so a
+    new stage is a compile error rather than a card that inherits "stays
+    forever"). Every steady state collapses into the status line; only an
+    unfinished download and a failure persist. The _"Ads and all, the way YouTube
+    sends it"_ line was a **source property** wearing the grammar of an event —
+    it lives in the video module's options, next to the control that answers it.
+  - **Doors to empty rooms are unrepresentable (F5).** Three of the four module
+    panels opened to a signpost sentence — _"Face, hours and seconds are on the
+    strip above"_ — and a closed `Advanced` disclosure: a deliberate second tap
+    on the active chip, answered with a paragraph about somewhere else and
+    another door to press. Stats' panel had literally nothing else in it. Every
+    module builds its options through one component now (`ui/ModuleOptions`),
+    which **promotes the advanced controls to the panel itself when there are no
+    primary ones**, and has no `hint` slot at all. All four signpost sentences
+    are deleted, and the suite asserts, per module, that the options open onto a
+    control rather than onto a door.
+  - **Touch targets: the inventory, not a list (F6).** Round 2 shipped a
+    five-selector assertion that passed while the four **module chips** — the
+    app's primary gesture — sat at 36 px directly underneath it, along with the
+    options' × (26), Loop (21), every range (18), every field and secondary
+    button (39), the scrubber's loop toggle (20), the wordmark (26) and the
+    footer link (18). `tap-targets.spec.ts` enumerates every visible interactive
+    element (anchors, buttons, form controls, `summary`, ARIA widgets, anything
+    in the tab order) on every route at 390 px and holds all of it to 44 px,
+    counting an absolutely-positioned pseudo bleed as the target where one
+    exists. The exception list is empty, deliberately.
+  - **One vocabulary, app-wide (F7).** `LibraryView` still said _"Saving to your
+    Kraken…"_ — the exact phrase `HomeView`'s own comment documents as killed —
+    and the destination of a kept copy flipped between _"on this PC"_ and _"to
+    your Kraken"_ depending on which file you were reading. The words live in
+    `src/config/vocabulary.ts` now, every surface imports them, and
+    `vocabulary.test.ts` walks the source tree to prove no second **rendered**
+    literal survives (comments may still name a retired spelling, which is where
+    naming one is useful). The keep-a-copy row is labelled by its destination —
+    **On this PC** — so its options can be the verbs instead of repeating it.
+  - **In-progress and failed library tiles are things, not holes (F8).** Round 2
+    gave stored clips a generated frame with a treated hue-card behind it and
+    left the other two states rendering a bare `.kh-tile__thumb` — a ~400 px
+    black rectangle. The two tiles a user looks at hardest, because something is
+    happening or something went wrong, were the two with nothing on them. Both
+    get the same treated card, with the progress meter and the failure line drawn
+    **on** it rather than instead of it.
+  - **The minors, each with a number or a string behind it.** The first-run band
+    overflowed CAM's window by 93 px (227 with the address revealed) and led with
+    a garden path — _"then turn CAM → Lighting → your Kraken → Web Integration →
+    Frame Rate up"_, a five-step menu route between a verb and its particle; it
+    fits now and uses About's grammar, from one source. About printed its own
+    name a second time 30 px under the breadcrumb that had just said it. The
+    compact mirror row was left-aligned while every other row was centred — one
+    orphan x-axis at the moment the halo is least able to anchor anything. The
+    Library's corner button rotated its `+` into an `×` and kept the word "Add"
+    underneath it, and its add panel gave thirty words of advice about preparing
+    a file in the box whose job is to take the file you already have (the advice
+    moved to `docs/local-clips.md`). The empty library floated a third of the way
+    down its screen. The remote was the one sub-page with no way back below
+    700 px. Two stale comments named controls deleted a round ago.
+
+- **A layout bug the audit walked into: `<main>` was not the row that grew.**
+  `.kh-shell` was `grid-template-rows: auto 1fr auto`, which is correct for the
+  home screen's three children and silently wrong for every sub-page, because
+  those have four — the breadcrumb sits between the header and `<main>`, so the
+  `1fr` landed on the **breadcrumb**. Measured on `#/library` at 866×537: 199 px
+  of empty space stretched under a one-line nav, `<main>` starting 241 px down
+  the page, and an empty-state card that could not be centred in its own screen
+  because its screen was 251 px tall in a 537 px window. The shell is a flex
+  column now, which has no row-counting to get wrong.
+
+- **Collateral: ~131 lines of dead CSS, a dead copy table, and a documentation
+  re-walk.** The stylesheet still carried `.kh-cliplist`/`.kh-clip*` (the
+  pre-grid library list), `.kh-step--offer` (the downloader pitch card),
+  `.kh-op__chip*` (the "Saved locally ✓" readout), `.kh-setup--first`/`__steps`/
+  `__hint` (the numbered first-run card), `.kh-tile__badge` (the CLIP/IMAGE
+  badge), `.kh-select` (the native picker deleted from the design system in round 2) and `.kh-home__connect` — every one of them a rule for an element no
+  component renders. `PROXY_PRESETS` in `video/types.ts` was a two-entry table
+  whose labels were the `<option>` prose round 1 deleted; the proxy **field**
+  stays, because whether to ship a public proxy at all is one of the audit's §6
+  product decisions. The user-facing docs were walked against the **shipped UI**
+  rather than against the diffs: `getting-started.md` still described the
+  pre-round-1 ops line verbatim (`Loop 0:18 – 0:42 · Fill · Cover · Saved locally
+✓`, "scrolled to and focused on the control the line names"),
+  `troubleshooting.md` named a _Not detected_ chip that reads **Not running** and
+  a `Local downloader → Advanced` path that is the other way round, the README
+  linked "Sources" and captioned "the diagnostics page", and `CONTRIBUTING.md`
+  sent contributors to a `#/diag` page that has been a redirect since round 1.
+  The three design docs' corrections tables now record rounds 1–3.
+
 - **The About page stopped being a wall, and the remote leads with its job.**
   (Design audit round 2, wave B — findings R3, R4, R6, R7, R8, R10, R11.) Wave A
   measured the home screen. Wave B put the same ruler on the four surfaces it had

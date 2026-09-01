@@ -175,13 +175,13 @@ way an A–B loop does. The full per-provider table is in
   LCD window in two Chromium browsers that share one storage profile; your
   phone is a third, separate profile. A file picker on the phone would upload
   into storage the display cannot see. Downloads and uploads happen in the CAM
-  window, and the remote offers a one-click link to open kraken-hub there. What
-  the remote _can_ do is choose from clips the display has already announced.
-- **Change audio.** The volume and mute controls are present and disabled, with
-  a tooltip explaining why: it is unverified whether the CAM webview reaches the
-  speakers at all (hardware checklist **H08**), so the display forces mute until
-  somebody measures it. A control that silently does nothing is worse than one
-  that says why it is off.
+  window, and the remote offers a one-click link to open kraken-hub there. The
+  clip picker that used to sit here went with the rest of the remote's duplicate
+  copy of the app (round 2, R4): the remote drives what is on the panel.
+- **Change audio.** There is no volume or mute control on the remote at all. It
+  is unverified whether the CAM webview reaches the speakers (hardware checklist
+  **H08**), so the display forces mute until somebody measures it — and a
+  control that could only ever be disabled is worse than no control.
 - **Change the display's own trust settings.** A remote peer cannot repoint the
   display at a different broker, turn off its watchdog, or opt it into audio.
   Those fields are deliberately absent from the wire format
@@ -301,12 +301,14 @@ the fallback is a genuinely independent path rather than a second roll of the
 same dice.
 
 **The ladder.** With `Transport: Auto`, kraken-hub tries MQTT first. On a
-connection error, or a **5-second** timeout, it moves to ntfy and the remote
-shows _fallback transport — higher latency_. If a live transport later drops,
-the ladder re-runs from its current rung after a jittered backoff
-(`1s, 2s, 4s, 8s, 15s, 30s, 60s`). If both are unreachable the status reads
-_offline_ — and the display keeps playing from its persisted state, because it
-never depends on sync to function.
+connection error, or a **5-second** timeout, it moves to ntfy and the remote's
+status line appends _"· on the backup link, so it is a little slower"_. If a
+live transport later drops, the ladder re-runs from its current rung after a
+jittered backoff (`1s, 2s, 4s, 8s, 15s, 30s, 60s`). If both are unreachable the
+remote reads _"Looking for your Kraken…"_ — and the display keeps playing from
+its persisted state, because it never depends on sync to function. The machine
+words (`fallback transport — higher latency`, `offline`) are the About page's
+**Connection detail** chips, not anything the remote says.
 
 **Retention, and how ntfy fakes it.** MQTT stores the last `state` message as a
 retained message; a cold display gets it as part of the connect handshake. ntfy
@@ -389,9 +391,9 @@ explicitly because they are new kinds of data rather than more of the same:
   picture. This is the only telemetry that contains _content_ rather than
   metadata, and it is encrypted under the room key like everything else.
 
-Telemetry — including both of those — can be switched off entirely in **Room
-settings**, and turning it off is exactly what "your Kraken reports back to this
-page" means.
+Telemetry — including both of those — can be switched off entirely under
+**About → Connection → "Your Kraken reports back to this page"**, which is
+exactly what that switch means.
 
 One payload is not part of that stream: a hardware report, sent only in answer
 to **Ask your Kraken** and therefore unaffected by the toggle. It is the same
@@ -443,13 +445,14 @@ never with the broker in the first place.
 
 ## Troubleshooting
 
-**`fallback transport — higher latency`** — MQTT could not be reached, so ntfy
-took the slot. Usually a firewall blocking port 8084. Everything still works;
-expect a second or so more latency.
+**`fallback transport — higher latency`** (About → Connection → _Connection
+detail_; on the remote, _"on the backup link, so it is a little slower"_) — MQTT
+could not be reached, so ntfy took the slot. Usually a firewall blocking port 8084. Everything still works; expect a second or so more latency.
 
-**`offline`** — neither transport connected. The display keeps playing whatever
-it was already playing; use the CAM configuration window until the network
-returns.
+**`offline`** (About → Connection → _Connection detail_; on the remote,
+_"Looking for your Kraken…"_) — neither transport connected. The display keeps
+playing whatever it was already playing; use the CAM configuration window until
+the network returns.
 
 **"No messages could be decrypted"** — the two ends are on different room codes.
 Re-scan the QR, or retype the code. Note that `I`/`L` become `1` and `O` becomes
@@ -465,10 +468,6 @@ a different room code, is not running, or CAM has not reloaded the integration
 since this build was deployed. CAM caches the page: a display already running an
 older build has no `requestDiag` handler, and it will ignore the request in
 silence until CAM restarts or the integration is reloaded.
-
-**Nothing in the clip list** — the display publishes its clip index on connect
-and every five minutes. If it is empty, the library is empty; add clips from the
-CAM window.
 
 ---
 

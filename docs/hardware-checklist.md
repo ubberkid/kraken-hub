@@ -63,7 +63,7 @@ Pair a room once, and then pull it over the network instead:
 1. **On the PC, once.** Open kraken-hub's configuration page → **Remote** →
    **Create a code**. Nothing else on the PC ever needs touching again.
 2. **On any other browser** — laptop, phone, whatever — open the same site,
-   go to **Remote**, and type the code into **Room code → Join**. Wait for the
+   go to **Remote**, open **Type a code instead**, and use **Room code → Join**. Wait for the
    status chip to say `online`.
 3. Open the version line in the footer → **Report → Show the technical detail →
    Ask your Kraken**. It probes itself for about five seconds and sends the

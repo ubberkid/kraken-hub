@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { KEPT_A_COPY } from '../../src/config/vocabulary';
+
 import type { Page } from '@playwright/test';
 
 test.describe('config boot', () => {
@@ -27,9 +29,9 @@ test.describe('config boot', () => {
     await expect(page.locator('.kh-stage')).toHaveCount(0);
 
     await page.getByTestId('disclosure-about').click();
-    await expect(
-      page.getByRole('main').getByRole('heading', { name: 'About', exact: true }),
-    ).toBeVisible();
+    // The page is named once, by the breadcrumb whose job is naming pages —
+    // the panel below used to print "About" again 30 px under it (round 3).
+    await expect(page.locator('.kh-subhead__title')).toHaveText('About');
     // The install instructions did not vanish with the Setup home — they moved.
     await expect(page.getByTestId('setup-about')).toBeVisible();
     expect(new URL(page.url()).hash).toBe('#/about');
@@ -135,7 +137,7 @@ test.describe('config boot', () => {
 
     // Both halves are on the one page — three calm sections since R3.
     const main = page.getByRole('main');
-    await expect(main.getByRole('heading', { name: 'About', exact: true })).toBeVisible();
+    await expect(page.locator('.kh-subhead__title')).toHaveText('About');
     await expect(main.getByRole('heading', { name: 'Connection', exact: true })).toBeVisible();
     await expect(main.getByRole('heading', { name: 'Report', exact: true })).toBeVisible();
 
@@ -325,7 +327,7 @@ test.describe('config boot', () => {
       },
       seed('done', 134_217_728),
     );
-    await expect(flow).toContainText('128 MB · kept in your library');
+    await expect(flow).toContainText(`128 MB · ${KEPT_A_COPY}`);
     await expect(flow.locator('li').nth(2)).toHaveClass(/kh-step--on/);
     await expect(flow).toContainText('On screen now');
   });
@@ -429,10 +431,31 @@ test.describe('config boot', () => {
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(page.getByTestId('mirror')).toBeInViewport();
 
+    // The halo takes 450 ms to hand the floor over; a measurement before that is
+    // a measurement of the transition (round 3 read 638 px for a 537 px page).
+    await page.evaluate(async () => {
+      const running = document.getAnimations().filter((a) => a.playState === 'running');
+      await Promise.race([
+        Promise.all(running.map(async (a) => a.finished.catch(() => undefined))),
+        new Promise((resolve) => {
+          setTimeout(resolve, 1500);
+        }),
+      ]);
+    });
     const after = await page.evaluate(
       () => (document.scrollingElement ?? document.documentElement).scrollHeight,
     );
-    expect(after).toBeGreaterThan(before);
+    /*
+     * Round 3 moved this ceiling to the floor.
+     *
+     * "Under two screens" was the round-1 target, and the round-2 composition
+     * hit it by opening the panel in the halo's place — so the page grew a
+     * little rather than a lot, and this test asserted the growth. Round 3's F2
+     * measured what "a little" was costing: 77 px, which is the nav row. The
+     * page does not grow AT ALL now, and `home-composition.spec.ts` asserts
+     * that for every module. Nothing below is a relaxation of the old bound.
+     */
+    expect(after).toBeLessThanOrEqual(before);
     expect(after).toBeLessThan(1100);
   });
 

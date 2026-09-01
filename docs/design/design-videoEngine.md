@@ -6,6 +6,25 @@
 
 ---
 
+## Corrections (post-M4, design audit rounds 1–3)
+
+This document is historical source material: it records the design as it was
+reasoned out, and the body below is left unedited on purpose. Where shipped
+reality diverges, the shipped side wins and the divergence is listed here.
+
+| Topic | This doc says | Shipped reality (authoritative) |
+|---|---|---|
+| The config panel's size (§7) | A full settings surface with the URL field, quality, geometry, pause strategy, portrait width, crossfade, proxy, resolver and the A-B loop | **Six controls became two plus one Advanced door.** The round-1 audit measured this panel at **24 controls, 23 `<label>`s, 533 words of body copy and 171 words living inside `<option>` elements**, expanding to 2,963 px — five and a half CAM windows. Every "(recommended)" option was pinned to its default and deleted: picture quality (already governed by `fpsGovernor`), the pause strategy, player size, portrait width, and the frame-rate-warning suppressor. `VideoConfigPanel` now renders **On this PC** and **Quality**, with shape, framing, the local downloader and the proxy behind one `Advanced` disclosure. |
+| The A-B loop's controls (§3) | Two numeric fields, in seconds | **An A/B scrubber on the home screen.** Typing `18` and `42` into second-fields was the audit's "single most anti-Apple control in the app": a five-click, two-field task that scroll-jumped the page 1,363 px. `views/LoopScrubber.tsx` is the mechanism lifted out of the phone remote; the numeric fields are gone. The task is one click and no scroll. |
+| Where the downloader is offered (§6.4) | A "Get the downloader" call to action on the flow | **Behind Advanced, never in the success path.** The audit found a working YouTube video answered with an orange paragraph and a primary teal install button — an apology and a pitch as the response to the first thing that ever worked. The downloader is a real capability and still one tap away, inside `Advanced → Local downloader`, where its chip reads **Running / Not running**. |
+| The FPS advisory's card text (§8.1) | *"…Frame Rate → drag to max (40 on Elite)."* | **The ceiling is the attached panel's, and the copy has one source.** 40 is right for an Elite and wrong for a Kraken Z (1) and a Kraken 2023 (25) — told to the user in the exact moment they are asked to drag a slider to it. `config/camPaths.ts` owns the sentence (`fpsAdvisoryBody`), `platform/devicePresets.ts` owns the number (`maxTargetFpsForPanel`), and a panel nobody recognises gets no parenthetical rather than an invented one. The menu path itself comes from `CAM_PATH_FRAME_RATE`, and the instruction's grammar — *drag …&nbsp;to maximum* — is shared with the display's own banner and the install band. |
+| Error copy naming a remedy | §7.2's `local-file-probe-timeout` message ends *"use 'Add anyway' to store it as-is"* | The button did not exist anywhere in the product — a real error naming an unreachable remedy (audit F5.1). It is **built**, in the Library, on the one failure a user can legitimately overrule (`ingestBlob`'s `force`). |
+| The status line (§7.5) | Unspecified beyond "Ready to play" | **Present tense, from the display's own telemetry.** `sourceName` took the last URL path segment, so every YouTube watch link in the world produced the word *"watch"*. It uses `detect()`'s provider and the telemetry title now, and the verb reaches Playing/Holding/Keeping a copy of/Streaming (`homeState.describeVideoStatus`). |
+| The paste receipt | Unspecified | **Narrates transitions, then leaves.** Every stage that reaches a steady state collapses into the status line after four seconds; only an unfinished download and a failure persist (`homeState.receiptPersists`, exhaustive over `FlowStage`). Source properties — YouTube's in-video ads — live in the module's options next to the control that answers them, never in the ladder. |
+| `PROXY_PRESETS` (§7.3 step 4) | A two-entry preset table for the proxy `<select>` | The control is a Switch plus a text field; the table had no reader after round 1 and is deleted. **The proxy field itself stays** — whether to ship a public proxy at all is one of the audit's §6 product decisions, reserved for the user. |
+
+---
+
 ## 0. Module file layout (exact)
 
 ```

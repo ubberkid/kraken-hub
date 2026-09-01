@@ -56,7 +56,7 @@ community integration uses.
 
 ### The manual way
 
-**CAM → Lighting → your Kraken → Mode: _Web Integration_ → _Edit_ on the Custom
+**CAM → Lighting → your Kraken → _Web Integration_ → _Edit_ on the Custom
 option → paste the URL → _Apply_.**
 
 If you opened kraken-hub in an ordinary browser first, the page does this for
@@ -113,7 +113,7 @@ with no network involved. That is the "is this thing on?" test.
 
 ### Play a video
 
-**Home → paste a link**, or **Library → + → paste a link**. Both go the same
+**Home → paste a link**, or **Library → Add → paste a link**. Both go the same
 way: the link is validated, becomes the source, and your Kraken fetches it.
 
 The headline behaviour is that kraken-hub **downloads the video into its own clip
@@ -136,10 +136,19 @@ The full ingestion story, including manual upload, storage quota,
 
 The four chips under the halo — **Video · Clock · Stats · Image** — are what is
 on the screen. Tap one and the panel changes immediately; only the active
-module's code is ever downloaded by the display. Under the chips is a line of the
-settings you actually change (`Loop 0:18 – 0:42 · Fill · Cover · Saved locally ✓`);
-pressing one opens that module's full settings in place, scrolled to and focused
-on the control the line names. There is no settings page to find.
+module's code is ever downloaded by the display.
+
+Under the chips is a strip of **real controls** for whatever is on the panel —
+Fit and Loop for video, Face/Hours/Seconds for the clock, and so on. Each one
+resolves where it stands: Fit is a segmented control, and Loop opens an A/B
+scrubber under the strip rather than sending you anywhere.
+
+**Tap the chip that is already active** and the rest of that module's options
+open in the halo's place — the mirror shrinks to a live corner thumb, so the
+whole composition still fits CAM's window. Everything technical is behind one
+**Advanced** door inside that panel, and opening it lets the page scroll,
+visibly, because you asked for more than a window's worth. There is no settings
+page to find, and nothing here ever moves the scroll position on its own.
 
 ### You are already previewing it
 
@@ -152,9 +161,10 @@ it reports what is genuinely playing, from the display's own telemetry.
 
 ## Step 4 — pair your phone (optional)
 
-Open **Remote** from the row under the halo — it and **Library** are the only
-two entries there — and scan the QR on the pairing card
-with your phone's camera.
+Open **Remote** from the quiet row under the options — it and **Library** are
+the only two entries there — and scan the QR on the pairing card with your
+phone's camera. (About and diagnostics are not in that row: they are one page,
+behind the version line in the footer.)
 
 ![The phone remote](assets/remote.png)
 
@@ -163,18 +173,18 @@ never touches a public broker. The layout is identical on a real one.</sub>
 
 - **There is nothing to type.** The QR is a link that carries the room code, so
   the phone opens the remote and joins before the card first paints. It stays
-  paired afterwards, and a bookmark works too. To unpair, use **Forget this
-  Kraken** under _Pairing options_ on the pairing card.
+  paired afterwards, and a bookmark works too. To unpair, press **Unpair** on
+  the pairing card — it is the card's one button, next to the room code.
 - The code is **eight characters of Crockford base32** — no I, L, O or U, so
-  nothing is ambiguous read off a screen. You can still type it into
-  **Room code → Join** if the camera route is not available.
+  nothing is ambiguous read off a screen. If the camera route is not available,
+  open **Type a code instead** on the pairing card and use **Room code → Join**.
 - The QR encodes a URL whose room code sits in the **fragment**, which browsers
   never send to a server. The QR is generated in your browser; nothing is
   uploaded to make it.
 - Payloads are encrypted in the browser with a key derived from the room code,
   so the public broker relays ciphertext it cannot read. Anyone holding the code
-  can drive your panel — treat it like a password and rotate it from the same
-  panel if you ever share a screenshot.
+  can drive your panel — treat it like a password and press **Rotate code**
+  under _Pairing options_ if you ever share a screenshot.
 - Transport failover (MQTT → ntfy) is automatic, and both endpoints are
   user-overridable if you would rather run your own.
 
@@ -266,8 +276,8 @@ profile:
 | Settings, room code, telemetry     | `localStorage`, under keys prefixed `kraken-hub:v1:` |
 | Clips, images and their thumbnails | IndexedDB, database `kraken-hub.v1`                  |
 
-**Library → hover a tile → Delete** removes an individual clip and its bytes,
-and the quota bar updates as it goes. There is not yet a single button that
+**Library → a tile's Delete** removes an individual clip and its bytes, and the
+usage meter under the shelf updates as it goes. There is not yet a single button that
 wipes everything at once — clearing site data for the origin from a browser
 pointed at the same URL does it. A one-click "reset all kraken-hub data" control
 is a known gap, listed under [Known gaps](README.md#known-gaps).

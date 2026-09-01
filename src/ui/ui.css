@@ -193,9 +193,24 @@ html.kh-config-mode .kh-app {
   animation: kh-rise var(--kh-dur-slow) var(--kh-ease);
 }
 
+/*
+ * A column, not a three-row grid.
+ *
+ * It was `grid-template-rows: auto 1fr auto`, which is correct for the home
+ * screen's three children — header, main, footer — and silently wrong for every
+ * sub-page, because those have FOUR: the breadcrumb sits between the header and
+ * `<main>`, so the `1fr` landed on the BREADCRUMB and `<main>` was auto-sized.
+ * Measured on `#/library` at 866x537: 199 px of empty space stretched under a
+ * one-line nav, `<main>` starting 241 px down the page, and an empty-state card
+ * that could not be centred in its own screen because its screen was 251 px
+ * tall in a 537 px window.
+ *
+ * A flex column has no row-counting to get wrong: `<main>` is the thing that
+ * grows, whatever else is on the page.
+ */
 .kh-shell {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   /* dvh, not vh: on a phone opening #/remote, `100vh` is the URL-bar-collapsed
      height, so a page whose content fits would still scroll by a few pixels. */
   min-height: 100dvh;
@@ -203,6 +218,27 @@ html.kh-config-mode .kh-app {
   margin: 0 auto;
   padding: 1.25rem;
   gap: 1.25rem;
+}
+
+.kh-shell > main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * …and the two screens that fill it, say so.
+ *
+ * `min-height: 100%` on a view does not resolve against a flex item whose own
+ * height is `auto`, which is how the Library's empty card ended up centred in
+ * 251 px of a 405 px `<main>`. Growing the view itself needs no percentage at
+ * all. Named rather than `> *`, because About renders three sibling panels into
+ * `<main>` and stretching each of them equally is a different page.
+ */
+.kh-shell > main > .kh-library,
+.kh-shell > main > .kh-home {
+  flex: 1 1 auto;
 }
 
 .kh-header {
@@ -302,8 +338,7 @@ html.kh-config-mode .kh-app {
   font-size: 0.78rem;
 }
 
-.kh-input,
-.kh-select {
+.kh-input {
   min-width: 12rem;
   padding: 0.5rem 0.7rem;
   color: var(--kh-ink);
@@ -319,8 +354,7 @@ html.kh-config-mode .kh-app {
   color: var(--kh-placeholder);
 }
 
-.kh-input:hover,
-.kh-select:hover {
+.kh-input:hover {
   border-color: var(--kh-accent-line);
 }
 
@@ -672,35 +706,6 @@ html.kh-config-mode .kh-app {
   font-variant-numeric: tabular-nums;
 }
 
-.kh-cliplist {
-  display: grid;
-  gap: 0.6rem;
-  margin: 0.8rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.kh-clip {
-  display: flex;
-  gap: 0.8rem;
-  align-items: center;
-  padding: 0.6rem;
-  border: 1px solid var(--kh-line);
-  border-radius: var(--kh-r-card);
-  background: var(--kh-panel);
-}
-
-.kh-clip__name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.kh-clip__detail {
-  font-size: 0.82rem;
-  color: var(--kh-muted-2);
-}
-
 /* Pairing QR. Rendered as an inline <svg> from src/app/config/qr.ts — never
    fetched from a QR service, because the URL it encodes contains the room code
    and the room code is the only secret in the sync design.
@@ -766,7 +771,6 @@ html.kh-config-mode .kh-app {
      * ends instead of a hole at the bottom.
      */
     justify-content: center;
-    min-height: 100%;
     padding: 0.75rem 0;
   }
 
@@ -846,10 +850,36 @@ html.kh-config-mode .kh-app {
   }
 }
 
+/*
+ * The page budget, at CAM's window (round 3, F2).
+ *
+ * Round 2 compressed this rhythm until the options PANEL fitted, and measured
+ * the panel. Round 3 put the ruler on the document and found the composition
+ * still overflowing by 14–77 px with the options open — the panel ended above
+ * the fold and the NAV ROW, which is this app's entire navigation, was bisected
+ * by it. A component is never the unit of measurement again: the numbers below
+ * are chosen so that `document.scrollHeight <= clientHeight` for every module
+ * with its options open, nav and footer included, and `home-composition.spec.ts`
+ * asserts exactly that for all four modules in all three panel states.
+ */
 @media (max-height: 640px) {
   .kh-shell {
-    padding: 0.85rem 1.25rem;
-    gap: 0.8rem;
+    padding: 0.7rem 1.25rem;
+    gap: 0.55rem;
+  }
+
+  /* The wordmark is a link home; at 537 px it does not also need a rule under
+     it and a full line of leading above the screen it names. */
+  .kh-header {
+    padding-bottom: 0.4rem;
+  }
+
+  .kh-header h1 {
+    font-size: 0.95rem;
+  }
+
+  .kh-footer {
+    padding-top: 0.35rem;
   }
 
   .kh-home {
@@ -880,7 +910,7 @@ html.kh-config-mode .kh-app {
   }
 
   .kh-home .kh-more {
-    margin-top: 12px;
+    margin-top: 10px;
   }
 
   /*
@@ -891,16 +921,24 @@ html.kh-config-mode .kh-app {
    * suite now makes, per module.
    */
   .kh-home .kh-disclosure {
-    margin-top: 0.5rem;
-    padding: 0.55rem 0.85rem 0.1rem;
+    margin-top: 0.4rem;
+    padding: 0.4rem 0.85rem 0.05rem;
   }
 
   .kh-home .kh-disclosure__head {
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.2rem;
   }
 
   .kh-home .kh-disclosure__head h2 {
     font-size: 0.85rem;
+  }
+
+  /* The × keeps its 26 px circle everywhere a pointer is the input; here the
+     head is 537 px of budget and the circle is the tallest thing in it. */
+  .kh-home .kh-disclosure .kh-iconbtn {
+    width: 22px;
+    height: 22px;
+    font-size: 13px;
   }
 
   /*
@@ -913,32 +951,73 @@ html.kh-config-mode .kh-app {
     --kh-halo-inner: 48;
   }
 
+  /*
+   * First run, in CAM's window (round 3, minors).
+   *
+   * The band is one line and one button, and it still put the nav row 63 px
+   * below the fold on the first screen anybody ever sees — because it is a
+   * second object under a 178 px halo in a 537 px window. Same trade the
+   * options panel gets, smaller: the mirror yields a little room while the
+   * band needs it, and gets it back permanently once a display has spoken.
+   */
+  .kh-home[data-firstrun='true']:not([data-compact='true']) {
+    --kh-halo-size: 124;
+    --kh-halo-inner: 112;
+  }
+
+  .kh-home[data-firstrun='true'] .kh-band {
+    margin-top: 10px;
+    padding: 0.35rem 0.7rem;
+  }
+
+  /* With the options open the band is one clause and one button; the button
+     does not also need a full page's worth of padding around it. */
+  .kh-home[data-firstrun='true'][data-compact='true'] .kh-band {
+    margin-top: 6px;
+  }
+
+  .kh-home[data-firstrun='true'][data-compact='true'] .kh-band .kh-btn {
+    padding: 0.35rem 0.8rem;
+  }
+
+  .kh-home[data-firstrun='true'] .kh-status {
+    margin: 8px 0 2px;
+  }
+
   .kh-home[data-compact='true'] .kh-paste {
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
   .kh-home[data-compact='true'] .kh-mods {
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
   .kh-home[data-compact='true'] .kh-ops {
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
   .kh-home .kh-disclosure .kh-panel {
-    padding: 0.65rem 0.8rem;
+    padding: 0.45rem 0.75rem;
+    margin-bottom: 0;
   }
 
   .kh-home .kh-disclosure .kh-panel > h2 {
     margin-bottom: 0.15rem;
   }
 
+  /*
+   * A row inside the options is a label and a control, not a paragraph block.
+   * The base rule's 0.5rem of vertical padding is right on the About page,
+   * where a panel owns the screen; in here it is 16 px per row of a budget the
+   * page has 537 of.
+   */
   .kh-home .kh-disclosure .kh-field {
-    margin-top: 0.5rem;
+    margin-top: 0.3rem;
+    padding: 0.25rem 0;
   }
 
   .kh-home .kh-disclosure .kh-desc {
-    margin-top: 0.15rem;
+    margin-top: 0.1rem;
   }
 
   .kh-home .kh-disclosure .kh-subhead3 {
@@ -946,7 +1025,11 @@ html.kh-config-mode .kh-app {
   }
 
   .kh-home .kh-disclosure .kh-details {
-    margin-top: 0.5rem;
+    margin-top: 0.3rem;
+  }
+
+  .kh-home .kh-disclosure .kh-details__summary {
+    padding: 0.3rem 0;
   }
 
   .kh-home .kh-disclosure .kh-list--shelf {
@@ -954,20 +1037,22 @@ html.kh-config-mode .kh-app {
   }
 
   /*
-   * The floor under the promise.
+   * There is NO cap here any more, and its absence is the fix (round 3, F1).
    *
-   * Every module's options are measured to fit above this, in the empty state
-   * and the ordinary one — that is the assertion the suite makes. But a panel's
-   * content is not always ours to bound (a picture shelf grows with the library,
-   * and a fork's module panel is somebody else's file), and "the options ran off
-   * the bottom of CAM's window" is the exact failure round 2 came here to end.
-   * So the panel is a sheet with a floor: it can never end below the viewport,
-   * and in the states we ship nothing inside it actually scrolls.
+   * This rule used to read `max-height: calc(100dvh - 268px); overflow-y: auto`
+   * — a "floor under the promise" that, at CAM's real 866x537 window with the
+   * Advanced door open, silently swallowed **929 px**. Pressing Advanced rotated
+   * a chevron and changed nothing else a user could see: the door was inert, and
+   * the only evidence anything had happened was a scrollbar inside a box.
+   *
+   * A cap that hides content to keep a measurement true is the measurement
+   * lying. The promise it was protecting is kept where promises belong — in the
+   * suite, which now measures the PAGE (`document.scrollHeight` against
+   * `clientHeight`) for every module in every panel state, rather than measuring
+   * this element and calling it the composition. With Advanced closed the whole
+   * page fits; with it open the page scrolls, visibly and on purpose, nav and
+   * footer in flow below. `.kh-home[data-advanced]` is which of those is true.
    */
-  .kh-home .kh-disclosure {
-    max-height: calc(100dvh - 268px);
-    overflow-y: auto;
-  }
 }
 
 @keyframes kh-rise {
@@ -1025,11 +1110,21 @@ html.kh-config-mode .kh-app {
   transition: gap var(--kh-dur-slow) var(--kh-ease);
 }
 
+/*
+ * Centred, like everything else in the column (round 3, minors).
+ *
+ * The compact row was `flex-start` inside a 40 rem box, so the thumb and the
+ * status line sat on the panel's left edge while the paste row, the chips, the
+ * strip and the nav were all centred on the composition's axis — one orphan
+ * x-axis, at the exact moment the halo is smallest and least able to anchor
+ * anything. The group is centred now, so the object stays on the spine it was
+ * on before the options took the floor.
+ */
 .kh-home[data-compact='true'] .kh-home__mirror {
   flex-direction: row;
   gap: 12px;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   max-width: 40rem;
 }
 
@@ -1401,32 +1496,7 @@ html.kh-config-mode .kh-app {
   margin-top: 6px;
 }
 
-/*
- * The offer step: "your video is playing, and one program away from being a
- * permanent ad-free copy".
- *
- * An accent rim, not a warning rim. This card is the only place most users will
- * ever hear that the downloader exists, so a muted footnote is the same as not
- * shipping it — but nothing here has gone wrong, and colouring it like the
- * error states would make a working YouTube video look broken, which is the
- * exact regression the flow was rebuilt to end.
- */
-.kh-step--offer {
-  border-color: var(--kh-accent-line);
-  background: linear-gradient(180deg, var(--kh-accent-bg), var(--kh-panel) 70%);
-  align-items: flex-start;
-}
-
-.kh-step__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
 /* ---- the guided connect panel ------------------------------------------ */
-.kh-home__connect,
 .kh-connect {
   width: 100%;
   max-width: 27rem;
@@ -1520,9 +1590,11 @@ html.kh-config-mode .kh-app {
  *
  * The strip under the chips is REAL CONTROLS now. It used to be three lines of
  * text that looked like toggles and all opened the same 1,600 px settings wall,
- * scroll-jumping 1,363 px into it (design audit, F2). Fit is a segmented
- * control, Loop opens the A/B scrubber in place, and "Saved locally" is a
- * readout. Nothing on this strip navigates.
+ * scroll-jumping 1,363 px into it (design audit, F2). Fit is a segmented control
+ * and Loop opens the A/B scrubber in place; the third line was a status readout
+ * shaped like a button, and it is not here at all any more — keeping a copy is a
+ * stage the status line reports, not a property the strip asserts (round 2, R5).
+ * Nothing on this strip navigates.
  * ------------------------------------------------------------------------- */
 .kh-ops {
   display: flex;
@@ -1584,23 +1656,6 @@ html.kh-config-mode .kh-app {
 .kh-op__btn[aria-expanded='true'] b {
   color: var(--kh-accent-ink);
   border-bottom-color: var(--kh-accent-line);
-}
-
-/* A status readout. Deliberately not shaped like anything you can press. */
-.kh-op__chip {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: var(--kh-r-chip);
-  border: 1px solid var(--kh-line);
-  background: var(--kh-panel);
-  color: var(--kh-muted);
-  font-size: 0.72rem;
-  white-space: nowrap;
-}
-
-.kh-op__chip--ok {
-  color: var(--kh-ok);
-  border-color: color-mix(in srgb, var(--kh-ok) 40%, transparent);
 }
 
 /* The A/B scrubber, revealed under the strip rather than on another page. */
@@ -1930,11 +1985,6 @@ main > .kh-panel .kh-setup {
   margin-inline: 0;
 }
 
-.kh-setup--first {
-  border-color: var(--kh-accent-line);
-  background: linear-gradient(180deg, var(--kh-accent-bg), var(--kh-panel) 60%);
-}
-
 .kh-setup__title {
   margin: 0 0 0.25rem;
   font-size: 1rem;
@@ -1946,52 +1996,6 @@ main > .kh-panel .kh-setup {
   margin: 0 0 1rem;
   color: var(--kh-muted);
   font-size: 0.85rem;
-}
-
-.kh-setup__steps {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.kh-setup__step {
-  display: flex;
-  gap: 0.8rem;
-  align-items: flex-start;
-}
-
-.kh-setup__num {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--kh-accent-bg);
-  border: 1px solid var(--kh-accent-line);
-  color: var(--kh-accent-ink);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.kh-setup__body {
-  flex: 1;
-  min-width: 0;
-}
-
-.kh-setup__body b {
-  display: block;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.kh-setup__hint {
-  margin: 0.15rem 0 0.6rem;
-  color: var(--kh-muted);
-  font-size: 0.82rem;
 }
 
 .kh-setup__actions {
@@ -2056,46 +2060,98 @@ main > .kh-panel .kh-setup {
 }
 
 /*
- * The remote is a PHONE surface that a desktop happens to be able to open. On
- * a phone the page is the app and there is nothing to go back to, so the
- * sub-header is desktop-only there — the one route where "back to Your Kraken"
- * would be a link to a screen the user did not come from.
+ * Every sub-page has the way back, at every width (round 3, minors).
+ *
+ * The remote used to hide its breadcrumb below 700 px, on the theory that a
+ * phone which scanned the pairing QR arrived at the remote and had nowhere to
+ * go back TO. That is true of exactly one way of arriving; the other one is
+ * tapping "Remote" in the home screen's nav, which is also how a phone reaches
+ * it, and that user was left on the one screen in the app with no exit — the
+ * precise failure `SubPageHeader` was written to end. Four screens with a
+ * breadcrumb and one without is a rule the user has to learn per screen, and a
+ * link home is never wrong: home is home whether or not you came from it.
  */
-@media (max-width: 700px) {
-  .kh-subhead[data-route='remote'] {
-    display: none;
-  }
-}
 
 /* ==========================================================================
- * Thumbs, at phone width (round 2, R10)
+ * Thumbs, at phone width (round 2 R10; round 3 F6)
  *
  * Everything on this page is sized for a mouse, which is a 1 px pointer you can
  * place exactly. A thumb is roughly 9 mm across and cannot; the platform
  * guidance both vendors publish is 44 px, and the audit's phone captures had
  * segment buttons at 27 px and a navigation row at 17.
  *
- * The visual size does not change — a 44 px pill would wreck the ops strip's
- * rhythm and is not what anybody means by "elegant". `min-height` on the button
- * and padding on the link grow the BOX while the type, the fill and the borders
- * stay exactly where the design put them. The loop handles are handled at their
- * own rule above, where the dot moved into a `::before` so the button itself
- * could be the target.
+ * ## Round 2 fixed a list. Round 3 fixes the class.
+ *
+ * The block below used to name five selectors — the five the round-2 audit had
+ * photographed — and everything it did not name stayed small. Round 3 walked
+ * the DOM instead of the screenshots and found seventeen more, including the
+ * MODULE CHIPS: the four buttons that are the app's primary gesture, at 36 px.
+ * Also the × that closes the options (26), the Loop control (21), every range
+ * (18), every text field and secondary button (39), the scrubber's loop toggle
+ * (20), the wordmark (26) and the footer link (18).
+ *
+ * So the rule is a floor over the whole vocabulary rather than a list of
+ * exceptions to a default, and `tap-targets.spec.ts` enumerates every visible
+ * interactive element on every route and holds it to the same number — a
+ * control added next year is caught by the test, not by round four.
+ *
+ * The visual size does not change, which is the whole trick: a 44 px pill would
+ * wreck the ops strip's rhythm and is not what anybody means by "elegant".
+ * `min-height` grows the BOX while the type, the fill and the borders stay
+ * exactly where the design put them. Where a box cannot grow without moving the
+ * picture — the range track, the scrubber's seek bar — the element keeps its
+ * drawn height and gains a transparent `::before` bleed instead, and the SUITE
+ * measures that bleed rather than the bounding box, because a hit area a test
+ * cannot see is a hit area round 2 already got wrong once.
  * ========================================================================== */
 @media (max-width: 700px) {
+  /* The house floor: anything you press, anywhere in the config UI. */
+  .kh-seg__opt,
+  .kh-ops .kh-seg__opt,
+  .kh-btn,
+  .kh-input,
+  .kh-library__head .kh-add,
+  .kh-mod,
+  .kh-quiet,
+  .kh-band__more,
+  .kh-details__summary {
+    min-height: 44px;
+  }
+
+  /*
+   * `min-width` as well as padding: the rotation row's labels are two
+   * characters ("0°", "90°"), so padding alone left a 42 px target — the one
+   * segment in the product narrow enough to miss.
+   */
   .kh-seg__opt,
   .kh-ops .kh-seg__opt {
-    min-height: 44px;
+    min-width: 44px;
     padding-inline: 14px;
   }
 
-  /* The app's whole navigation is this one row of links. */
+  /*
+   * The module chips — the app's primary gesture, and the one the round-2 list
+   * missed. Vertical padding rather than a bare `min-height` so the label stays
+   * optically centred in the taller pill.
+   */
+  .kh-mod {
+    padding: 11px 18px;
+  }
+
+  /* Links are boxes too: the nav row, the wordmark, the version line. */
   .kh-more a,
-  .kh-remote__foot a {
+  .kh-remote__foot a,
+  .kh-wordmark,
+  .kh-footer a,
+  .kh-subhead__back {
     display: inline-flex;
     min-height: 44px;
     padding: 0 0.55rem;
     align-items: center;
+  }
+
+  .kh-wordmark {
+    padding-left: 0;
   }
 
   .kh-more {
@@ -2105,6 +2161,52 @@ main > .kh-panel .kh-setup {
   /* The transport is already generous; the tile and pairing buttons are not. */
   .kh-tile__actions .kh-btn,
   .kh-roomcard .kh-btn {
+    min-height: 44px;
+  }
+
+  /*
+   * The round × that closes the options panel. It stays a 26 px circle to the
+   * eye — a 44 px disc in a panel head is a porthole — and becomes a 44 px
+   * target through a centred pseudo-element, the same technique the loop
+   * handles use, with `position: relative` so the bleed is anchored to it.
+   */
+  .kh-iconbtn {
+    position: relative;
+  }
+
+  .kh-iconbtn::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  /*
+   * Loop, on the ops strip. A dashed-underline control whose box is its text,
+   * so it grows downward-and-up around the baseline rather than pushing the
+   * strip apart.
+   */
+  .kh-op__btn {
+    min-height: 44px;
+    padding-bottom: 0;
+    align-items: center;
+  }
+
+  /*
+   * Sliders. The track is 18 px because an 18 px track is what a slider looks
+   * like; the BOX is 44 and the thumb is already 22, so the grabbable area is
+   * the full row.
+   */
+  .kh-range {
+    min-height: 44px;
+  }
+
+  /* The scrubber's own two: the seek bar and the loop-range toggle. */
+  .kh-scrub__seek,
+  .kh-scrub__looptoggle {
     min-height: 44px;
   }
 }
@@ -2218,7 +2320,30 @@ main > .kh-panel .kh-setup {
   margin: 0.55rem 0 0;
 }
 
+/*
+ * An empty shelf sits in the middle of the room it is empty of (round 3, minors).
+ *
+ * The card was `margin: 1rem 0` in a column whose surplus all pooled at the
+ * bottom, so on a tall window the one thing on the page floated a third of the
+ * way down with a hole underneath it — the same "vertically balanced rather
+ * than stacked at the top" fix the phone home screen got in round 1. The
+ * section owns the whole of `<main>` now, and the empty card takes the space
+ * between the head and the quota bar and centres itself in it. With tiles on
+ * the shelf `.kh-grid` takes that slot instead and behaves exactly as before.
+ */
+.kh-library {
+  display: flex;
+  flex-direction: column;
+}
+
+.kh-library > .kh-empty,
+.kh-library > .kh-grid {
+  flex: 1 1 auto;
+}
+
 .kh-empty {
+  display: grid;
+  align-content: center;
   margin: 1rem 0;
   padding: 1.6rem 1.2rem;
   border: 1px solid var(--kh-line);
@@ -2298,7 +2423,6 @@ main > .kh-panel .kh-setup {
   outline-offset: -2px;
 }
 
-.kh-tile__badge,
 .kh-tile__on {
   position: absolute;
   top: 0.4rem;
@@ -2310,12 +2434,6 @@ main > .kh-panel .kh-setup {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   pointer-events: none;
-}
-
-.kh-tile__badge {
-  left: 0.4rem;
-  background: rgb(12 16 23 / 78%);
-  color: var(--kh-muted);
 }
 
 .kh-tile__on {

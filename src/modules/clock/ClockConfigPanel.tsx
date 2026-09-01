@@ -16,9 +16,16 @@
  * The strip won, because it is the one you can see without opening anything.
  * What is left here is what the strip has no room for: the date line, and the
  * one Advanced door.
+ *
+ * Round 3 took the sentence that said so. "Face, hours and seconds are on the
+ * strip above" was a signpost pointing at something already on the screen, four
+ * inches up, in the direction the reader was already looking — and it was the
+ * first thing a deliberate second tap produced (F5). The panel opens with the
+ * control in it now; `ui/ModuleOptions` is what makes that the rule rather than
+ * this file's good behaviour.
  */
 
-import { Disclosure, GroupField, Panel, Segmented, Switch } from '../../ui';
+import { GroupField, ModuleOptions, Segmented, Switch } from '../../ui';
 
 import { CLOCK_THEMES, validateClock, type ClockTheme } from './schema';
 
@@ -41,19 +48,21 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   const cfg = validateClock(config);
 
   return (
-    <Panel hint="Face, hours and seconds are on the strip above.">
-      <GroupField label="Show date" id="clock-date">
-        <Switch
-          id="clock-date"
-          labelledBy="clock-date-label"
-          checked={cfg.showDate}
-          onChange={(showDate) => {
-            onChange({ ...cfg, showDate });
-          }}
-        />
-      </GroupField>
-
-      <Disclosure summary="Advanced" testId="clock-advanced">
+    <ModuleOptions
+      advancedTestId="clock-advanced"
+      primary={
+        <GroupField label="Show date" id="clock-date">
+          <Switch
+            id="clock-date"
+            labelledBy="clock-date-label"
+            checked={cfg.showDate}
+            onChange={(showDate) => {
+              onChange({ ...cfg, showDate });
+            }}
+          />
+        </GroupField>
+      }
+      advanced={
         <GroupField
           label="Colour"
           id="clock-theme"
@@ -70,7 +79,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             }}
           />
         </GroupField>
-      </Disclosure>
-    </Panel>
+      }
+    />
   );
 }

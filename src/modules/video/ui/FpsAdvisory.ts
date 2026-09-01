@@ -23,7 +23,7 @@
  * module knows about the dismiss key and the module's own safe-area overlays.
  */
 
-import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
+import { fpsAdvisoryBody } from '../../../config/camPaths';
 import { readRaw, writeRaw } from '../../../platform/storage';
 
 /** §8.1 — the config-UI dismiss key. */
@@ -95,12 +95,16 @@ export function createFpsAdvisory(opts: FpsAdvisoryOptions = {}): FpsAdvisory {
   };
 }
 
-/** §8.1 — the card copy, verbatim, including the device maximum. */
-export function fpsAdvisoryBody(): string {
-  return `${CAM_PATH_FRAME_RATE} → drag to max (40 on Elite).`;
-}
-
-export function renderFpsCard(targetFps: number): HTMLElement {
+/**
+ * §8.1 — the card.
+ *
+ * The body comes from `config/camPaths.ts`, which owns every spelling of the
+ * frame-rate instruction in the product, and `maxTargetFps` is the ceiling for
+ * the panel actually attached (`devicePresets.maxTargetFpsForPanel`). It used to
+ * end in a hardcoded *"(40 on Elite)"*, which is a promise a Kraken Z tops out
+ * at 1 FPS of.
+ */
+export function renderFpsCard(targetFps: number, maxTargetFps: number | null = null): HTMLElement {
   const wrap = document.createElement('div');
   wrap.className = 'kh-video__card kh-video__fps-card';
   wrap.dataset['advisory'] = 'card';
@@ -114,7 +118,7 @@ export function renderFpsCard(targetFps: number): HTMLElement {
 
   const body = document.createElement('p');
   body.className = 'kh-video__card-body';
-  body.textContent = fpsAdvisoryBody();
+  body.textContent = fpsAdvisoryBody(maxTargetFps);
 
   const footer = document.createElement('p');
   footer.className = 'kh-video__card-footer';

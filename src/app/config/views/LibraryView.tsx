@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
+import { COPY_HOME, KEEPING_A_COPY_NOW } from '../../../config/vocabulary';
 import { imageModule } from '../../../modules/image';
 import {
   deleteImage,
@@ -462,7 +463,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
       <div className="kh-library__head">
         <div>
           <h2>Your library</h2>
-          <p className="kh-hint">Kept on this PC, inside CAM’s own browser storage.</p>
+          <p className="kh-hint">Kept {COPY_HOME}, inside CAM’s own browser storage.</p>
         </div>
         <button
           type="button"
@@ -470,7 +471,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           data-testid="library-add"
           aria-expanded={addOpen}
           aria-controls="kh-library-add"
-          title="Add a video or a picture"
+          title={addOpen ? 'Close' : 'Add a video or a picture'}
           onClick={() => {
             setAddOpen((open) => !open);
             setMessage(null);
@@ -479,16 +480,21 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           }}
         >
           {/*
-            A labelled button, not a glyph.
+            A labelled button, not a glyph — and the label follows the glyph.
 
             The empty card underneath used to have to explain where this control
             was and what it did — "Add a link or a file with the button in the
             corner" — which is a caption for an icon that failed. A button that
-            says Add needs no caption anywhere, and the empty state got shorter
-            by exactly the sentence this label replaced.
+            says Add needs no caption anywhere.
+
+            With the panel open the + rotates into an ×, and round 3 caught the
+            word underneath it still saying "Add": a close button labelled with
+            the action it undoes, which is the same class of lie as F5.2's
+            "Press + up there" printed next to an ×. The glyph and the word say
+            the same thing in both states.
           */}
           <span aria-hidden="true">+</span>
-          <span className="kh-add__lab">Add</span>
+          <span className="kh-add__lab">{addOpen ? 'Close' : 'Add'}</span>
         </button>
       </div>
 
@@ -559,9 +565,18 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
               Browse…
             </Button>
           </form>
+          {/*
+            One sentence about what the two paths DO.
+
+            It ran to thirty words, and the back half of it — "square-cropped if
+            you can, with the audio dropped" — is advice about editing a file
+            before you get here, in a box whose whole job is to take the file you
+            already have. Nothing in the app acts on it and nothing goes wrong if
+            it is ignored. It lives in `docs/local-clips.md`, where somebody
+            preparing clips is actually reading (round 3, minors).
+          */}
           <p className="kh-hint">
-            A link is fetched by your Kraken and kept here. A file is added straight from this PC —
-            MP4 or WebM, square-cropped if you can, with the audio dropped.
+            A link is fetched by your Kraken and kept here. A file is added straight from this PC.
           </p>
           <input
             ref={fileInput}
@@ -693,6 +708,18 @@ function Tile({
       {...(tile.kind === 'image' && tile.id !== null ? { 'data-image-id': tile.id } : {})}
     >
       <div className="kh-tile__art">
+        {/*
+          Every state gets the same picture language (round 3, F8).
+
+          Round 2 gave STORED clips a generated frame with a treated hue-card
+          behind it, and left the other two states rendering a bare
+          `.kh-tile__thumb` — which at grid size is a ~400 px black rectangle.
+          The two tiles a user looks at hardest, because something is happening
+          or something went wrong, were the two with nothing on them. A download
+          has a name from the moment it starts, so it has a treated card from
+          the moment it starts; the progress and the failure line are drawn ON
+          it rather than instead of it.
+        */}
         {tile.state === 'ready' ? (
           tile.kind === 'image' && tile.id !== null ? (
             <ImageThumb id={tile.id} name={tile.name} />
@@ -702,7 +729,7 @@ function Tile({
             <ClipThumb blob={tile.thumbBlob} name={tile.name} />
           )
         ) : (
-          <div className="kh-tile__thumb" />
+          <TreatedArt name={tile.name} />
         )}
 
         {tile.state === 'ready' && (
@@ -751,10 +778,17 @@ function Tile({
           {tile.name}
         </div>
         <div className="kh-tile__detail">
+          {/*
+            The app's one vocabulary, on the surface that was still speaking its
+            own (round 3, F7). This line read "Saving to your Kraken…" — a third
+            verb for the thing the home screen calls "Keeping a copy", and a
+            destination the copy never goes to: the bytes land in CAM's storage
+            on this PC, which is what the Kraken then reads.
+          */}
           {tile.state === 'failed'
             ? failureLine(entry)
             : tile.state === 'downloading'
-              ? 'Saving to your Kraken…'
+              ? KEEPING_A_COPY_NOW
               : tileDetail(tile)}
           {tile.state === 'ready' && tile.pinned ? ' · pinned' : ''}
         </div>

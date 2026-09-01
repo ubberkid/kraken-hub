@@ -36,7 +36,8 @@
 
 import { useEffect, useState } from 'react';
 
-import { Disclosure, Field, GroupField, Panel, RangeInput, Segmented } from '../../ui';
+import { KEEP_A_COPY, KEEP_A_COPY_LABEL, STREAM_ONLY } from '../../config/vocabulary';
+import { Field, GroupField, ModuleOptions, RangeInput, Segmented } from '../../ui';
 import { FramingAdvanced } from '../../ui/Framing';
 
 import { readImageIndex, type ImageSummary } from './imageStore';
@@ -82,31 +83,35 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   };
 
   return (
-    <>
-      <Panel hint="The row under the halo is the picture link. Fit and slideshow are on the strip above.">
-        {/* The sentence lives on the segment that means it — see the video
-            panel's note: this panel opens inside a 537 px window now. */}
-        <GroupField label="Keep a copy on this PC" id="image-download-mode">
-          <Segmented
-            id="image-download-mode"
-            labelledBy="image-download-mode-label"
-            value={cfg.downloadMode}
-            options={[
-              {
-                value: 'auto',
-                label: 'Keep a copy',
-                title:
-                  'Fetch it once, then paint the copy — still there with the network unplugged.',
-              },
-              { value: 'stream-only', label: 'Stream only', title: 'Never store anything.' },
-            ]}
-            onChange={(value) => {
-              patch({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
-            }}
-          />
-        </GroupField>
+    <ModuleOptions
+      advancedTestId="image-advanced"
+      primary={
+        <>
+          {/* The sentence lives on the segment that means it — see the video
+              panel's note: this panel opens inside a 537 px window now. The row
+              is named for the destination so the options can be the verbs; both
+              come from `config/vocabulary.ts` (round 3, F7). */}
+          <GroupField label={KEEP_A_COPY_LABEL} id="image-download-mode">
+            <Segmented
+              id="image-download-mode"
+              labelledBy="image-download-mode-label"
+              value={cfg.downloadMode}
+              options={[
+                {
+                  value: 'auto',
+                  label: KEEP_A_COPY,
+                  title:
+                    'Fetch it once, then paint the copy — still there with the network unplugged.',
+                },
+                { value: 'stream-only', label: STREAM_ONLY, title: 'Never store anything.' },
+              ]}
+              onChange={(value) => {
+                patch({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
+              }}
+            />
+          </GroupField>
 
-        {/*
+          {/*
           The picture store, inside this panel rather than in a second one.
 
           A `.kh-panel` of its own cost a heading, a lede and two sets of
@@ -115,51 +120,52 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           module. It is a subhead and a shelf now. (Merging it into the Library
           proper is still the user's call — audit §6.)
         */}
-        {library.length === 0 ? (
-          /* Empty needs one line, not a heading over a paragraph saying the
-             heading has nothing under it. */
-          <p className="kh-hint">Your pictures — nothing kept yet.</p>
-        ) : (
-          <ul className="kh-list kh-list--shelf" aria-label="Your pictures">
-            {library.map((row) => (
-              <li key={row.id}>
-                <button
-                  type="button"
-                  className="kh-btn"
-                  onClick={() => {
-                    patch({ url: localImageUrl(row.id) });
-                  }}
-                >
-                  {row.name} — {String(row.width)}×{String(row.height)}, {kb(row.size)}
-                  {row.animated ? ' (animated)' : ''}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
+          {library.length === 0 ? (
+            /* Empty needs one line, not a heading over a paragraph saying the
+               heading has nothing under it. */
+            <p className="kh-hint">Your pictures — nothing kept yet.</p>
+          ) : (
+            <ul className="kh-list kh-list--shelf" aria-label="Your pictures">
+              {library.map((row) => (
+                <li key={row.id}>
+                  <button
+                    type="button"
+                    className="kh-btn"
+                    onClick={() => {
+                      patch({ url: localImageUrl(row.id) });
+                    }}
+                  >
+                    {row.name} — {String(row.width)}×{String(row.height)}, {kb(row.size)}
+                    {row.animated ? ' (animated)' : ''}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      }
+      advanced={
+        <>
+          <FramingAdvanced idPrefix="image" value={cfg.render} onChange={patchRender} />
 
-      {/* ONE door, one level — the same rule as every other module. */}
-      <Disclosure summary="Advanced" testId="image-advanced">
-        <FramingAdvanced idPrefix="image" value={cfg.render} onChange={patchRender} />
-
-        <Field
-          label={`Change pictures every ${String(cfg.slideshow.intervalSec)} s`}
-          htmlFor="image-slideshow-interval"
-          description="Ten seconds is the floor — every change is a whole new picture for CAM to capture."
-        >
-          <RangeInput
-            id="image-slideshow-interval"
-            value={cfg.slideshow.intervalSec}
-            min={SLIDESHOW_MIN_INTERVAL_SEC}
-            max={SLIDESHOW_MAX_INTERVAL_SEC}
-            step={INTERVAL_STEP}
-            onChange={(intervalSec) => {
-              onChange({ ...cfg, slideshow: { ...cfg.slideshow, intervalSec } });
-            }}
-          />
-        </Field>
-      </Disclosure>
-    </>
+          <Field
+            label={`Change pictures every ${String(cfg.slideshow.intervalSec)} s`}
+            htmlFor="image-slideshow-interval"
+            description="Ten seconds is the floor — every change is a whole new picture for CAM to capture."
+          >
+            <RangeInput
+              id="image-slideshow-interval"
+              value={cfg.slideshow.intervalSec}
+              min={SLIDESHOW_MIN_INTERVAL_SEC}
+              max={SLIDESHOW_MAX_INTERVAL_SEC}
+              step={INTERVAL_STEP}
+              onChange={(intervalSec) => {
+                onChange({ ...cfg, slideshow: { ...cfg.slideshow, intervalSec } });
+              }}
+            />
+          </Field>
+        </>
+      }
+    />
   );
 }

@@ -23,3 +23,50 @@ export const CAM_PATH_FRAME_RATE = 'CAM → Lighting → your Kraken → Web Int
 
 /** Where the configuration browser for this card is opened from. */
 export const CAM_PATH_CONFIGURE = 'CAM → Lighting → your Kraken → your kraken-hub card → Configure';
+
+/*
+ * The frame-rate INSTRUCTION, not just the path (round 3, minors).
+ *
+ * The path being written once did not stop the sentence around it from being
+ * written four ways: the About card said *"drag … to maximum"*, the home banner
+ * said *"→ drag it to maximum"*, the display's own banner said *"— drag it to
+ * maximum"*, and the first-run band said *"turn CAM → Lighting → your Kraken →
+ * Web Integration → Frame Rate up"* — a garden path that puts a five-step menu
+ * route between a verb and its particle, so the reader reaches "up" having
+ * forgotten what it attaches to.
+ *
+ * So the grammar is a constant too, and About's is the one that won: a verb, the
+ * path, a destination. It is exported in three pieces only because JSX needs to
+ * bold the middle one; `CAM_FRAME_RATE_INSTRUCTION` is the same sentence for
+ * surfaces that build plain text, and `camPaths.test.ts` pins the two together.
+ */
+
+/** The verb, before the path. */
+export const CAM_FRAME_RATE_LEAD = 'drag';
+
+/** Where to drag it to, after the path. */
+export const CAM_FRAME_RATE_TAIL = 'to maximum';
+
+/** The whole instruction, for surfaces that cannot mark up the middle. */
+export const CAM_FRAME_RATE_INSTRUCTION = `${CAM_FRAME_RATE_LEAD} ${CAM_PATH_FRAME_RATE} ${CAM_FRAME_RATE_TAIL}`;
+
+/**
+ * The low-frame-rate advisory's body, in the video module's own overlay.
+ *
+ * `maxTargetFps` is the maximum CAM offers **for the panel actually attached**,
+ * resolved from `devicePresets` by the caller. The copy used to end with a
+ * hardcoded *"(40 on Elite)"*, which is a number a Kraken Z (1) and a Kraken
+ * 2023 (25) user can watch their slider fail to reach. `null` — an unrecognised
+ * panel — prints the instruction and stops, because a maximum we cannot name is
+ * one we must not invent.
+ *
+ * This file takes the number rather than importing the preset table, so it stays
+ * dependency-free for the display graph (invariant I8).
+ */
+export function fpsAdvisoryBody(maxTargetFps: number | null): string {
+  const ceiling =
+    maxTargetFps === null || !Number.isFinite(maxTargetFps) || maxTargetFps <= 0
+      ? ''
+      : ` (${String(Math.round(maxTargetFps))} FPS on this panel)`;
+  return `${CAM_FRAME_RATE_INSTRUCTION}${ceiling}.`;
+}

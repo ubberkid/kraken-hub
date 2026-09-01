@@ -10,7 +10,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[Getting started](docs/getting-started.md) · [Sources](docs/providers.md) · [Write a module](docs/modules.md) · [Troubleshooting](docs/troubleshooting.md) · [All docs](docs/README.md)
+[Getting started](docs/getting-started.md) · [Providers](docs/providers.md) · [Write a module](docs/modules.md) · [Troubleshooting](docs/troubleshooting.md) · [All docs](docs/README.md)
 
 </div>
 
@@ -41,7 +41,7 @@ account, no telemetry — that:
 - **downloads the video into its own clip library and plays the local copy**, so
   playback is ad-free, offline-proof and seamless;
 - **loops the exact section you care about**, with no visible seam;
-- **is a hub, not a video player** — video, image/GIF, clock and system stats are
+- **is a hub, not a video player** — video, image/GIF, clock and stats are
   all modules, and adding a fifth is one directory and one line;
 - **takes commands from your phone** — scan the code CAM is showing and the
   phone connects on its own, over an encrypted, backendless channel;
@@ -56,7 +56,7 @@ account, no telemetry — that:
 > CAM ships the LCD Web Integration at **1 frame per second**. Skip this step and
 > video is a slideshow — and that is CAM's slider, not this app.
 >
-> **CAM → Lighting → your Kraken → Mode: Web Integration → Frame Rate**
+> **CAM → Lighting → your Kraken → Web Integration → Frame Rate**
 >
 > | Device        | Slider maximum                                                                                                                                             |
 > | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -92,8 +92,8 @@ Source: _GitHub Actions_ → push**. There is nothing to configure — the app
 derives its own URL, storage namespace and embed origins from `location` at
 runtime. [Self-hosting guide](docs/self-hosting.md).
 
-Doing it by hand instead? **CAM → Lighting → your Kraken → Mode: Web Integration
-→ Edit → paste the URL → Apply → Add as Card.** Keep the **trailing slash**:
+Doing it by hand instead? **CAM → Lighting → your Kraken → Web Integration →
+Edit → paste the URL → Apply → Add as Card.** Keep the **trailing slash**:
 without it Pages answers with a redirect on every LCD boot.
 
 **3. Press Configure on the card, and paste a link.** With no configuration at
@@ -215,7 +215,7 @@ is a mockup, and nothing is hand-cropped.
 
 |                                                               |                                                                                     |
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| ![The configuration UI](docs/assets/config-ui.png)            | ![The diagnostics page](docs/assets/diag.png)                                       |
+| ![The configuration UI](docs/assets/config-ui.png)            | ![About and diagnostics](docs/assets/diag.png)                                      |
 | The configuration UI, as CAM's Configuration Browser opens it | About & diagnostics — the way to get a report off a panel you cannot copy text from |
 
 <img src="docs/assets/remote.png" alt="The phone remote, paired" width="300">
@@ -247,14 +247,14 @@ thing in this repository for anyone else building on this platform.
 **Does audio work?**
 Unknown, and the app says so rather than pretending. Whether CAM's webview
 reaches your speakers at all is **[H08](docs/hardware-checklist.md)** — nobody has
-measured it. Until somebody does, the display forces mute and the remote's volume
-controls are visibly disabled with a tooltip explaining why. A control that
-silently does nothing is worse than one that admits it is off.
+measured it. Until somebody does, the display forces mute — and there is no
+volume control anywhere in the app to suggest otherwise. A control that silently
+does nothing is worse than no control at all.
 
 **Does it work on a Kraken Z?**
 Yes, but not for video. The Z is 320×320 and NZXT's CAM product manager has
 stated its 1 FPS ceiling will not be raised, so anything that moves will be a
-slideshow. The clock and system-stats modules are designed to be _correct_ at
+slideshow. The clock and stats modules are designed to be _correct_ at
 1 FPS — nothing animates, every frame is a function of the current second — so
 they are genuinely good on a Z.
 

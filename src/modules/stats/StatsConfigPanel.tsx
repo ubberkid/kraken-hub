@@ -6,9 +6,15 @@
  * The round-2 audit's rule is that a module has ONE set of options, and the set
  * is the one already in view. What is left is the reading the single-dial layout
  * needs a name for, and the one Advanced door.
+ *
+ * Which, on the DEFAULT layout, is nothing at all — and round 3 measured what
+ * that produced: a deliberate second tap on the active chip opened a panel
+ * containing one sentence about a strip four inches above it and a closed door
+ * (F5). `ui/ModuleOptions` promotes the door's contents to the panel when there
+ * is no room to open, so the gesture always lands on a control.
  */
 
-import { Disclosure, GroupField, Panel, Segmented } from '../../ui';
+import { GroupField, ModuleOptions, Segmented } from '../../ui';
 
 import {
   STATS_METRICS,
@@ -37,30 +43,39 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   const cfg = validateStatsConfig(config);
 
   return (
-    <Panel hint="Layout, degrees and labels are on the strip above.">
-      {cfg.layout === 'single' && (
-        <GroupField
-          label="Reading"
-          id="stats-primary"
-          description="Only the one-dial layout uses this."
-        >
-          <Segmented
+    <ModuleOptions
+      advancedTestId="stats-advanced"
+      /*
+        Stats is the module the empty-room rule was written for.
+        `Reading` only means anything to the one-dial layout, so on the default
+        two-dial layout this panel had NOTHING in it but a sentence pointing at
+        the strip and a closed door. With `primary` null, `ModuleOptions` skips
+        both: the second tap on the chip opens the colours directly.
+      */
+      primary={
+        cfg.layout === 'single' ? (
+          <GroupField
+            label="Reading"
             id="stats-primary"
-            wrap
-            labelledBy="stats-primary-label"
-            value={cfg.primary}
-            options={STATS_METRICS.map((m: StatsMetric) => ({
-              value: m,
-              label: metricLongLabel(m),
-            }))}
-            onChange={(value) => {
-              onChange({ ...cfg, primary: asOneOf(value, STATS_METRICS, cfg.primary) });
-            }}
-          />
-        </GroupField>
-      )}
-
-      <Disclosure summary="Advanced" testId="stats-advanced">
+            description="Only the one-dial layout uses this."
+          >
+            <Segmented
+              id="stats-primary"
+              wrap
+              labelledBy="stats-primary-label"
+              value={cfg.primary}
+              options={STATS_METRICS.map((m: StatsMetric) => ({
+                value: m,
+                label: metricLongLabel(m),
+              }))}
+              onChange={(value) => {
+                onChange({ ...cfg, primary: asOneOf(value, STATS_METRICS, cfg.primary) });
+              }}
+            />
+          </GroupField>
+        ) : null
+      }
+      advanced={
         <GroupField
           label="Colour"
           id="stats-theme"
@@ -77,7 +92,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             }}
           />
         </GroupField>
-      </Disclosure>
-    </Panel>
+      }
+    />
   );
 }

@@ -23,6 +23,24 @@ Not corrections, but noted so a reader does not go looking: the docsite pages (`
 | Storage namespace | Namespaced per deployment path so two builds on one `github.io` origin stay independent | **Not implemented.** `src/platform/storage.ts` uses the fixed prefix `kraken-hub:v1:` and `src/platform/idb.ts` the fixed database `kraken-hub.v1`, per the plan's canonical conventions. Storage is therefore origin-scoped only. See `docs/self-hosting.md#nothing-is-hardcoded` and the known-gaps list in `docs/README.md`. |
 | Hardware unknowns | H01–H22 | H01–**H23**; `pagehide` on teardown was added in M2. |
 
+### Post-M4: the design audit (UX rounds 1–3)
+
+An adversarial design audit was run against the shipped app at `0fb7c1b` and
+re-run after each round of fixes (`de23204`, `eab18f0`, and this one). Its
+report and the iteration log are the record of what changed; what follows is the
+divergence from the §6.6 / §7 configuration-UI design described below, which the
+body of this document still records as it was reasoned out.
+
+| Topic | This doc says | Shipped reality (authoritative) |
+|---|---|---|
+| Config-UI routes (§7, "`#/` SetupView … `#/module/<id>` … `#/preview` … `#/diagnostics`") | Six named views, each on its own hash route | **Three surfaces plus a footer page.** `#/` is the home screen (`HomeView`), `#/library` is the shelf, `#/remote` is the phone remote, and About + Diagnostics are ONE page at `#/about`, reached by clicking the version line in the footer. `#/module/<id>`, `#/preview`, `#/sources` and `#/diag` survive only as hash redirects for bookmarks, docs and forks (`ConfigApp.HashRedirect` — a hash rewrite, never a navigation, per I1/I2). The audit's F1 was that `#/module/<id>` had **zero inbound links anywhere in the product**: it was a settings page nothing linked to. |
+| Where a module's settings live (§7, `ModuleSettingsView` on a route) | A page per module | **Contextual, in the halo's place.** Tapping the module chip that is already active opens that module's options directly under the chips; the mirror cross-fades down to a live 56 px corner thumb to make the room. `ModuleSettingsView` still exists and still renders `mod.ConfigPanel`, but it is a component inside the home screen rather than a route. |
+| `SetupView` (§7, `#/`) | The home screen is device detection, install buttons, the frame-rate instructions and a module picker | **Deleted as a screen.** Round 1's F7 measured it filling the entire 866×537 CAM window with the product below the fold. It is a one-line band under the halo shown only until a display has ever published anything to this origin (`displaySeen.ts`), and lives permanently under `#/about` as "Add to CAM" afterwards. |
+| `PreviewView` (§6.6) | A preview route with a device picker, an FPS selector and a safe-area overlay | **Folded into the home screen.** The halo at the top of `#/` *is* the real display page in an iframe (`./?kraken=1&sim=<preset>`), booted at the panel size the display actually reported. The picker and the overlays did not survive; the simulator parameters they drove are still URL params (§4.2) and the diagnostics page still exercises them. Video is the one module without a live mirror — a second decoder on this origin is not affordable — and draws a poster plus a live position arc instead (`VideoHalo`). |
+| The composition's budget | Unstated | **The page, not the panel.** CAM's Configuration Browser is 866×537, and every module's home screen must fit it whole — halo, action, chips, options strip, options panel, nav row and footer — with `document.scrollHeight <= clientHeight` and nothing scrolling inside its own box. Round 3's F2 found the round-2 assertions measuring the options PANEL and passing while the nav row was bisected by the fold. `tests/e2e/home-composition.spec.ts` measures the document for every module in every panel state; opening **Advanced** is the one state allowed to scroll, and it scrolls the page rather than a hidden box (F1). |
+| Touch targets | Unstated | **44 px, for every visible interactive element, at ≤700 px.** `tests/e2e/tap-targets.spec.ts` enumerates the DOM rather than a list of selectors — the round-2 list-based test passed while the four module chips sat at 36 px (F6). |
+| The app's vocabulary | Unstated | **`src/config/vocabulary.ts`**, with `src/config/vocabulary.test.ts` proving no second literal copy exists in the tree. CAM's two menu paths and the frame-rate instruction's grammar live in `src/config/camPaths.ts` on the same rule. |
+
 ---
 
 ## 0. Cross-cutting invariants (executors: violate none of these)

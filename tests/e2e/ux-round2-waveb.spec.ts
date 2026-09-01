@@ -85,9 +85,13 @@ test.describe('R3 — the About page', () => {
     await page.setViewportSize(CAM);
     await seenDisplay(page);
     await page.goto('/#/about');
+    // The page is named ONCE, by the thing whose job is naming pages. Round 3
+    // caught the panel below printing "About" a second time, 30 px under the
+    // breadcrumb that had just said it.
+    await expect(page.locator('.kh-subhead__title')).toHaveText('About');
     await expect(
       page.getByRole('main').getByRole('heading', { name: 'About', exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
 
     const height = await page.evaluate(() => {
       const el = document.scrollingElement ?? document.documentElement;
@@ -198,6 +202,13 @@ test.describe('R10 — touch targets', () => {
    * which is invisible to every measurement, including this one, which is
    * exactly why the dot moved into a `::before` and the button became the
    * target.
+   *
+   * This pair is all that is left here. Round 3's F6 found that the rest of
+   * this block — a list of five selectors — had been passing while the four
+   * MODULE CHIPS, the app's primary gesture, sat at 36 px underneath it. The
+   * general sweep lives in `tap-targets.spec.ts` and enumerates every visible
+   * interactive element on every route rather than the ones round 2 happened
+   * to photograph. These two stay because the drag deserves its own name.
    */
   test('the loop handles are 44 px drag targets on a phone', async ({ page }) => {
     await page.setViewportSize(PHONE);
@@ -213,20 +224,6 @@ test.describe('R10 — touch targets', () => {
       expect(box.width, `${id} is too narrow to grab`).toBeGreaterThanOrEqual(TAP_PX);
       expect(box.height, `${id} is too short to grab`).toBeGreaterThanOrEqual(TAP_PX);
     }
-  });
-
-  test('a segment and a nav link are 44 px tall on a phone', async ({ page }) => {
-    await page.setViewportSize(PHONE);
-    await seenDisplay(page);
-    await page.goto('/');
-
-    // One segment off the ops strip — Fit, which is on screen for video.
-    const segment = page.locator('[data-testid="ops-fill"] .kh-seg__opt').first();
-    expect((await boxOf(segment)).height).toBeGreaterThanOrEqual(TAP_PX);
-
-    // The quiet row IS this app's navigation; it was 17 px tall.
-    const link = page.getByTestId('disclosure-library');
-    expect((await boxOf(link)).height).toBeGreaterThanOrEqual(TAP_PX);
   });
 });
 

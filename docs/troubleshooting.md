@@ -68,7 +68,7 @@ browser is entitled to drop the whole bucket without asking.
 
 **Fix.**
 
-- **Library → Your clips** shows a quota bar and whether persistence was
+- **Library** shows a usage meter under the shelf and whether persistence was
   granted. kraken-hub calls `navigator.storage.persist()` on first store;
   Chromium grants it heuristically and can refuse.
 - Free disk space on the drive holding CAM's profile. Eviction is a
@@ -97,9 +97,8 @@ the error card.
 Muted autoplay inside the CAM webview specifically is
 [H06](hardware-checklist.md); unmuted is [H07](hardware-checklist.md); whether
 the webview reaches your speakers **at all** is [H08](hardware-checklist.md), and
-until somebody measures it the volume controls in the remote stay visibly
-disabled with a tooltip saying why. A control that silently does nothing is worse
-than one that admits it is off.
+until somebody measures it there is no volume control in the app at all. A
+control that could only ever be disabled is worse than no control.
 
 ## The phone remote will not connect
 
@@ -108,13 +107,13 @@ never reads _Linked to your Kraken_, or the display never reacts.
 
 **Causes.**
 
-| Cause                                   | Fix                                                                                                                                                                                                                                                                                                                         |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The codes differ                        | Scanning the QR cannot get this wrong, because the code rides in the link; a typed code can. They must match exactly. Crockford base32 has no I, L, O or U precisely so that `1`/`I` and `0`/`O` cannot be misread — retype rather than guess.                                                                              |
-| The public broker is blocked            | `broker.emqx.io:8084` is WebSocket-over-TLS on a non-standard port. Corporate and school networks block it routinely. kraken-hub fails over to `ntfy.sh` over ordinary HTTPS automatically, in under five seconds — if both are blocked, override the endpoints in the remote's settings and point them at your own broker. |
-| The display was never opened            | The remote drives the **display**, not the configuration page. If the Kraken Browser is not running, there is nothing on the other end.                                                                                                                                                                                     |
-| The room was never joined on both sides | Generating a code on the pairing card pairs that browser. The phone must join the same room — scanning the QR does it automatically.                                                                                                                                                                                        |
-| You are expecting it to upload a file   | It cannot, and this is not a bug. CAM's two browsers share a storage partition; your phone does not. The remote can _choose_ from clips the display has already announced, and it offers a link to open kraken-hub in CAM to add new ones.                                                                                  |
+| Cause                                   | Fix                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The codes differ                        | Scanning the QR cannot get this wrong, because the code rides in the link; a typed code can. They must match exactly. Crockford base32 has no I, L, O or U precisely so that `1`/`I` and `0`/`O` cannot be misread — retype rather than guess.                                                                                                      |
+| The public broker is blocked            | `broker.emqx.io:8084` is WebSocket-over-TLS on a non-standard port. Corporate and school networks block it routinely. kraken-hub fails over to `ntfy.sh` over ordinary HTTPS automatically, in under five seconds — if both are blocked, override the endpoints under **About → Connection → Use my own broker** and point them at your own broker. |
+| The display was never opened            | The remote drives the **display**, not the configuration page. If the Kraken Browser is not running, there is nothing on the other end.                                                                                                                                                                                                             |
+| The room was never joined on both sides | Generating a code on the pairing card pairs that browser. The phone must join the same room — scanning the QR does it automatically.                                                                                                                                                                                                                |
+| You are expecting it to upload a file   | It cannot, and this is not a bug. CAM's two browsers share a storage partition; your phone does not. The remote can _choose_ from clips the display has already announced, and it offers a link to open kraken-hub in CAM to add new ones.                                                                                                          |
 
 Whether CAM's webview can reach either endpoint at all is
 [H19](hardware-checklist.md) — the Report section's technical detail names the
@@ -142,8 +141,9 @@ because it is the evidence that justifies the fallback existing. Please report i
 ## The companion is not detected
 
 **Symptom.** The companion is running but YouTube still plays through the
-geometry engine, and the video module's **Local downloader** card reads
-_Not detected_ rather than _Downloader detected_.
+geometry engine, and the **Local downloader** card reads _Not running_ rather
+than _Running_. The card lives on the home screen: tap the **Video** chip that
+is already active to open the module's options, then open **Advanced**.
 
 **Causes.**
 
@@ -159,14 +159,14 @@ _Not detected_ rather than _Downloader detected_.
   elsewhere, run `npm install && npm run build:companion && node companion/resolver/dist/cli.js`
   from a clone.
 - **A different port.** The default is `8976`. If you started it with `--port`,
-  set the same port under **Local downloader → Advanced**.
+  set the same **Port** under _Advanced → Local downloader_.
 - **A token is set on one side only.** `--token` locks the companion; the app has
   to be told the same token.
 - **The health check is memoized.** kraken-hub probes once, with a 1.2 s timeout,
   and remembers the answer. Start the companion _first_, then reload the
   configuration page.
-- **Policy is `off`.** The default is `youtube-only`. Check it under
-  **Local downloader → Advanced**.
+- **Policy is `Never`.** The default is **YouTube**. Check _Advanced → Local
+  downloader → Use it for_.
 
 Detection failing is never an error state by design: with no companion the app
 silently uses the geometry engine, so "nothing happened" is the expected
@@ -184,7 +184,7 @@ of our code runs, and there is no flag for it.
 **Fix.**
 
 - Use the `https://` form of the same URL if the server offers one.
-- Download the file yourself and add it via **Library → + → Browse…** (or drop
+- Download the file yourself and add it via **Library → Add → Browse…** (or drop
   the file onto the add panel).
 - The one legitimate exception is the resolver companion on `127.0.0.1`:
   loopback is explicitly **exempt** from mixed-content blocking, which is why the

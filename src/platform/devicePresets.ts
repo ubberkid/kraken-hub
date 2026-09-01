@@ -65,6 +65,31 @@ export const DEVICE_PRESETS: Readonly<Record<DevicePresetId, DevicePreset>> = {
 
 export const DEVICE_PRESET_IDS = Object.keys(DEVICE_PRESETS) as readonly DevicePresetId[];
 
+/**
+ * The preset for a panel the platform actually reported, or `null`.
+ *
+ * Round 3 found the low-frame-rate advisory ending in a hardcoded *"(40 on
+ * Elite)"* — a ceiling that is wrong by a factor of 40 on a Kraken Z and by 15
+ * FPS on a Kraken 2023, told to the user in the exact moment they are being
+ * asked to drag a slider to it. The maximum is a property of the panel and it
+ * is already written down here, once, per device.
+ *
+ * `null` rather than a guess: an unrecognised panel (a fork, a device newer than
+ * this build) has a maximum nobody here knows, and the copy is written to drop
+ * the clause rather than invent one.
+ */
+export function presetForPanel(width: number, height: number, shape: string): DevicePreset | null {
+  for (const preset of Object.values(DEVICE_PRESETS)) {
+    if (preset.width === width && preset.height === height && preset.shape === shape) return preset;
+  }
+  return null;
+}
+
+/** The frame rate CAM's slider tops out at for this panel, or `null` if unknown. */
+export function maxTargetFpsForPanel(width: number, height: number, shape: string): number | null {
+  return presetForPanel(width, height, shape)?.targetFps ?? null;
+}
+
 export function isDevicePresetId(value: string): value is DevicePresetId {
   return Object.hasOwn(DEVICE_PRESETS, value);
 }

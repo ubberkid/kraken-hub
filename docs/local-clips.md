@@ -41,7 +41,7 @@ it finishes it becomes an ordinary tile _in the same slot_ — there is no separ
 tile says so in plain words and offers **Retry** and **Dismiss**; the video is
 playing either way (see [step 5 below](#how-the-download-first-flow-actually-works)).
 
-### Adding things: the **+**
+### Adding things: **Add**
 
 One button, top right, opens one add surface:
 
@@ -84,10 +84,13 @@ works through this list:
 
 `downloadMode` controls steps 3–4:
 
-| Setting              | Behaviour                                                            |
-| -------------------- | -------------------------------------------------------------------- |
-| **`auto`** (default) | Download and keep whenever the bytes are reachable _and are a file_. |
-| `stream-only`        | Never store anything; always play from the remote URL.               |
+In the UI it is the **On this PC** row in the video and image options — tap the
+chip that is already active to open them.
+
+| Setting              | Shown as        | Behaviour                                                            |
+| -------------------- | --------------- | -------------------------------------------------------------------- |
+| **`auto`** (default) | **Keep a copy** | Download and keep whenever the bytes are reachable _and are a file_. |
+| `stream-only`        | **Stream only** | Never store anything; always play from the remote URL.               |
 
 ### HLS and DASH are never auto-downloaded
 
@@ -137,7 +140,7 @@ browser storage is partitioned.
 
 ## Manual upload (the fallback)
 
-**Library → + → Browse…**, or drop the files onto the add panel. Each file is:
+**Library → Add → Browse…**, or drop the files onto the add panel. Each file is:
 
 1. **Checked for a container Chromium can play.** `.mkv`, `.mka`, `.avi`,
    `.flv`, `.wmv`, `.rmvb` are rejected — Chromium has no Matroska or AVI demuxer
@@ -153,15 +156,13 @@ browser storage is partitioned.
 6. **Stored** — bytes and metadata written in a single transaction, so a
    metadata row can never exist without its bytes.
 
-**Upload must happen in CAM's Configuration Browser.** From the phone remote the
-upload control is hidden entirely and replaced with an explanation, because a
-clip added there would land in unreadable storage. The remote _can_ still select
-clips that already exist: the display publishes its clip index (name, duration,
-resolution, size — no thumbnails, they would blow the payload budget), and
-picking one sets `kraken-hub-clip:<id>` as the source.
-
-If the remote picks a clip this display does not have, the LCD shows a
-`clip-missing` card and republishes its index.
+**Adding a clip must happen in CAM's Configuration Browser.** The phone remote
+has no upload control and no clip picker at all: a clip added from the phone
+would land in storage the LCD cannot read, and round 2's audit deleted the
+picker along with the rest of the remote's duplicate copy of the app. The
+remote's job is to drive what is already on the panel. A source the display
+cannot find still gets a `clip-missing` card on the LCD, which is the same
+message the local-clip validator produces.
 
 ---
 
@@ -225,10 +226,14 @@ On the first successful add — inside the user gesture, which is the only time 
 browser will grant it — kraken-hub calls `navigator.storage.persist()` and shows
 the result as a badge:
 
-| Badge                   | Meaning                                           |
-| ----------------------- | ------------------------------------------------- |
-| **Persistent** (green)  | The browser has promised not to evict your clips. |
-| **Best-effort** (amber) | Chromium may evict clips under disk pressure.     |
+| Chip                                                                  | Meaning                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------- |
+| **Kept for good**                                                     | The browser has promised not to evict your clips. |
+| **May be cleared if the disk fills up — pin the ones you care about** | Chromium may evict clips under disk pressure.     |
+
+The warning chip is drawn only when it is actionable — once something is
+actually stored, or once the quota is genuinely under pressure. On an empty
+library there is nothing to pin and nothing to lose.
 
 If persistence was not granted, kraken-hub asks again on each subsequent add.
 

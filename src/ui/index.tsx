@@ -37,6 +37,58 @@ export function Panel({
   );
 }
 
+/**
+ * A module's options panel — and the reason a door never opens onto an empty room.
+ *
+ * Round 3's F5: three of the four module panels opened to a **signpost sentence**
+ * ("Face, hours and seconds are on the strip above") and a closed `Advanced`
+ * disclosure. The user had made a deliberate second gesture — tapping the chip
+ * that was already active — and been answered with a paragraph explaining that
+ * the thing they wanted was somewhere else, plus another door to press. The
+ * Stats panel had literally nothing else in it.
+ *
+ * Fixing the three panels would have been round 3 fixing three symptoms. The
+ * class is *a panel whose entire content is a door*, and it is unrepresentable
+ * here: this component is how every module builds its options, and when
+ * `primary` is empty it does not draw a panel around a disclosure — it promotes
+ * the advanced controls to the panel itself. One tap, the controls.
+ *
+ * `primary` is a render-time value rather than a static flag on the module
+ * definition on purpose: Stats' one primary control exists only for the
+ * single-dial layout, so whether that module has a room to open is a question
+ * about the CONFIG, not about the module.
+ *
+ * There is no `hint` slot. A panel that has to explain itself is the signpost
+ * again with better manners.
+ */
+export function ModuleOptions({
+  primary,
+  advanced,
+  advancedTestId,
+}: {
+  /** The controls worth the panel. `null` when this config has none. */
+  primary: ReactNode;
+  /** Everything behind the one Advanced door — or, with no primary, the panel. */
+  advanced: ReactNode;
+  advancedTestId?: string;
+}) {
+  if (primary === null || primary === false || primary === undefined) {
+    return <Panel>{advanced}</Panel>;
+  }
+  return (
+    <>
+      <Panel>{primary}</Panel>
+      {/* ONE door, one level — the same rule for every module. */}
+      <Disclosure
+        summary="Advanced"
+        {...(advancedTestId === undefined ? {} : { testId: advancedTestId })}
+      >
+        {advanced}
+      </Disclosure>
+    </>
+  );
+}
+
 export function Field({
   label,
   htmlFor,

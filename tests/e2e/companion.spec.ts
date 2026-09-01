@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { KEPT_A_COPY } from '../../src/config/vocabulary';
+
 import type { AddressInfo } from 'node:net';
 
 /**
@@ -286,7 +288,7 @@ test.describe('the shipped resolver companion', () => {
       // And the paste flow on the config page says so, in its terminal state.
       const flow = config.locator('[data-testid="paste-flow"]');
       await expect(flow).toHaveAttribute('data-flow-stage', 'stored', { timeout: 20_000 });
-      await expect(flow).toContainText('kept in your library');
+      await expect(flow).toContainText(KEPT_A_COPY);
       // The success path never carries an install pitch at all any more
       // (design audit F10) — with or without a companion running.
       await expect(config.locator('[data-testid="resolver-get"]')).toHaveCount(0);

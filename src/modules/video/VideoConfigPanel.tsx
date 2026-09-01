@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ALLORIGINS_PROXY_BASE } from '../../config/knownHosts';
+import { KEEP_A_COPY, KEEP_A_COPY_LABEL, STREAM_ONLY } from '../../config/vocabulary';
 import {
   Button,
   Chip,
-  Disclosure,
   Field,
   GroupField,
+  ModuleOptions,
   Notice,
   NumberInput,
-  Panel,
   Row,
   Segmented,
   Switch,
@@ -129,118 +129,132 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   };
 
   return (
-    <>
-      {/*
+    <ModuleOptions
+      advancedTestId="video-advanced"
+      /*
         No link field. It sat two inches under the home screen's paste row and
         held the same string — the audit's census verdict was "keep-primary, but
         it duplicates the home paste row: merge". The paste row is the merge, and
         it owns the validation copy too.
-      */}
-      <Panel>
-        {isYouTube && (
-          /* §2.8 — said plainly, next to the field where the decision is made. */
-          <Notice tone="warn">
-            YouTube plays its ads <em>inside</em> the video, so cropping cannot remove them. Keep a
-            copy for an ad-free, full-quality result.
-          </Notice>
-        )}
+      */
+      primary={
+        <>
+          {isYouTube && (
+            /*
+              §2.8, and round 3's F4 — this is where the ads fact LIVES.
 
-        {/*
-          No description line. The options panel opens in the halo's place in a
-          537 px window now, and every sentence in here is measured against that
-          — so the explanation lives on the segment that means it, which is the
-          same rule the audit's F9 applied to `<option>` prose.
-        */}
-        <GroupField label="Keep a copy on this PC" id="video-downloadmode">
-          <Segmented
-            id="video-downloadmode"
-            labelledBy="video-downloadmode-label"
-            value={cfg.downloadMode}
-            options={[
-              {
-                value: 'auto',
-                label: 'Keep a copy',
-                title: 'Fetch it once, then play the copy — ad-free, offline, forever.',
-              },
-              { value: 'stream-only', label: 'Stream only', title: 'Never store anything.' },
-            ]}
-            onChange={(value) => {
-              set({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
-            }}
-          />
-        </GroupField>
+              It is a property of the source, not an event in the paste ladder:
+              the receipt used to assert it a third time, permanently, in a card
+              that never left the screen while the halo and the status line were
+              already saying what was playing. A source property belongs next to
+              the control that answers it, which is the row directly below.
+            */
+            <Notice tone="warn">
+              YouTube plays its ads <em>inside</em> the video, so cropping cannot remove them.{' '}
+              {KEEP_A_COPY} for an ad-free, full-quality result.
+            </Notice>
+          )}
 
-        <QualityRow cfg={cfg} set={set} provider={validation.match.provider} />
-      </Panel>
+          {/*
+            No description line. The options panel opens in the halo's place in a
+            537 px window now, and every sentence in here is measured against
+            that — so the explanation lives on the segment that means it, which
+            is the same rule the audit's F9 applied to `<option>` prose. The row
+            is named for the destination so the options can be the verbs, and
+            both words come from `config/vocabulary.ts` (F7).
+          */}
+          <GroupField label={KEEP_A_COPY_LABEL} id="video-downloadmode">
+            <Segmented
+              id="video-downloadmode"
+              labelledBy="video-downloadmode-label"
+              value={cfg.downloadMode}
+              options={[
+                {
+                  value: 'auto',
+                  label: KEEP_A_COPY,
+                  title: 'Fetch it once, then play the copy — ad-free, offline, forever.',
+                },
+                { value: 'stream-only', label: STREAM_ONLY, title: 'Never store anything.' },
+              ]}
+              onChange={(value) => {
+                set({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
+              }}
+            />
+          </GroupField>
 
-      {/*
+          <QualityRow cfg={cfg} set={set} provider={validation.match.provider} />
+        </>
+      }
+      /*
         ONE door, one level. Everything the census moved rather than killed is
         flat inside it — a disclosure inside a disclosure is a settings page
         wearing a costume.
-      */}
-      <Disclosure summary="Advanced" testId="video-advanced">
-        <GroupField
-          label="Shape of the video"
-          id="video-yt-aspect"
-          description="Only needed when the crop lands on the wrong part of the picture."
-        >
-          <Segmented
+      */
+      advanced={
+        <>
+          <GroupField
+            label="Shape of the video"
             id="video-yt-aspect"
-            labelledBy="video-yt-aspect-label"
-            value={
-              SHAPE_SEGMENTS.some((s) => s.value === sourceAspectKey(cfg.youtube.sourceAspect))
-                ? sourceAspectKey(cfg.youtube.sourceAspect)
-                : 'auto'
-            }
-            options={SHAPE_SEGMENTS}
-            onChange={(key) => {
-              const found = SHAPE_SEGMENTS.find((s) => s.value === key);
-              if (found === undefined) return;
-              set({ youtube: { ...cfg.youtube, sourceAspect: found.aspect } });
+            description="Only needed when the crop lands on the wrong part of the picture."
+          >
+            <Segmented
+              id="video-yt-aspect"
+              labelledBy="video-yt-aspect-label"
+              value={
+                SHAPE_SEGMENTS.some((s) => s.value === sourceAspectKey(cfg.youtube.sourceAspect))
+                  ? sourceAspectKey(cfg.youtube.sourceAspect)
+                  : 'auto'
+              }
+              options={SHAPE_SEGMENTS}
+              onChange={(key) => {
+                const found = SHAPE_SEGMENTS.find((s) => s.value === key);
+                if (found === undefined) return;
+                set({ youtube: { ...cfg.youtube, sourceAspect: found.aspect } });
+              }}
+            />
+          </GroupField>
+
+          <FramingAdvanced
+            idPrefix="video"
+            value={cfg.render}
+            onChange={(patch) => {
+              set({ render: { ...cfg.render, ...patch } });
             }}
           />
-        </GroupField>
 
-        <FramingAdvanced
-          idPrefix="video"
-          value={cfg.render}
-          onChange={(patch) => {
-            set({ render: { ...cfg.render, ...patch } });
-          }}
-        />
+          <LocalDownloaderCard cfg={cfg} set={set} />
 
-        <LocalDownloaderCard cfg={cfg} set={set} />
-
-        <GroupField
-          label="Use a public proxy as a last resort"
-          id="video-proxy"
-          description="allorigins.win is a free public service with no uptime promise, and it sees every URL your Kraken plays. Tried only for links nothing else could fetch, and it cannot fix HLS."
-        >
-          <Switch
+          <GroupField
+            label="Use a public proxy as a last resort"
             id="video-proxy"
-            labelledBy="video-proxy-label"
-            checked={cfg.proxyBase === ALLORIGINS_PROXY_BASE}
-            onChange={(on) => {
-              set({ proxyBase: on ? ALLORIGINS_PROXY_BASE : '' });
-            }}
-          />
-        </GroupField>
-        <Field
-          label="Or your own proxy address"
-          htmlFor="video-proxy-base"
-          description="Ends in ?url=."
-        >
-          <TextInput
-            id="video-proxy-base"
-            value={cfg.proxyBase}
-            placeholder="your proxy's base URL, ending in ?url="
-            onChange={(proxyBase) => {
-              set({ proxyBase });
-            }}
-          />
-        </Field>
-      </Disclosure>
-    </>
+            description="allorigins.win is a free public service with no uptime promise, and it sees every URL your Kraken plays. Tried only for links nothing else could fetch, and it cannot fix HLS."
+          >
+            <Switch
+              id="video-proxy"
+              labelledBy="video-proxy-label"
+              checked={cfg.proxyBase === ALLORIGINS_PROXY_BASE}
+              onChange={(on) => {
+                set({ proxyBase: on ? ALLORIGINS_PROXY_BASE : '' });
+              }}
+            />
+          </GroupField>
+          <Field
+            label="Or your own proxy address"
+            htmlFor="video-proxy-base"
+            description="Ends in ?url=."
+          >
+            <TextInput
+              id="video-proxy-base"
+              value={cfg.proxyBase}
+              placeholder="your proxy's base URL, ending in ?url="
+              onChange={(proxyBase) => {
+                set({ proxyBase });
+              }}
+            />
+          </Field>
+        </>
+      }
+    />
   );
 }
 

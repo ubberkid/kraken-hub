@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { KEPT_A_COPY } from '../../src/config/vocabulary';
 import { installFakeYouTube } from '../support/fakeYouTube';
 
 import type { AddressInfo } from 'node:net';
@@ -270,7 +271,7 @@ test.describe('pasting a link never produces an error for a video that plays', (
       await expect(errorCard(display)).toHaveCount(0);
       // 3.
       await expect(flow(config)).toHaveAttribute('data-flow-stage', 'stored', { timeout: 20_000 });
-      await expect(flow(config)).toContainText('kept in your library');
+      await expect(flow(config)).toContainText(KEPT_A_COPY);
     } finally {
       await media.close();
     }

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
-import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
+import {
+  CAM_FRAME_RATE_LEAD,
+  CAM_FRAME_RATE_TAIL,
+  CAM_PATH_FRAME_RATE,
+} from '../../../config/camPaths';
+import { KEEPING_A_COPY, KEPT_A_COPY } from '../../../config/vocabulary';
 import { validateClock } from '../../../modules/clock/schema';
 import { validateImageConfig } from '../../../modules/image/schema';
 import { getModule, listModules } from '../../../modules/registry';
@@ -28,6 +33,7 @@ import {
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
+  receiptPersists,
   resolverHealthyFromTele,
   sourceName,
   type FlowState,
@@ -36,6 +42,7 @@ import {
 import { submitImageLink, submitVideoLink, type PasteIssue } from '../pasteLink';
 
 import { CamSetupCard } from './CamSetupCard';
+import { prefetchConfigPanel } from './configPanels';
 import { LoopScrubber, LOOP_MAX_SEC } from './LoopScrubber';
 import { ModuleSettingsView } from './ModuleSettingsView';
 import { VideoHalo } from './VideoHalo';
@@ -75,10 +82,22 @@ import type { ReactNode } from 'react';
  *  - **the active chip is the door.** Tap a chip to switch modules; tap the one
  *    that is already active and its options appear directly underneath, in an
  *    animated panel, without the halo leaving the screen.
- *  - **the ops strip is real controls.** Fit is a segmented control, Loop opens
- *    the A/B scrubber in place, and "Saved locally" is a status chip rather than
- *    a button that was never a button. Nothing here navigates and nothing here
+ *  - **the ops strip is real controls.** Fit is a segmented control and Loop
+ *    opens the A/B scrubber in place. Nothing on it is a status readout wearing
+ *    a button's clothes — the "Saved locally ✓" chip the audit named is gone
+ *    entirely, because keeping a copy is a stage the status line reports, not a
+ *    property the strip asserts. Nothing here navigates and nothing here
  *    scrolls you anywhere.
+ *
+ * ## …and Advanced gets the floor, the way options got the halo's
+ *
+ * Round 3 found the second door INERT at CAM's window: a `max-height` on the
+ * panel silently swallowed 929 px, so pressing Advanced rotated a chevron and
+ * changed nothing else on the screen. A deliberate second gesture that produces
+ * no visible result is worse than one that produces a scrollbar. So opening
+ * Advanced promotes the panel to an honest full-height flow — the page scrolls,
+ * visibly and expectedly, with the nav and the footer below it — and the panel
+ * scrolls the thing you opened into view so the press has an answer.
  */
 
 /** The telemetry and download mirrors are polled at 1 Hz, as §7.5 mandates. */
@@ -100,9 +119,10 @@ const OPS_CLOSE_MS = 500;
  * line under the halo already carries the state ("Playing sunset loop · 1:24 /
  * 3:02"), so the receipt says its piece and gets out of the way.
  *
- * Only for the plain success stages. A deviation the user has to know about — a
- * server that refuses a copy, a copy that failed, YouTube playing its own ads —
- * is not a receipt, and stays.
+ * Only for stages that have reached a steady state. Something still in flight,
+ * or something that went wrong and the user may want to act on, is not a
+ * receipt — see `homeState.receiptPersists`, which is where that question is
+ * answered for every stage rather than for the two round 2 happened to list.
  */
 const RECEIPT_LINGER_MS = 4000;
 
@@ -236,6 +256,23 @@ export function HomeView({
    * `prefers-reduced-motion` and in any environment that disables animations.
    */
   const [closingOps, setClosingOps] = useState(false);
+  /**
+   * Whether the panel's own Advanced door is open (F1).
+   *
+   * The `<details>` lives several levels down inside a lazily-loaded module
+   * panel, so this window learns about it the only way it can: a `toggle`
+   * listener on the panel container, in the CAPTURE phase — `toggle` does not
+   * bubble, but capture always traverses the ancestors, so one listener covers
+   * every door any module chooses to put in there.
+   *
+   * It is state rather than a CSS-only affair because the page's contract
+   * changes: with Advanced closed the whole composition is promised to fit
+   * CAM's 537 px window, and with it open the page is promised to scroll
+   * honestly instead. `data-advanced` is what says which promise is in force,
+   * to the stylesheet and to the suite.
+   */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!closingOps) return undefined;
     const timer = setTimeout(() => {
@@ -248,7 +285,35 @@ export function HomeView({
   const showOps = (next: boolean): void => {
     setOpenOps(next);
     setClosingOps(!next && openOps);
+    // A closed panel has no open doors. Without this the page would still be
+    // claiming its scrolling contract after the thing that justified it left.
+    if (!next) setAdvancedOpen(false);
   };
+
+  /**
+   * The Advanced door, watched from outside the chunk that renders it.
+   *
+   * Capture phase because `toggle` does not bubble. The open one is scrolled
+   * into view for the same reason the flag exists at all: the audit's finding
+   * was that pressing this control changed nothing a user could see, and a door
+   * that opens below the fold with no motion is the same failure with a
+   * scrollbar attached. `block: 'nearest'` moves the page by the minimum that
+   * makes the answer visible, and not at all when it already is.
+   */
+  useEffect(() => {
+    const host = panelRef.current;
+    if (host === null) return undefined;
+    const onToggle = (event: Event): void => {
+      const target = event.target;
+      if (!(target instanceof HTMLDetailsElement)) return;
+      setAdvancedOpen(host.querySelector('details[open]') !== null);
+      if (target.open) target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    host.addEventListener('toggle', onToggle, true);
+    return () => {
+      host.removeEventListener('toggle', onToggle, true);
+    };
+  }, [openOps, activeId]);
   /** The A/B scrubber, revealed under the ops strip by the Loop control. */
   const [loopOpen, setLoopOpen] = useState(false);
   const setupDone = hasDisplayBeenSeen();
@@ -266,6 +331,26 @@ export function HomeView({
     if (getModule(openModule) === null) return;
     runtime.store.commit((s) => ({ ...s, activeModuleId: openModule }));
   }, [openModule, runtime]);
+
+  /**
+   * The active module's options chunk, fetched before anybody asks for it (F3).
+   *
+   * The panel is `lazy()`, so the FIRST time a chip is pressed the opening
+   * spring animates against Suspense's "Loading settings…" placeholder — a
+   * different height from the real content — and then hard-cuts to the panel
+   * when the chunk lands. Measured: 380 ms of animation at the wrong height and
+   * a one-frame snap, on the app's most-used gesture, every cold load.
+   *
+   * The fix is to stop racing. Choosing a module is a decision to look at that
+   * module, and its panel is a few kB; fetching it on that decision means the
+   * chunk is already in the module cache by the time the chip is pressed again,
+   * so the spring animates against the real thing. A failure here is not an
+   * error — the `Suspense` boundary is still the one that renders, exactly as
+   * before — so this deliberately does not surface anything.
+   */
+  useEffect(() => {
+    prefetchConfigPanel(activeId);
+  }, [activeId]);
 
   const facts = useMirror(readDisplayFacts);
   const tele = useMirror(readTeleMirror);
@@ -396,11 +481,37 @@ export function HomeView({
   const compact = openOps || loopOpen;
 
   return (
-    <section className="kh-home" data-testid="home" data-compact={compact ? 'true' : 'false'}>
+    <section
+      className="kh-home"
+      data-testid="home"
+      data-compact={compact ? 'true' : 'false'}
+      /*
+        Which promise the page is making right now (F1/F2).
+
+        `false` — the whole composition, halo to footer, fits CAM's 866x537
+        window with nothing clipped and nothing scrolled. `true` — Advanced is
+        open, and the page is a full-height flow that scrolls, on purpose,
+        visibly. The suite asserts both, per module, rather than measuring the
+        panel and calling it the page.
+      */
+      data-advanced={advancedOpen ? 'true' : 'false'}
+      /*
+        The install band is a second object competing for the same 537 px.
+
+        It is one line and one action, but at CAM's window the halo above it is
+        178 px and the composition ran 63 px past the fold with the nav row in
+        the overflow — the first screen a user ever sees, cut off. The halo
+        gives up a little of its size for as long as the band is there, the same
+        trade it makes for the options panel, and takes it back for good the
+        moment a display has published anything (`displaySeen.ts`).
+      */
+      data-firstrun={setupDone ? 'false' : 'true'}
+    >
       {isLowFps(facts) && (
         <div className="kh-fps-banner" role="status" data-testid="fps-banner">
           Your Kraken is running at <b>{String(facts?.targetFps ?? 0)} FPS</b>, so anything that
-          moves looks like a slideshow. <b>{CAM_PATH_FRAME_RATE}</b> → drag it to maximum.
+          moves looks like a slideshow. {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b>{' '}
+          {CAM_FRAME_RATE_TAIL}.
         </div>
       )}
 
@@ -465,7 +576,7 @@ export function HomeView({
         appears here again — see `displaySeen.ts` for why the trigger is evidence
         rather than a dismiss button.
       */}
-      {!setupDone && <CamSetupCard runtime={runtime} variant="first-run" />}
+      {!setupDone && <CamSetupCard runtime={runtime} variant="first-run" dense={compact} />}
 
       {action === null ? (
         /*
@@ -586,6 +697,7 @@ export function HomeView({
 
       {(openOps || closingOps) && (
         <div
+          ref={panelRef}
           className={closingOps ? 'kh-disclosure kh-disclosure--closing' : 'kh-disclosure'}
           id="kh-ops-panel"
           data-testid="ops-panel"
@@ -900,16 +1012,6 @@ function OpsStrip({
  * that is configured RIGHT NOW. The mirror is a ring nobody prunes, so a job
  * from a link three pastes ago is not this link's story.
  */
-/**
- * Stages whose receipt is allowed to leave.
- *
- * A plain success and nothing else. `streaming`, `unsaved` and `youtube-embed`
- * all report a *deviation* — no copy could be kept, or YouTube is playing its
- * own ads — and a user who looks away for five seconds must still be able to
- * find out why. `downloading` is not finished at all.
- */
-const RECEIPT_COLLAPSES: ReadonlySet<FlowState['stage']> = new Set(['accepted', 'stored']);
-
 function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
   const { stage, entry } = flow;
   const pct = entry === null ? null : progressPct(entry);
@@ -929,7 +1031,10 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
   const [retired, setRetired] = useState<FlowState['stage'] | null>(null);
   const gone = retired === stage;
   useEffect(() => {
-    if (!RECEIPT_COLLAPSES.has(stage)) return undefined;
+    // Not a list of stages: a question about one. See `homeState.receiptPersists`
+    // — the flagship YouTube receipt was excluded from round 2's hard-coded set
+    // and therefore never left the screen (F4).
+    if (receiptPersists(stage)) return undefined;
     const timer = setTimeout(() => {
       setRetired(stage);
     }, RECEIPT_LINGER_MS);
@@ -957,13 +1062,21 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
       </li>
 
       {stage === 'youtube-embed' ? (
+        /*
+          One transition, and no source properties (F4).
+
+          The second line here used to read "Ads and all, the way YouTube sends
+          it" — which is not something that just happened, it is what a YouTube
+          link permanently IS. It lives in the video module's own options now,
+          next to the control that answers it, and this card narrates the
+          transition and then gets out of the way like every other steady state.
+        */
         <li className="kh-step kh-step--on" data-testid="paste-step-downloader">
           <span className="kh-step__ic" aria-hidden="true">
             ▸
           </span>
           <span className="kh-step__text">
             <b>Playing through YouTube</b>
-            <small>Ads and all, the way YouTube sends it.</small>
           </span>
         </li>
       ) : (
@@ -999,7 +1112,12 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
         </span>
         <span className="kh-step__text">
           <b>On screen now</b>
-          <small>{stage === 'stored' ? 'Kept in your library' : 'Playing on your Kraken'}</small>
+          <small>
+            {stage === 'stored'
+              ? // One destination phrase, app-wide — `config/vocabulary.ts` (F7).
+                `${KEPT_A_COPY.charAt(0).toUpperCase()}${KEPT_A_COPY.slice(1)}`
+              : 'Playing on your Kraken'}
+          </small>
         </span>
       </li>
     </ol>
@@ -1015,7 +1133,7 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
  * *keeping a copy of it*, then *playing it*.
  */
 function secondHeadline(stage: FlowState['stage']): string {
-  if (stage === 'stored' || stage === 'downloading') return 'Keeping a copy';
+  if (stage === 'stored' || stage === 'downloading') return KEEPING_A_COPY;
   if (stage === 'accepted') return 'Sent to your Kraken';
   return 'Streaming from the link';
 }
@@ -1067,7 +1185,7 @@ function downloadingLine(entry: DownloadEntry, pct: number | null): string {
   if (entry.state === 'queued') return pitch;
   if (entry.state === 'done') {
     const mb = (entry.receivedBytes / BYTES_PER_MB).toFixed(MB_DECIMALS);
-    return `${mb} MB · kept in your library`;
+    return `${mb} MB · ${KEPT_A_COPY}`;
   }
   if (pct === null) return pitch;
   return `Downloading locally — ${String(Math.round(pct))}%`;

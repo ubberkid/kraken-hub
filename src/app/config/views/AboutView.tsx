@@ -69,7 +69,16 @@ export function AboutView({ runtime }: { runtime: ConfigRuntime }) {
 
   return (
     <>
-      <Panel title="About">
+      {/*
+        No `title="About"`.
+
+        The sub-page header two rows up already says "‹ Your Kraken / About", in
+        the app's one place for saying which screen you are on — and this panel
+        printed the same word again, 30 px below it, as its own heading. Round 3
+        counted it as a duplicated heading, and it is: the page is named once,
+        by the thing whose job is naming pages.
+      */}
+      <Panel>
         <p className="kh-hint">
           Video, pictures, a clock or your PC&rsquo;s readings on a Kraken LCD. Open source, no
           account, nothing of ours in between.

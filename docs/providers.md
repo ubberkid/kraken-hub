@@ -90,7 +90,9 @@ and the pause overlay entirely.
 as the video. The crop hides the player's chrome; there is nothing it can do
 about the content the player chooses to put in the picture. The embed API also
 gives no reliable ad signal, so the overlay mask stays down through one. This is
-stated in the config UI next to the URL field, and it is the honest reason the
+stated in the video module's own options, directly above the row that answers
+it — tap the **Video** chip that is already active to open them. It is the
+honest reason the
 docs keep pointing at local clips and the resolver companion.
 
 Three more YouTube-specific truths:
@@ -100,33 +102,15 @@ Three more YouTube-specific truths:
   16:9 with bars baked in, and oEmbed reports _player_ dimensions rather than
   source ones. `Auto` means 9:16 for a `/shorts/` link and 16:9 for everything
   else. If the crop lands on the wrong part of the picture, that setting is why.
-- **We never call `pauseVideo()` by default.** It raises the suggested-video grid
-  inside the video rect. "Hold" is a micro-loop at 0.25× instead. There is one
-  opt-in alternative — see [Hold behaviour](#hold-behaviour-micro-loop-vs-masked-pause).
+- **We never call `pauseVideo()`.** It raises the suggested-video grid inside
+  the video rect. "Hold" is a micro-loop at 0.25× instead, and there is no
+  setting: the alternative was one of the design audit's "(recommended)"
+  options — an admission that the control should not have been a control — and
+  the settings census deleted it. `state/migrations.ts` strips
+  `youtube.pauseStrategy` out of stored configs on the way past.
 - **We never let playback reach the end.** The end screen is inside the video
   rect too, so there is always an implicit loop that stops one second short.
 - **Playlists are ignored.** `&list=` plays the single video and warns.
-
-### Hold behaviour: micro-loop vs masked pause
-
-**CAM → Kraken → Configure → Video → YouTube → Hold behaviour** offers two ways
-to hold a frame, and they trade power against risk:
-
-| `youtube.pauseStrategy`   | What it does                                                                                                                                                                                | Cost                                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| **`microloop`** (default) | Sets the slowest playback rate the player offers and re-seeks inside a ~0.3 s span. The player never leaves the `PLAYING` state, so no overlay is ever raised.                              | The decoder keeps running. Video keeps being decoded and composited for the whole hold.       |
-| `maskedPause`             | Raises kraken-hub's own fully opaque overlay mask, waits a few frames for it to actually paint, and only then calls `pauseVideo()`. The suggested-video grid does appear — behind the mask. | If the mask ever drops (a crash, a reload, a mask failsafe firing), the grid is on the panel. |
-
-**Prefer `maskedPause` for long holds and low-power situations** — a paused clip
-left on the panel for minutes or hours, or a machine where the decoder running
-flat out for a still frame is a real cost. The saving is genuine: a paused
-YouTube player decodes nothing, and CAM's capture pipeline has a static frame to
-compress.
-
-**Keep `microloop` for anything short.** It is the default because it is
-failure-tolerant: it does not depend on our mask being correct, and the
-2.5 s mask failsafe (which exists to stop a stuck mask hiding working video)
-would uncover the pause overlay if it fired during a masked pause.
 
 ## Reddit: the cheap path first
 

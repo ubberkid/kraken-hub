@@ -1,6 +1,10 @@
 import { useState } from 'react';
 
-import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
+import {
+  CAM_FRAME_RATE_LEAD,
+  CAM_FRAME_RATE_TAIL,
+  CAM_PATH_FRAME_RATE,
+} from '../../../config/camPaths';
 import { camInstallUrl } from '../../../config/knownHosts';
 import { Chip, Code } from '../../../ui';
 
@@ -46,9 +50,21 @@ import type { ConfigRuntime } from '../runtime';
 export function CamSetupCard({
   runtime,
   variant,
+  dense = false,
 }: {
   runtime: ConfigRuntime;
   variant: 'first-run' | 'quiet';
+  /**
+   * The band, while something else on the page has the floor (round 3, F2).
+   *
+   * Two objects cannot both have 537 px. When the options panel opens, the halo
+   * shrinks to a thumb and the band drops to the half of its sentence that is
+   * news — *your Kraken has not shown up yet* — keeping its one action. The
+   * instruction it drops is the same instruction the button carries out, and it
+   * comes back the moment the panel closes. `first-run` only; the quiet variant
+   * lives on a page of its own where nothing is competing with it.
+   */
+  dense?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -80,9 +96,25 @@ export function CamSetupCard({
     return (
       <section className="kh-band" data-testid="setup-first-run" aria-labelledby="kh-setup-title">
         <div className="kh-band__line">
+          {/*
+            One grammar for the frame-rate instruction (round 3, minors).
+
+            This line used to read "then turn CAM → Lighting → your Kraken → Web
+            Integration → Frame Rate up" — a garden path that puts a five-step
+            menu route between a verb and its particle, so a reader arrives at
+            "up" having lost what it attaches to. The quiet variant below and
+            the display's own banner both already said it the other way round;
+            `camPaths.ts` owns the grammar now and everybody says it once.
+          */}
           <p className="kh-band__text">
-            <b id="kh-setup-title">Your Kraken has not shown up yet.</b> Point CAM at this page,
-            then turn <b>{CAM_PATH_FRAME_RATE}</b> up.
+            <b id="kh-setup-title">Your Kraken has not shown up yet.</b>
+            {!dense && (
+              <>
+                {' '}
+                Point CAM at this page, then {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b>{' '}
+                {CAM_FRAME_RATE_TAIL}.
+              </>
+            )}
           </p>
           <a
             className="kh-btn kh-btn--primary"
@@ -147,7 +179,8 @@ export function CamSetupCard({
         Add to CAM
       </h2>
       <p className="kh-setup__lede">
-        Point CAM at this address, then drag <strong>{CAM_PATH_FRAME_RATE}</strong> to maximum.
+        Point CAM at this address, then {CAM_FRAME_RATE_LEAD} <strong>{CAM_PATH_FRAME_RATE}</strong>{' '}
+        {CAM_FRAME_RATE_TAIL}.
       </p>
       <Code>{runtime.appUrl}</Code>
       <div className="kh-row kh-setup__actions">

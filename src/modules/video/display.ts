@@ -31,6 +31,7 @@
 
 import { CAM_PATH_CONFIGURE } from '../../config/camPaths';
 import { createLogger } from '../../lib/log';
+import { maxTargetFpsForPanel } from '../../platform/devicePresets';
 import { setReplicaThumb } from '../replicaThumb';
 
 import { loadAdapter } from './adapters/registry';
@@ -439,7 +440,13 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     advisoryEl?.remove();
     advisoryEl = null;
     if (next === 'hidden') return;
-    advisoryEl = next === 'card' ? renderFpsCard(targetFps) : renderFpsBadge(targetFps);
+    // The ceiling the card asks the user to drag to is a property of the panel
+    // that is actually attached, never a constant in the copy: CAM's slider tops
+    // out at 1 FPS on a Kraken Z and 25 on a Kraken 2023.
+    const panel = ctx?.geometry() ?? null;
+    const maxFps =
+      panel === null ? null : maxTargetFpsForPanel(panel.width, panel.height, panel.shape);
+    advisoryEl = next === 'card' ? renderFpsCard(targetFps, maxFps) : renderFpsBadge(targetFps);
     host.append(advisoryEl);
   }
 

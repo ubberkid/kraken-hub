@@ -12,7 +12,6 @@
  *    `kraken-hub.v1`
  */
 
-import { ALLORIGINS_PROXY_BASE } from '../../config/knownHosts';
 import { clamp, isFiniteNumber, isPlainObject } from '../../lib/clamp';
 import { MAX_URL_LEN } from '../../lib/mediaUrl';
 import { PAN_LIMIT, ZOOM_MAX, ZOOM_MIN } from '../../render/types';
@@ -286,22 +285,19 @@ export const DEFAULT_YOUTUBE: YouTubeConfig = {
  */
 export type DownloadMode = 'auto' | 'stream-only';
 
-/**
- * §7.3 step 4 — the one preset offered, and never a default.
+/*
+ * `PROXY_PRESETS` used to live here: a two-entry table whose labels were the
+ * `<select>` options the round-1 census counted among its 171 words of prose
+ * inside `<option>` elements ("None (recommended)", "allorigins.win — public,
+ * best-effort, sees every URL you play"). The control became a Switch plus a
+ * text field in round 1 and the table has had no reader since — dead copy for
+ * two rounds, carrying the wording the redesign deleted.
  *
- * `corsproxy.io` is deliberately NOT offered: it 403s benign domains, which
- * produces a failure that looks like the user's fault. `allorigins.win` is a
- * free public service with no uptime promise, so it is a checkbox, not a
- * setting anybody inherits.
+ * The proxy FIELD stays exactly as it is. Whether to ship a public proxy at all
+ * is one of the design audit's §6 product decisions, and it is not this round's
+ * to make; `ALLORIGINS_PROXY_BASE` is still what `VideoConfigPanel`'s switch
+ * writes.
  */
-export const PROXY_PRESETS: readonly { key: string; label: string; base: string }[] = [
-  { key: 'none', label: 'None (recommended)', base: '' },
-  {
-    key: 'allorigins',
-    label: 'allorigins.win — public, best-effort, sees every URL you play',
-    base: ALLORIGINS_PROXY_BASE,
-  },
-];
 
 /** §1.4 — the resolver is a policy layer, never a URL pattern. */
 export type ResolverPolicy = 'off' | 'youtube-only' | 'preferred' | 'fallback';

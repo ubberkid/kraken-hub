@@ -22,6 +22,7 @@
  *     is the one that exists during ordinary use.
  */
 
+import { COPY_HOME, KEEPING_A_COPY } from '../../config/vocabulary';
 import { readDisplayReport } from '../../diag/report';
 import { detect } from '../../modules/video/routing/detect';
 import { LOCAL_CLIP_RE } from '../../modules/video/routing/patterns';
@@ -152,6 +153,52 @@ export interface FlowState {
 }
 
 /**
+ * Whether a stage's receipt is allowed to stay on the screen (round 3, F4).
+ *
+ * Round 2 gave the receipt a retirement and then hard-coded the set of stages
+ * that could use it — `accepted` and `stored` — which meant the app's FLAGSHIP
+ * path was the one it did not apply to. A YouTube link produced a 219 px
+ * three-card ladder that never left, asserting for the rest of the session that
+ * a video was playing, next to a halo showing it playing and a status line
+ * saying it was playing. The page said one fact four times.
+ *
+ * The rule is not a list of stages any more, it is a question about a stage,
+ * and there are only two answers that earn permanence:
+ *
+ *  - **it has not finished** — `downloading`, which is a progress bar, and a
+ *    progress bar that vanished at four seconds would be a bug;
+ *  - **it went wrong** — `unsaved`, the one stage that reports something the
+ *    user may want to act on, which stays until the story resolves.
+ *
+ * Everything else has reached a steady state, and a steady state is what the
+ * status line under the halo is FOR. `streaming` and `youtube-embed` both
+ * describe a source's permanent property, and a property belongs where the
+ * setting that answers it lives — the video module's options, which carry both
+ * sentences — never in a ladder of events.
+ *
+ * The `switch` is exhaustive on purpose: a new `FlowStage` is a type error here
+ * rather than a card that silently inherits "stays forever".
+ */
+export function receiptPersists(stage: FlowStage): boolean {
+  switch (stage) {
+    case 'downloading':
+      return true;
+    case 'unsaved':
+      return true;
+    case 'accepted':
+    case 'stored':
+    case 'streaming':
+    case 'youtube-embed':
+      return false;
+    default: {
+      // Unreachable while the union is exhausted above; a compile error if not.
+      const never: never = stage;
+      return never;
+    }
+  }
+}
+
+/**
  * The download entry that belongs to `url` — and only to `url`.
  *
  * Matched on `sourceUrl` as well as `url` because the resolver path fetches a
@@ -233,11 +280,11 @@ export function resolverHealthyFromTele(
 export function failureLine(entry: DownloadEntry | null): string {
   switch (entry?.reason) {
     case 'quota':
-      return 'There is no room left on this PC for a copy, so your Kraken is playing it from the link.';
+      return `There is no room left ${COPY_HOME} for a copy, so your Kraken is playing it from the link.`;
     case 'network':
       return 'The download did not finish, so your Kraken is playing it from the link.';
     case 'store-failed':
-      return 'The copy could not be saved to this PC, so your Kraken is playing it from the link.';
+      return `The copy could not be saved ${COPY_HOME}, so your Kraken is playing it from the link.`;
     default:
       return 'A copy could not be kept, so your Kraken is playing it from the link.';
   }
@@ -392,7 +439,7 @@ export function describeVideoStatus(input: VideoStatusInput): Status {
     return { live: !stats.held, verb: stats.held ? 'Holding' : 'Playing', name, detail };
   }
 
-  if (input.downloading) return { live: false, verb: 'Keeping a copy of', name, detail: null };
+  if (input.downloading) return { live: false, verb: `${KEEPING_A_COPY} of`, name, detail: null };
 
   const configured = input.url.trim() !== '';
   if (configured && input.displaySeen) {

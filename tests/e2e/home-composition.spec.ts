@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 /**
- * The home screen, measured — design audit, round 2, waveA.
+ * The home screen, measured — design audit, rounds 2 and 3.
  *
  * Round 1 asked for options that resolve in place, and got them: the active chip
  * became the door and the 1,600 px settings wall went away. Round 2 then put a
@@ -10,15 +10,31 @@ import { expect, test, type Page } from '@playwright/test';
  * by **426 to 888 px, on every module**, because it opened *underneath* a
  * full-height composition rather than in place of one.
  *
- * So this file is arithmetic, not opinion. Every test here is a number the
- * screen has to hit in the only window CAM ever opens:
+ * ## Round 3: the component is never the unit of measurement again
  *
- *  - each module's options fully visible, with `scrollY` still 0;
- *  - the halo cross-fading down to a live corner thumb to make the room, and
- *    coming back when the panel closes;
- *  - the one primary action taking the active module's noun;
- *  - one voice in the status line;
- *  - and the receipt getting out of the way once it is a receipt.
+ * Round 2 fixed that, and this file measured the fix — the PANEL's last pixel
+ * against the bottom of the window, with a `slack >= 0` per module. Every one of
+ * those assertions passed at eab18f0. And the page still overflowed by 14 to
+ * 77 px with the options open, because the panel ending above the fold says
+ * nothing about the **nav row and the footer underneath it** — and `.kh-more`
+ * is this app's entire navigation. A test that measures a component and calls it
+ * a composition is a test that will keep passing while the screen gets worse.
+ *
+ * So the budget below is `document.scrollHeight <= clientHeight`: the PAGE, in
+ * CAM's window, for every module in every panel state. Nothing is exempt because
+ * it happens to be below the element somebody was looking at.
+ *
+ * The one state that is allowed to scroll is the one where scrolling is the
+ * point. Round 3's F1: the panel used to carry `max-height: calc(100dvh - 268px)`
+ * with `overflow-y: auto`, which at 866x537 silently swallowed **929 px** —
+ * pressing Advanced rotated a chevron and changed nothing else on the screen.
+ * The cap is gone; Advanced now promotes the page to an honest full-height flow,
+ * which the suite asserts is honest rather than pretending it does not happen.
+ *
+ * Everything else here is unchanged from round 2: the halo cross-fading down to
+ * a live corner thumb to make the room, the primary action taking the active
+ * module's noun, one voice in the status line, and the receipt getting out of
+ * the way once it is a receipt.
  */
 
 /** The CAM Configuration Browser, measured. Every assertion here is about it. */
@@ -40,33 +56,115 @@ async function cam(page: Page): Promise<void> {
  * Two presses for an inactive chip, one for the active one — which is the whole
  * gesture: a chip switches, and the chip that is already active is the door.
  */
+/** Open the panel's Advanced door, where the module has one (F5). */
+async function openEveryDoor(page: Page): Promise<void> {
+  const doors = page.locator('[data-testid="ops-panel"] .kh-details__summary');
+  for (let i = 0; i < (await doors.count()); i++) await doors.nth(i).click();
+}
+
+/** Make a module active, with its options CLOSED — the base composition. */
+async function selectModule(page: Page, id: string): Promise<void> {
+  const chip = page.getByTestId(`module-chip-${id}`);
+  if ((await chip.getAttribute('aria-pressed')) !== 'true') await chip.click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  // Pressing the chip that is already active is the door, so the first press
+  // may have opened it. This helper is about the closed state.
+  if ((await chip.getAttribute('aria-expanded')) === 'true') await chip.click();
+  await expect(page.getByTestId('ops-panel')).toHaveCount(0);
+}
+
 async function openOptions(page: Page, id: string): Promise<void> {
   const chip = page.getByTestId(`module-chip-${id}`);
   await chip.click();
   await expect(chip).toHaveAttribute('aria-pressed', 'true');
   if ((await chip.getAttribute('aria-expanded')) !== 'true') await chip.click();
   await expect(page.getByTestId('ops-panel')).toBeVisible();
-  // The panel is a lazy chunk: wait for the module's real controls, not the
-  // frame that will hold them.
-  await expect(page.locator('[data-testid="ops-panel"] .kh-panel')).toBeVisible();
+  // The module's real controls, not a frame that might hold them. Round 3 made
+  // `.kh-panel` an unreliable signal here: Suspense's placeholder used to be one
+  // too, so a wait on it could satisfy itself with the very jank F3 is about.
+  await expect(page.locator('[data-testid="ops-panel"] .kh-field').first()).toBeVisible();
 }
 
-interface PanelMetrics {
-  /** Distance from the panel's last pixel to the bottom of the window. */
-  slack: number;
-  /** Non-zero means the panel is scrolling its own content — i.e. clipped. */
+/**
+ * What the PAGE is doing — not what one box inside it is doing.
+ *
+ * `overflow` is the number round 2's per-panel assertion could not see: the
+ * document's own scrollable surplus, which is where the nav row and the footer
+ * went. `clipped` is the second half of the same honesty — a composition that
+ * fits only because something inside it is quietly scrolling its own content
+ * has not fitted, it has hidden.
+ */
+interface PageMetrics {
+  /** `scrollHeight - clientHeight`. Zero means the whole page is on the screen. */
+  overflow: number;
+  /** Pixels any element inside the home screen is hiding inside its own box. */
   clipped: number;
+  /** The app did not teleport the page to make any of the above true. */
   scrollY: number;
+  /** Is the nav row — this app's entire navigation — whole and on the screen? */
+  navFullyVisible: boolean;
+  /** Is the footer, which is the way to About and Diagnostics? */
+  footerFullyVisible: boolean;
 }
 
-async function panelMetrics(page: Page): Promise<PanelMetrics> {
+/**
+ * Wait for the composition to stop moving.
+ *
+ * Everything on this screen is a transition — the halo takes 450 ms to hand the
+ * floor over and the panel springs in on the same curve — so a measurement taken
+ * on the frame after a click is a measurement of the animation. Round 3 caught
+ * this reading 638 px for a 537 px page and 41 px for a 44 px button (a
+ * `scaleY(0.94)` keyframe, mid-flight). Bounded, because an infinite animation
+ * would otherwise wait forever.
+ */
+async function settle(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const running = document.getAnimations().filter((a) => a.playState === 'running');
+    await Promise.race([
+      Promise.all(running.map(async (a) => a.finished.catch(() => undefined))),
+      new Promise((resolve) => {
+        setTimeout(resolve, 1500);
+      }),
+    ]);
+  });
+}
+
+async function pageMetrics(page: Page): Promise<PageMetrics> {
+  await settle(page);
   return page.evaluate(() => {
-    const el = document.querySelector('[data-testid="ops-panel"]');
-    if (el === null) return { slack: -9999, clipped: 9999, scrollY: window.scrollY };
+    const doc = document.scrollingElement ?? document.documentElement;
+    const whole = (selector: string): boolean => {
+      const el = document.querySelector(selector);
+      if (el === null) return false;
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= window.innerHeight;
+    };
+    let clipped = 0;
+    for (const el of document.querySelectorAll('.kh-home, .kh-home *')) {
+      // A shelf that scrolls on purpose is not a composition that failed: the
+      // picture list is explicitly a fixed-height shelf (`.kh-list--shelf`).
+      if (el.classList.contains('kh-list--shelf')) continue;
+      /*
+       * Only SCROLL boxes count.
+       *
+       * `overflow: visible` gives sub-pixel rounding, not swallowed content. A
+       * mask — the halo's round bezel window is `overflow: hidden` and clips the
+       * mirror by 1–2 px, which is what a bezel is for — hides nothing a user
+       * could otherwise have reached. The failure this number exists to catch is
+       * specifically the deleted `max-height` + `overflow-y: auto` cap: content
+       * that IS there, IS reachable, and is not on the screen, so the page can
+       * report a height that is not the height of what it contains.
+       */
+      const overflow = getComputedStyle(el).overflowY;
+      if (overflow !== 'auto' && overflow !== 'scroll') continue;
+      clipped = Math.max(clipped, el.scrollHeight - el.clientHeight);
+    }
     return {
-      slack: Math.round(window.innerHeight - el.getBoundingClientRect().bottom),
-      clipped: el.scrollHeight - el.clientHeight,
+      overflow: doc.scrollHeight - doc.clientHeight,
+      clipped,
       scrollY: window.scrollY,
+      navFullyVisible: whole('.kh-more'),
+      footerFullyVisible: whole('.kh-footer'),
     };
   });
 }
@@ -81,29 +179,151 @@ function haloWidth(page: Page): Promise<number> {
 // R1 + R2 — one set of options, and they are IN VIEW
 // ---------------------------------------------------------------------------
 
-test.describe('a module’s options open inside the window', () => {
+test.describe('the page fits CAM’s window — every module, every panel state', () => {
   for (const id of MODULE_IDS) {
-    test(`${id}: fully visible at 866×537, with no scroll`, async ({ page }) => {
+    test(`${id}: the whole composition fits at 866×537, closed and with options open`, async ({
+      page,
+    }) => {
+      await cam(page);
+      await page.goto('/');
+
+      // 1. Closed. The base composition, which round 2 also measured.
+      await selectModule(page, id);
+      await expect.poll(async () => (await pageMetrics(page)).overflow).toBe(0);
+
+      // 2. Options open — the state round 2 declared fixed by measuring the
+      //    panel, and which was still putting the nav row across the fold.
+      await openOptions(page, id);
+      // Polled, because the halo takes 450 ms to hand over the floor and a
+      // measurement mid-spring is a measurement of the animation.
+      await expect.poll(async () => (await pageMetrics(page)).overflow).toBe(0);
+
+      const m = await pageMetrics(page);
+      expect(
+        m.overflow,
+        `${id}: the composition runs past the bottom of CAM's window with the options open`,
+      ).toBe(0);
+      // "Fits" means fits: nothing is quietly scrolling its own content to make
+      // the number true. This is the assertion the deleted `max-height` cap
+      // would have failed (F1).
+      expect(m.clipped, `${id}: something inside the home screen is clipped`).toBe(0);
+      // The two things the overflow was eating.
+      expect(m.navFullyVisible, `${id}: the nav row is cut by the fold`).toBe(true);
+      expect(m.footerFullyVisible, `${id}: the footer is cut by the fold`).toBe(true);
+      // And the app did not teleport the page to make any of it true.
+      expect(m.scrollY).toBe(0);
+    });
+
+    /**
+     * F1 — the Advanced door, which used to do nothing at all.
+     *
+     * At 866x537 the panel's `max-height` hid 929 px of it: the chevron
+     * rotated, a scrollbar appeared inside a box, and the screen did not
+     * change. This is the OTHER promise: the page is allowed to scroll here,
+     * because the user asked for more than a window's worth — and it has to
+     * scroll HONESTLY, with the panel's content in the flow rather than inside
+     * a hidden overflow, and the nav and footer below it rather than lost.
+     */
+    test(`${id}: Advanced opens onto a full-height flow, not a hidden overflow`, async ({
+      page,
+    }) => {
       await cam(page);
       await page.goto('/');
       await openOptions(page, id);
 
-      // Polled, because the halo takes 450 ms to hand over the floor and a
-      // measurement mid-spring is a measurement of the animation.
-      await expect.poll(async () => (await panelMetrics(page)).slack).toBeGreaterThanOrEqual(0);
+      const panelHeight = async (): Promise<number> => {
+        await settle(page);
+        return page.evaluate(
+          () => document.querySelector('[data-testid="ops-panel"]')?.scrollHeight ?? 0,
+        );
+      };
+      const before = await panelHeight();
+      const summary = page.locator('[data-testid="ops-panel"] .kh-details__summary');
+      const doors = await summary.count();
+      /* eslint-disable playwright/no-conditional-in-test, playwright/no-conditional-expect --
+         Whether a module HAS an Advanced door is a property of the module, and
+         "there is no door because there was nothing to put behind one" is the
+         other half of the same rule (F5) rather than a case to skip. Both
+         branches assert; neither is a silent pass. */
+      if (doors === 0) {
+        // No door, because there is nothing left to put behind one — the
+        // module's options ARE the advanced controls (F5). That is a state
+        // this rule is satisfied by, not one it skips: assert it.
+        await expect(page.locator('[data-testid="ops-panel"] .kh-panel')).toBeVisible();
+        expect(await pageMetrics(page).then((m) => m.overflow)).toBe(0);
+        return;
+      }
+      /* eslint-enable playwright/no-conditional-in-test, playwright/no-conditional-expect */
 
-      const m = await panelMetrics(page);
-      // The number round 2 measured as 426–888 px of overflow, for every module.
-      expect(m.slack, `${id}: options run past the bottom of CAM's window`).toBeGreaterThanOrEqual(
-        0,
-      );
-      // "Fully visible" means fully visible: the panel is not quietly scrolling
-      // its own content to fit inside the promise either.
-      expect(m.clipped, `${id}: options are clipped inside their own box`).toBe(0);
-      // And the app did not teleport the page to make it true.
-      expect(m.scrollY).toBe(0);
+      await summary.first().click();
+      await expect(page.locator('.kh-home')).toHaveAttribute('data-advanced', 'true');
+
+      /*
+       * The press changed the screen. That is the whole finding: it did not.
+       *
+       * Measured on the PANEL rather than the document, because the two are
+       * different claims: the panel must always grow (that is what opening a
+       * door means), while whether the PAGE then needs to scroll depends on how
+       * much was behind it — Clock's Advanced still fits in CAM's window and
+       * Video's is 800 px. Asserting the page grew would make the smallest
+       * module's success look like a failure.
+       */
+      await expect.poll(panelHeight).toBeGreaterThan(before);
+
+      const m = await pageMetrics(page);
+      // Honest: the content is in the document's flow, not hidden inside the
+      // panel's own scroll box.
+      expect(m.clipped, `${id}: Advanced is hiding content inside a box again`).toBe(0);
+      // …and the way out is still below it, in flow, reachable by scrolling.
+      const reachable = await page.evaluate(() => {
+        const nav = document.querySelector('.kh-more');
+        const foot = document.querySelector('.kh-footer');
+        const doc = document.scrollingElement ?? document.documentElement;
+        if (nav === null || foot === null) return false;
+        return (
+          nav.getBoundingClientRect().bottom + window.scrollY <= doc.scrollHeight &&
+          foot.getBoundingClientRect().bottom + window.scrollY <= doc.scrollHeight
+        );
+      });
+      expect(reachable, `${id}: the nav and footer are not in the flow below Advanced`).toBe(true);
     });
   }
+
+  /**
+   * F5 — a door never opens onto an empty room.
+   *
+   * Three of the four panels used to open to a signpost sentence ("Face, hours
+   * and seconds are on the strip above") and a closed `Advanced` disclosure —
+   * a deliberate second gesture answered with a paragraph about somewhere else.
+   * The rule now lives in `ui/ModuleOptions`: with no primary controls the
+   * advanced ones are promoted to the panel itself.
+   */
+  test('a module’s options always open onto a control, never onto a signpost', async ({ page }) => {
+    await cam(page);
+    await page.goto('/');
+
+    for (const id of MODULE_IDS) {
+      await openOptions(page, id);
+      const panel = page.getByTestId('ops-panel');
+
+      // No prose pointing at the screen the reader is already looking at.
+      await expect(panel).not.toContainText('on the strip above');
+      await expect(panel).not.toContainText('strip above');
+
+      // At least one control is reachable WITHOUT opening anything: either the
+      // panel has primary controls, or the advanced ones were promoted into it.
+      const openControls = await page.evaluate(() => {
+        const root = document.querySelector('[data-testid="ops-panel"] .kh-panel');
+        if (root === null) return 0;
+        return [...root.querySelectorAll('button, input, [role="radio"], [role="switch"]')].filter(
+          (el) => el.closest('details:not([open])') === null,
+        ).length;
+      });
+      expect(openControls, `${id}: the options panel opens onto no control at all`).toBeGreaterThan(
+        0,
+      );
+    }
+  });
 
   /**
    * R1/R2 — ONE set of options.
@@ -153,8 +373,10 @@ test.describe('a module’s options open inside the window', () => {
 
     for (const id of MODULE_IDS) {
       await openOptions(page, id);
-      // Advanced is part of the panel, so it is part of the rule.
-      await page.locator('[data-testid="ops-panel"] .kh-details__summary').first().click();
+      // Advanced is part of the panel, so it is part of the rule — where there
+      // still is one. A module whose options ARE its advanced controls has no
+      // door to open (F5), and its controls are already in the sweep below.
+      await openEveryDoor(page);
       const natives = await page.evaluate(
         () =>
           document.querySelectorAll(
@@ -340,6 +562,42 @@ test.describe('the paste receipt', () => {
     await expect(page.getByTestId('status-line')).toContainText('dunes.mp4');
     // And the composition it was sitting on top of is back, whole.
     await expect(page.locator('.kh-footer')).toBeInViewport();
+  });
+
+  /**
+   * F4 — and the flagship path is not an exception.
+   *
+   * Round 2 hard-coded the set of stages allowed to retire as `accepted` and
+   * `stored`, which excluded the single most common thing anybody does with
+   * this app: paste a YouTube link. The receipt stayed for the session, 219 px
+   * of it, asserting that a video was playing next to a halo showing it playing
+   * and a status line saying it was playing. The rule is a question about the
+   * stage now (`homeState.receiptPersists`), not a list.
+   */
+  test('the YouTube receipt collapses too, and the ads note is not in the ladder', async ({
+    page,
+  }) => {
+    await cam(page);
+    await page.goto('/');
+    await page.getByTestId('paste-input').fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    await page.getByTestId('paste-submit').click();
+
+    const flow = page.getByTestId('paste-flow');
+    await expect(flow).toHaveAttribute('data-flow-stage', 'youtube-embed');
+    // A source property, not an event: it lives in the module's options, next
+    // to the control that answers it.
+    await expect(flow).not.toContainText('Ads and all');
+
+    await expect(flow).toHaveAttribute('data-collapsed', 'true', { timeout: 10_000 });
+    await expect(flow).toBeHidden();
+    // …and the halo's line is still carrying the fact the ladder handed over.
+    await expect(page.getByTestId('status-line')).toContainText('YouTube');
+    // The composition it was sitting on is whole again.
+    expect((await pageMetrics(page)).overflow).toBe(0);
+
+    // The fact itself did not vanish from the product — it moved.
+    await openOptions(page, 'video');
+    await expect(page.getByTestId('ops-panel')).toContainText('ads');
   });
 
   test('a failure stays, because a failure is not a receipt', async ({ page }) => {

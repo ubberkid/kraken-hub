@@ -12,7 +12,8 @@ By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Most of what kraken-hub believes about the Kraken LCD comes from NZXT's
 documentation plus one maintainer's Kraken Elite. Kraken Plus and Kraken Z rows
-in the docs are essentially empty. The `#/diag` page produces the JSON for you;
+in the docs are essentially empty. The About page produces the JSON for you —
+click the version line in the footer, then **Report → Copy report** — and
 pasting it into the form is a five-minute contribution with an outsized effect.
 
 Every claim in the docs that has not been measured carries the literal marker
@@ -38,7 +39,7 @@ Then open:
 | `http://localhost:5173/`          | the Configuration UI (what CAM's _Configure_ button opens) |
 | `http://localhost:5173/?kraken=1` | the display surface (what the LCD shows)                   |
 | `http://localhost:5173/#/remote`  | the phone remote                                           |
-| `http://localhost:5173/#/diag`    | diagnostics                                                |
+| `http://localhost:5173/#/about`   | About and diagnostics (`#/diag` still resolves here)       |
 
 ### Developing without a Kraken
 

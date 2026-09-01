@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { KEEPING_A_COPY } from '../../config/vocabulary';
 import { DIAG_DISPLAY_SUFFIX, DIAG_SCHEMA_VERSION } from '../../diag/report';
 import { TELE_SUFFIX } from '../../modules/video/telemetry/videoTelemetry';
 import { removeRaw, writeRaw } from '../../platform/storage';
@@ -355,7 +356,7 @@ describe('describeVideoStatus', () => {
   });
 
   it('names the stage the strip used to badge: keeping a copy of it', () => {
-    expect(describeVideoStatus({ ...base, downloading: true }).verb).toBe('Keeping a copy of');
+    expect(describeVideoStatus({ ...base, downloading: true }).verb).toBe(`${KEEPING_A_COPY} of`);
   });
 
   it('says Streaming only when nothing is being kept', () => {

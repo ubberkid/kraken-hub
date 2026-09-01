@@ -70,7 +70,9 @@ comes out any other size.
 Everything here is a thing a reviewer can trivially catch.
 
 - [ ] Renders correctly at **240×240 square, 320×320 circle and 640×640 circle** —
-      check all four presets in **Preview**, not just the Elite.
+      check all four presets with `?kraken=1&sim=<preset>`, not just the Elite.
+      (There is no Preview screen: the home screen's halo is the real display
+      page, booted at whatever size the display last reported.)
 - [ ] Renders correctly at **`targetFps === 1`**. This is the factory default and
       it is what a reviewer will see first. `?kraken=1&sim=elite&fps=1`.
 - [ ] **No console errors on a cold load**, in either browser mode. The e2e suite

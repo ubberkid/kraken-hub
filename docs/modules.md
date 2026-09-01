@@ -410,18 +410,39 @@ bundle graph by `npm run size`:
 
 ```tsx
 export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
-  const cfg = validateClock(config);            // ← always, first line
+  const cfg = validateClock(config); // ← always, first line
   return (
-    <Panel title="Clock" hint="…">
-      <Field label="Face" htmlFor="clock-face">
-        <Select id="clock-face" value={cfg.face} options={…}
-                onChange={(v) => { onChange({ ...cfg, face: asFace(v) }); }} />
-      </Field>
-      …
-    </Panel>
+    <ModuleOptions
+      advancedTestId="clock-advanced"
+      primary={
+        <GroupField label="Show date" id="clock-date">
+          <Switch
+            id="clock-date"
+            labelledBy="clock-date-label"
+            checked={cfg.showDate}
+            onChange={(showDate) => {
+              onChange({ ...cfg, showDate });
+            }}
+          />
+        </GroupField>
+      }
+      advanced={/* colours, and anything else one level down */}
+    />
   );
 }
 ```
+
+`ModuleOptions` is how every module builds its panel, and it is what stops a
+door opening onto an empty room: pass `primary={null}` — which Stats does on its
+default layout, where the one primary control does not apply — and the advanced
+controls are promoted into the panel itself rather than sitting behind a
+disclosure with nothing in front of it.
+
+Note what is **not** here. The home screen's options strip already carries the
+handful of settings that are worth seeing without opening anything (Face, Hours
+and Seconds, for the clock), so the panel does not ask again — one module has
+one set of options — and it never opens with a sentence explaining where the
+others are.
 
 Conventions:
 
@@ -431,9 +452,13 @@ Conventions:
 - **`onChange` replaces the whole config**, immutably. The host writes it into
   the state document under your module id and re-validates it on the way in.
   Never mutate `config`.
-- **Build from [`src/ui/`](../src/ui/index.tsx)** — `Panel`, `Field`, `Select`,
-  `Toggle`, `TextInput`, `NumberInput`, `RangeInput`, `Button`, `Notice`,
-  `Meter`, `Chip`, `Row`. Using the kit is what makes a third-party module look
+- **Build from [`src/ui/`](../src/ui/index.tsx)** — `ModuleOptions`, `Panel`,
+  `Field`, `GroupField`, `Segmented`, `Switch`, `TextInput`, `NumberInput`,
+  `RangeInput`, `Button`, `Disclosure`, `Notice`, `Meter`, `Chip`, `Code`,
+  `Row`. There is no `Select` and no `Toggle`: round 2 deleted every native
+  picker from this surface, because a `<select>` whose options are sentences is
+  a control that has given up on being understood at a glance, and a system-blue
+  checkbox in a teal palette is a control from somebody else's app. Using the kit is what makes a third-party module look
   like it belongs, and it keeps the panel accessible: every control gets an
   `htmlFor`/`id` pair and `jsx-a11y` runs over this file.
 - **Explain the panel, not the platform.** If a setting is limited by hardware,
