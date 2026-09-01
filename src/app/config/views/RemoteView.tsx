@@ -30,7 +30,12 @@ import {
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
 import { RECEIPT_LINGER_MS, sourceName } from '../homeState';
 import { linkReceipt, panelVerb, playingLine } from '../panelClaims';
-import { PRESENCE_FRESH_MS, panelPresence } from '../panelPresence';
+import {
+  PRESENCE_FRESH_MS,
+  panelIsKnown,
+  panelPresence,
+  type PanelPresence,
+} from '../panelPresence';
 import { pasteAction, type PasteIssue } from '../pasteLink';
 import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
 import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom';
@@ -1132,6 +1137,11 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
       <PairingCard
         paired={paired}
         surface={pairingSurface ? 'pairing' : 'instrument'}
+        // Round 8's B. "Paired with your PC" is a claim about the OTHER end, and
+        // the card was making it out of `paired && roomCode !== null` — two
+        // facts this device produces on its own. The same derivation the
+        // sub-line 200 px up already reads decides it now.
+        presence={presence}
         roomCode={roomCode}
         remoteUrl={remoteUrl}
         // The gap between "this device knows the room" and "the transport is
@@ -1252,6 +1262,7 @@ function LinkStatus({ sync, now, online }: { sync: SyncHandle; now: number; onli
 function PairingCard({
   paired,
   surface,
+  presence,
   roomCode,
   remoteUrl,
   connecting,
@@ -1271,11 +1282,28 @@ function PairingCard({
    * line.
    *
    * The self-pairing wording lives entirely on the other side of this flag.
-   * *"Paired with your PC"*, shown to the PC, and *"scan it from the CAM window
-   * on your PC"*, shown inside that window, are both true sentences addressed to
-   * the wrong reader.
+   * *"Paired with your PC"*, shown to the PC, was a true sentence addressed to
+   * the wrong reader; the phone's half of it — *"scan it from the CAM window on
+   * your PC"* — turned out not to be true for any reader at all, and round 8's
+   * C is what replaced it.
    */
   surface: 'pairing' | 'instrument';
+  /**
+   * What this device has actually heard from the other end — round 8's B.
+   *
+   * The card's paired state said **Paired with your PC** on `paired &&
+   * roomCode !== null`, and neither of those is evidence of a PC: `rotate()`
+   * mints a code and joins the room in one commit, so a phone that pressed
+   * **Create a code** by itself satisfied both facts and announced a pairing
+   * with a machine that had never been asked. It is the same shape as every
+   * finding round 6 collected — a surface inventing a private answer to "is a
+   * Kraken there" — and the answer is the same one `playingLine` is already
+   * given 200 px further up this page.
+   *
+   * Pre-evidence the card does not collapse: it is the code, and how to get the
+   * code where it needs to be.
+   */
+  presence: PanelPresence;
   roomCode: string | null;
   remoteUrl: string | null;
   connecting: boolean;
@@ -1462,12 +1490,37 @@ function PairingCard({
   }
 
   if (paired && roomCode !== null) {
+    /*
+     * Round 8's B, as the two states this card actually has.
+     *
+     * `seen` — something the display published has reached this device, so
+     * there demonstrably is a machine on the other end and the card may name
+     * it. `waiting` — this device has a room and nothing else, which is exactly
+     * what pressing **Create a code** here produces, and what a link scanned
+     * from a Kraken that is switched off produces too. The room is real either
+     * way, so the code, Unpair and the pairing options stay where they are; the
+     * headline stops naming a PC nobody has heard from, and the card spends the
+     * space on the thing a code with no Kraken behind it needs, which is a route
+     * into CAM.
+     */
+    const known = panelIsKnown(presence);
     return (
-      <section className="kh-roomcard" data-testid="pairing-card" data-paired="true">
+      <section
+        className="kh-roomcard"
+        data-testid="pairing-card"
+        data-paired="true"
+        data-evidence={known ? 'seen' : 'waiting'}
+      >
         <div className="kh-roomcard__head" data-testid="paired-summary">
           <div className="kh-roomcard__who">
             <b data-testid="paired-title">
-              {connecting ? <span className="kh-shimmer">Connecting…</span> : 'Paired with your PC'}
+              {connecting ? (
+                <span className="kh-shimmer">Connecting…</span>
+              ) : known ? (
+                'Paired with your PC'
+              ) : (
+                'Your pairing code'
+              )}
             </b>
             <small className="kh-roomcard__code">ROOM {formatRoomCode(roomCode)}</small>
           </div>
@@ -1480,6 +1533,20 @@ function PairingCard({
             Unpair
           </Button>
         </div>
+        {!known && (
+          /*
+            The one route that exists, named by its real controls — round 8's C.
+            A code minted on this phone is a room CAM has never been told about,
+            and the only way to tell it is the field on CAM's own pairing card.
+            The line is conditional because the other way to arrive here is a
+            scanned link, where CAM already knows the room and there is nothing
+            to do but wait — which the status line above says, so this does not.
+          */
+          <p className="kh-hint" data-testid="pair-waiting">
+            Created this code here? Enter it in the CAM window on your PC: open <b>Remote</b> there,
+            then <b>Type a code instead</b>.
+          </p>
+        )}
         <Disclosure summary="Pairing options" testId="pairing-options">
           {/*
             The square is for the OTHER device — and it is not the first thing
@@ -1522,13 +1589,23 @@ function PairingCard({
       data-paired="false"
     >
       {/*
-        Two readers, two sentences — F5.
+        Two readers, two sentences — F5, and round 8's C.
 
-        The instrument's copy is advice for somebody holding a phone: go to the
-        CAM window and scan what it shows you. Printed INSIDE that CAM window it
-        was advice to walk to the machine you are standing at, on the one screen
-        whose entire job is to hand a code to a different device. The pairing
-        surface says what happens next from where the reader actually is.
+        F5 split the copy by reader, and the phone's half was still an
+        instruction nobody can carry out: *"Create a code here, then scan it
+        from the CAM window on your PC — nothing to type."* Codes are created on
+        CAM and scanned BY a phone camera (docs/remote-control.md) — CAM has no
+        camera, this app ships no decoder on any surface, the phone draws no
+        square of its own below 700 px, and a code minted here can only reach
+        CAM by being typed. So the sentence told a reader holding the one device
+        that CAN scan to go and scan with the one that cannot, and closed by
+        ruling out the only route that works.
+
+        What each reader is told now is the route their own hardware has. CAM
+        hands a code out; the phone takes one, with its camera if it has the
+        square in front of it and by typing into CAM if it does not — and
+        **Create a code**, **Remote** and **Type a code instead** are all
+        controls that exist, on the surface named.
       */}
       <h2 className="kh-roomcard__title" data-testid="pairing-title">
         {surface === 'pairing' ? 'Pair your phone' : 'Pair with your Kraken'}
@@ -1536,7 +1613,7 @@ function PairingCard({
       <p className="kh-hint">
         {surface === 'pairing'
           ? 'Create a code here, then scan it with your phone — nothing to type, no account, and no server of ours in between.'
-          : 'Create a code here, then scan it from the CAM window on your PC — nothing to type, no account, and no server of ours in between.'}
+          : 'The code comes from CAM: open Remote on your PC, press Create a code, and point this phone’s camera at the square. No square in front of you? Create a code here and type it into CAM instead. No account, and no server of ours in between.'}
       </p>
       <Row>
         <Button primary testId="pair-rotate" onClick={onRotate}>

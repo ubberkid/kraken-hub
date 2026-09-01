@@ -304,7 +304,8 @@ export const OWNER_ONLY_TERMS: readonly string[] = [
  *
  * "Your PC" is deliberately NOT here. It is a real referent for somebody holding
  * a paired phone — they paired it with that PC — and the remote says it on
- * purpose ("Paired with your PC", "scan it from the CAM window on your PC").
+ * purpose ("Paired with your PC", once something on the other end has actually
+ * been heard from; "open Remote on your PC", which is where a code comes from).
  * What is banned is the bare, unowned machine: the one the copy assumes you are
  * standing in front of.
  */
@@ -349,4 +350,8 @@ export const RETIRED_PHRASES: readonly string[] = [
   // Round 7, F4 — a receipt that named a destination the shelf underneath it
   // contradicted in the same frame. See `LINK_RECEIPT_UNSEEN`.
   'Saved to the library',
+  // Round 8, C — an instruction for hardware nobody has. CAM cannot scan, the
+  // app ships no decoder on any surface, and typing is the only way a code
+  // minted on a phone reaches CAM. See `RemoteView`'s unpaired card.
+  'scan it from the CAM window',
 ];

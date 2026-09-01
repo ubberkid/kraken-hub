@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import { LINK_RECEIPT, LINK_RECEIPT_UNSEEN, NOTHING_KEPT } from '../../config/vocabulary';
@@ -10,6 +12,7 @@ import {
   CLAIM_STREAMING_HEADLINE,
   CLAIM_STREAMING_NO_COPY,
   CLAIM_YOUTUBE_EMBED,
+  REGISTERED_CLAIMS,
   handoffHeadline,
   linkReceipt,
   nowShowingBadge,
@@ -69,11 +72,55 @@ function exportedSpecs(): PanelClaimSpec[] {
   return Object.values(claims).filter(isSpec);
 }
 
+/**
+ * The source of the module, for the two assertions that are about its SHAPE.
+ *
+ * Reading the text rather than the types is the assertion with teeth here, in
+ * both directions: a claim that skipped the constructor and a
+ * `export function nowPlaying(name)` would each type-check perfectly.
+ */
+const SOURCE = readFileSync(new URL('./panelClaims.ts', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .split('\n')
+  .filter((line) => !line.trimStart().startsWith('//'))
+  .join('\n');
+
+/**
+ * ── THE REGISTRY ────────────────────────────────────────────────────────────
+ *
+ * Round 8's E. The property below used to run over `exportedSpecs()`, and the
+ * audit counted what that reached: 6 of the module's 17 claims. The six behind
+ * `settledReceipt`, `linkReceipt`, `nowShowingBadge`, `showingTile` and
+ * `handoffHeadline` are module-private — deliberately, because a surface must
+ * name a claim rather than write one — and all five rungs of `SITUATION_VERB`
+ * live in a record, so eleven three-tense sentences were unreachable by the one
+ * test that exists to check three-tense sentences. The guard against the walk
+ * finding nothing (`>= 6`) was satisfied by the exports alone however many
+ * private claims were added beside them, so it could not have noticed.
+ *
+ * Privacy is a property of the DOOR, not of the sentences. `claim()` is the only
+ * constructor and it registers, so a claim is checked here for existing.
+ */
 describe('the never-seen form is never a present-tense claim', () => {
-  it('finds claims to check at all', () => {
-    // The `Object.values` walk silently finding nothing is the one way this
-    // property could pass without testing anything.
-    expect(exportedSpecs().length).toBeGreaterThanOrEqual(6);
+  it('walks every claim in the module, not only the exported ones', () => {
+    // The guard is no longer a number somebody has to remember to raise: it is
+    // the module's own definition count, so a claim that is written but somehow
+    // never registered is a failure rather than a silent gap.
+    const defined = [...SOURCE.matchAll(/(?:=|:)\s*claim\(/g)].length;
+    expect(defined, 'no `claim(` calls found — has the constructor been renamed?').toBeGreaterThan(
+      10,
+    );
+    expect(REGISTERED_CLAIMS.length, 'every claim() call registers exactly once').toBe(defined);
+    // …and the exported walk really was the smaller set, which is the finding.
+    expect(REGISTERED_CLAIMS.length).toBeGreaterThan(exportedSpecs().length);
+  });
+
+  it('has a sentence for every state, on every claim in the registry', () => {
+    for (const spec of REGISTERED_CLAIMS) {
+      for (const presence of ALL) {
+        expect(panelClaimText(spec, presence).trim()).not.toBe('');
+      }
+    }
   });
 
   /**
@@ -81,15 +128,39 @@ describe('the never-seen form is never a present-tense claim', () => {
    *
    * A window that has never heard from a Kraken may not say a video *is
    * playing* on it. The present progressive is the tell — "is playing",
-   * "Playing", "streaming" — so no exported claim's never-seen form may carry
-   * one. `showing` is exempted where it names a configured module rather than a
-   * frame (see `panelVerb`), and that exemption is one identifier, not a list of
-   * files.
+   * "Playing", "streaming", and since round 8's widened family "running",
+   * "looping", "mirroring", "displaying" — so no claim's never-seen form may
+   * carry one. `showing` is exempted where it names a configured module rather
+   * than a frame (see `panelVerb`), and that exemption is one identifier, not a
+   * list of files.
+   *
+   * Over `REGISTERED_CLAIMS` rather than the exports: the `SITUATION_VERB` rungs
+   * and the six composed claims are exactly the sentences this most needed to be
+   * reading, and they were the eleven it could not see.
    */
   it('carries no "-ing" panel verb in any never-seen sentence', () => {
-    const present = /\b(playing|streaming|fetching)\b/i;
-    for (const spec of exportedSpecs()) {
-      expect(spec.neverSeen, `never-seen must not be present-progressive`).not.toMatch(present);
+    const present = /\b(playing|streaming|fetching|running|looping|mirroring|displaying)\b/i;
+    for (const spec of REGISTERED_CLAIMS) {
+      expect(
+        spec.neverSeen,
+        `never-seen must not be present-progressive: ${JSON.stringify(spec)}`,
+      ).not.toMatch(present);
+    }
+  });
+
+  /**
+   * …and every door into the registry asks before it opens.
+   *
+   * `vocabulary.test.ts` reads this same rule off the source as part of the
+   * literal scan; it is asserted here too because the registry is what makes
+   * the scan's exemption of this module safe, and a reader of either file
+   * should find the whole bargain in front of them.
+   */
+  it('exposes no way to render a claim without a presence', () => {
+    const signatures = [...SOURCE.matchAll(/export function (\w+)\(([^)]*)\)/g)];
+    expect(signatures.length).toBeGreaterThan(5);
+    for (const [, name, params] of signatures) {
+      expect(params, `${String(name)}() must take a PanelPresence`).toMatch(/presence/);
     }
   });
 

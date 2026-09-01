@@ -169,7 +169,9 @@ behind the version line in the footer.)
 ![The phone remote](assets/remote.png)
 
 <sub>Captured with the offline `?transport=fake` transport, so building the docs
-never touches a public broker. The layout is identical on a real one.</sub>
+never touches a public broker. The layout is identical on a real one. The card
+reads **Your pairing code** here because nothing has come back from a Kraken in
+that room yet; it becomes _Paired with your PC_ once something has.</sub>
 
 - **There is nothing to type.** The QR is a link that carries the room code, so
   the phone opens the remote and joins before the card first paints. It stays

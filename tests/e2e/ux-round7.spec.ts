@@ -399,7 +399,10 @@ test.describe('F5 — a window is not a remote control for the machine it runs o
     await expect(page.getByTestId('remote')).toHaveAttribute('data-surface', 'pairing');
     await expect(page.getByTestId('pairing-title')).toHaveText('Pair your phone');
     await expect(page.getByTestId('pairing-card')).toContainText('scan it with your phone');
-    await expect(page.getByTestId('pairing-card')).not.toContainText('CAM window on your PC');
+    // The reader is standing in the CAM window, so it is not sent to one. Round
+    // 8's C rewrote the phone's half of this sentence; CAM's half is unchanged,
+    // and what it must never do is address the wrong machine.
+    await expect(page.getByTestId('pairing-card')).not.toContainText('scan it from the CAM window');
   });
 
   /** …and every window that really is remote keeps the instrument. */
@@ -407,7 +410,11 @@ test.describe('F5 — a window is not a remote control for the machine it runs o
     await page.goto('/?transport=fake&room=ABCD1234#/remote');
     await expect(page.getByTestId('remote')).toHaveAttribute('data-surface', 'instrument');
     await expect(page.getByTestId('remote-mirror')).toBeVisible();
-    await expect(page.getByTestId('paired-title')).toHaveText('Paired with your PC');
+    // The pairing card is still the collapsed credential at the bottom of an
+    // instrument — with the headline round 8's B made conditional, because this
+    // room has no display in it and never has had.
+    await expect(page.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'true');
+    await expect(page.getByTestId('paired-title')).toHaveText('Your pairing code');
   });
 });
 

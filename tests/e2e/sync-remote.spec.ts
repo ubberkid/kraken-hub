@@ -73,8 +73,18 @@ test('a scanned pairing link connects with zero taps', async ({ context }) => {
     timeout: 10_000,
   });
 
-  // …and the room really did reach the sync layer, not just the card.
-  await expect(remote.getByTestId('paired-title')).toHaveText('Paired with your PC');
+  /*
+    …and the room really did reach the sync layer, not just the card.
+
+    The card's own headline is no longer the evidence for that: nothing is on
+    the other end of this room — there is no display page in this test — so
+    round 8's B has the card hold the code rather than announce a PC it has
+    heard nothing from. The transport state above is the assertion with the
+    meaning the original one was reaching for, and the headline is pinned in the
+    honest direction.
+  */
+  await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-evidence', 'waiting');
+  await expect(remote.getByTestId('paired-title')).toHaveText('Your pairing code');
 
   // The device wrote the pairing down while doing it.
   await expect

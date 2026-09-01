@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -342,11 +343,33 @@ describe('the app has one vocabulary', () => {
    * it starts with a capital. That is what keeps `case 'streaming':` (a
    * `FlowStage` id) out of it while keeping `verb: 'Playing'` in, which is a
    * one-word claim and was written in three files.
+   *
+   * ## The family, widened — round 8's D
+   *
+   * Round 7's list was the verbs round 7's findings happened to be written in.
+   * A claim about the panel is not a claim because of which synonym it reached
+   * for: *is running at 1 FPS*, *looping*, *mirroring*, *displaying*, *up on the
+   * panel* and *is live* assert exactly what *playing* asserts, and the first of
+   * them was shipping unconditioned, in the present progressive, off a
+   * `localStorage`-persisted reading (see `CLAIM_FRAME_RATE`). The family covers
+   * the ways the app actually says it; adding a verb to `panelClaims.ts` and to
+   * this regex is one commit, and typing a seventh synonym inline is now a
+   * failing test rather than the next audit's screenshot.
    */
   const PANEL_VERB_RE =
-    /\b(?:playing|plays|showing|shows|streaming|streams|fetching|fetches|picks it up|picks them up)\b|\bon screen\b/i;
+    /\b(?:playing|plays|showing|shows|displaying|displays|streaming|streams|fetching|fetches|looping|loops|mirroring|mirrors|running|runs|is live|picks it up|picks them up)\b|\bon screen\b|\bup on the panel\b/i;
 
-  /** The two modules that may hold the words themselves. */
+  /**
+   * The two modules that may hold the words themselves.
+   *
+   * The exemption is half a rule on its own: this scan stops asking questions at
+   * `panelClaims.ts`'s door, so a sentence typed in the wrong tense INSIDE it is
+   * invisible here by design. `panelClaims.test.ts` is the other half — it walks
+   * the module's own registry, which every claim joins at construction whether
+   * or not it is exported, and asserts the three-tense property over all of
+   * them. Exempt from the literal scan, checked by the registry: neither rule is
+   * complete without the other, and round 8's E is what closed the second one.
+   */
   const CLAIM_MODULES = new Set(['config/vocabulary.ts', 'app/config/panelClaims.ts']);
 
   /**
@@ -361,30 +384,146 @@ describe('the app has one vocabulary', () => {
   const CONFIG_SURFACE = /^(?:app\/config|ui)\//;
 
   /**
-   * String literals and JSX text, comments already stripped.
+   * What a file SAYS: its string literals and its JSX prose, comments stripped.
    *
-   * Template literals are taken a line at a time and their `${…}` holes removed,
-   * so an interpolated sentence is scanned for what it SAYS rather than for the
-   * expression it says it with.
+   * ## Why this is a parser and not two regexes — round 8's D
+   *
+   * It was two regexes, and both were anchored to a LINE: quoted literals could
+   * not contain a newline, and JSX text was "whatever sits between two tags on
+   * one line, with no braces in it". Prettier is house style here at
+   * `printWidth: 100`, so the reflow that makes a paragraph readable is the
+   * reflow that makes it invisible — a sentence long enough to be a claim is,
+   * by construction, a sentence long enough to be wrapped. Eighteen prose nodes
+   * on the config surfaces were unreadable to the old extractor, and one of them
+   * was the low-frame-rate banner asserting *"Your Kraken is running at 1 FPS"*
+   * unconditionally, from a persisted reading, on every window.
+   *
+   * The three shapes it could not see, all of them ordinary:
+   *
+   *  - JSX text wrapped across lines by the formatter;
+   *  - JSX prose interrupted by an inline element or a `{' '}` spacer — the
+   *    exact construct Prettier inserts when it breaks a line at a space;
+   *  - a template literal spanning lines.
+   *
+   * So the file is parsed. `ts.createSourceFile` is error-tolerant, which is
+   * what makes it safe to hand comment-stripped source, and a JSX element that
+   * directly contains prose is joined from its children — inline elements
+   * flattened, `{' '}` spacers taken as the space they are, every other
+   * expression hole taken as a space, the way `${…}` always was. What comes out
+   * is the sentence a reader sees, whatever the formatter did to it.
+   *
+   * `ESCAPED_SHAPES` below is the proof, and it is a fixture rather than an
+   * appeal to the tree: the tree is clean by the time anyone reads this, so a
+   * rule proved only against it is proved against nothing. Each shape is one the
+   * round-8 audit watched the old extractor walk straight past.
    */
   function spokenText(text: string): string[] {
+    const source = ts.createSourceFile(
+      'spoken.tsx',
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
     const out: string[] = [];
-    const quoted = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\\n]|\\.)*)`/g;
-    let m: RegExpExecArray | null;
-    while ((m = quoted.exec(text)) !== null) {
-      out.push((m[1] ?? m[2] ?? m[3] ?? '').replace(/\$\{[^}]*\}/g, ' '));
+    const flatten = (s: string): string => s.replace(/\s+/g, ' ').trim();
+
+    /** One JSX element's prose, as the reader sees it. */
+    function joinChildren(children: readonly ts.JsxChild[]): string {
+      let acc = '';
+      for (const child of children) {
+        if (ts.isJsxText(child)) acc += child.text;
+        else if (ts.isJsxExpression(child)) {
+          const inner = child.expression;
+          // `{' '}` is a space the formatter wrote, not a hole: keeping it as
+          // its own value is what rejoins a sentence Prettier broke.
+          acc +=
+            inner !== undefined &&
+            (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner))
+              ? inner.text
+              : ' ';
+        } else if (ts.isJsxElement(child) || ts.isJsxFragment(child)) {
+          acc += joinChildren(child.children);
+        } else acc += ' ';
+      }
+      return acc;
     }
-    // JSX text: whatever sits between two tags on one line, with no braces in
-    // it — `<b>Playing through YouTube</b>` and the prose of a paragraph.
-    const jsx = />([^<>{}\n]*[A-Za-z][^<>{}\n]*)</g;
-    while ((m = jsx.exec(text)) !== null) out.push(m[1] ?? '');
-    return out;
+
+    function visit(node: ts.Node): void {
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        out.push(flatten(node.text));
+      } else if (ts.isTemplateExpression(node)) {
+        // The `${…}` holes become spaces, so an interpolated sentence is read
+        // for what it says rather than for the expressions it says it with.
+        out.push(
+          flatten(node.head.text + node.templateSpans.map((s) => ` ${s.literal.text}`).join('')),
+        );
+      } else if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
+        // Only elements that directly contain words: a wrapping <div> whose
+        // children are all elements is a box, not a sentence.
+        const speaks = node.children.some((c) => ts.isJsxText(c) && c.text.trim() !== '');
+        if (speaks) out.push(flatten(joinChildren(node.children)));
+      }
+      ts.forEachChild(node, visit);
+    }
+
+    visit(source);
+    return out.filter((s) => s !== '');
   }
 
   /** Prose, rather than an identifier that happens to spell a verb. */
   function readsAsProse(s: string): boolean {
     return /\s/.test(s) || /^[A-Z]/.test(s);
   }
+
+  /**
+   * The three shapes the line-anchored scanner could not read.
+   *
+   * Written the way Prettier writes them at `printWidth: 100`, because that is
+   * the only way they occur: nobody wraps a sentence by hand, and the formatter
+   * that wraps it is the formatter every commit runs.
+   */
+  const ESCAPED_SHAPES = `
+    export function Escaped() {
+      const legend = \`Your Kraken is
+        looping the clip\`;
+      return (
+        <>
+          <p>
+            Your Kraken is mirroring the panel and there is quite a lot more text here, so the
+            formatter puts the verb and its object on two different lines.
+          </p>
+          <p>
+            Your Kraken is running at <b>{fps} FPS</b>, so anything that{' '}
+            moves looks like a slideshow.
+          </p>
+          <small>{legend}</small>
+        </>
+      );
+    }
+  `;
+
+  it('reads a claim the formatter has wrapped, whatever shape it wrapped it into', () => {
+    const said = spokenText(ESCAPED_SHAPES).filter(readsAsProse);
+
+    // 1. JSX text broken across lines mid-sentence.
+    expect(said).toContain(
+      'Your Kraken is mirroring the panel and there is quite a lot more text here, so the formatter puts the verb and its object on two different lines.',
+    );
+    // 2. JSX prose interrupted by an inline element AND a `{' '}` spacer — the
+    //    two constructs Prettier reaches for when it breaks a line.
+    expect(said).toContain(
+      'Your Kraken is running at FPS, so anything that moves looks like a slideshow.',
+    );
+    // 3. A template literal spanning lines.
+    expect(said).toContain('Your Kraken is looping the clip');
+
+    // …and all three are claims under the widened family, which is the point:
+    // reading them is only worth anything if the rule then applies to them.
+    for (const shape of said.filter((s) => s.startsWith('Your Kraken'))) {
+      expect(shape, `${shape} must be seen as a claim`).toMatch(PANEL_VERB_RE);
+    }
+  });
 
   const SPOKEN = FILES.filter((f) => CONFIG_SURFACE.test(f.rel) && !/\.test\.tsx?$/.test(f.rel));
 

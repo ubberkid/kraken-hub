@@ -158,6 +158,18 @@ export function VideoHalo({ url, name, progress, held, compact }: VideoHaloProps
           sentence; the halo shows the surface and gets out of its way.
         */
         <div className="kh-halo__card" data-testid="halo-card">
+          {/*
+            The compact echo of the status line's name is DELIBERATE (round 8).
+
+            R11 removed the repetition for the resting halo, where the two
+            copies were the same words six pixels apart and one of them was
+            redundant. At thumb size they are not the same words: this one is
+            middle-ellipsed to seven characters and is the only identity the
+            bezel has once the poster is gone, so a reader glancing at the mini
+            halo while the options panel holds the floor is not asked to
+            re-read a sentence elsewhere on the page. Audited and kept — the
+            fix here would be to leave an unlabelled square.
+          */}
           {trimmed !== '' && (
             <span className="kh-halo__card-name">
               {middleEllipsis(name, compact === true ? NAME_MAX_COMPACT : NAME_MAX)}

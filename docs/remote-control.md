@@ -37,6 +37,29 @@ one line (_Paired with your PC_ and the room) with the square one tap down under
 **Pairing options**. Pairing a second device is a pairing option there, because
 the card's whole message once you are paired is that one line.
 
+That line waits for evidence. _Paired with your PC_ is a claim about the other
+end of the room, and a device knows nothing about the other end merely by
+holding a code — so until something the display has published reaches it, the
+card reads **Your pairing code** instead, over the same room, the same
+**Unpair** and the same **Pairing options** (round 8). The status line above it
+is what reports the wait; this line reports what the device has.
+
+### If the phone made the code first
+
+**Create a code** exists on the phone too, and a code minted there is a room CAM
+has never been told about. There is no camera on that side of the pair: CAM
+cannot scan, and kraken-hub ships no QR decoder on any surface — the scanning in
+step 3 above is your phone's own camera app opening a link. So the one way a
+phone's code reaches CAM is by hand, and the card says so, naming the controls
+that exist: on the PC, open **Remote** and use **Type a code instead**.
+
+The phone's unpaired card leads with the route its hardware actually has — the
+code comes from CAM, point the camera at the square — and offers **Create a
+code** as the fallback for a reader with no square in front of them. It used to
+read _"Create a code here, then scan it from the CAM window on your PC —
+nothing to type"_, which asked the one device that can scan to be scanned by the
+one that cannot, and ruled out the only route that works.
+
 The QR encodes an ordinary link of the form
 `https://<your-site>/#/remote?room=H4KM7Q2V`. The code rides in the **fragment**,
 which browsers strip before the request leaves the machine, so it never reaches

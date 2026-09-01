@@ -105,6 +105,36 @@ export interface PanelClaimSpec {
 }
 
 /**
+ * Every claim this module defines, in definition order.
+ *
+ * Round 8's E: `panelClaims.test.ts` walked `Object.values(claims)` and so
+ * checked the six specs that happen to be **exported** — the six composed
+ * claims behind `settledReceipt`/`linkReceipt`/… and all five rungs of
+ * `SITUATION_VERB` were structurally unreachable, and the guard against the
+ * walk finding nothing (`>= 6`) was satisfied by the exports alone however many
+ * private claims were added beside them. A private spec is not a lesser claim;
+ * it is the same three sentences with a narrower door, and the honesty property
+ * is a property of the sentences.
+ *
+ * So registration happens where a claim is DEFINED rather than where it is
+ * exported: {@link claim} is the only constructor, so nothing can be a
+ * `PanelClaimSpec` in this file without landing here. The test asserts the
+ * property over all of them and asserts the count matches the number of
+ * `claim(` calls in the source, so a claim that somehow skipped the
+ * constructor is a failing test rather than a silent gap.
+ */
+const REGISTRY: PanelClaimSpec[] = [];
+
+/**
+ * The registry, for the test that walks it.
+ *
+ * Data, not a door: a spec is three strings, and the only ways to turn one into
+ * a sentence are {@link panelClaimText} and `PanelClaim`, both of which require
+ * a {@link PanelPresence}. Reading the list cannot render an untensed claim.
+ */
+export const REGISTERED_CLAIMS: readonly PanelClaimSpec[] = REGISTRY;
+
+/**
  * Build a claim. Module-private on purpose.
  *
  * If a surface could construct a `PanelClaimSpec` it could type its own three
@@ -112,7 +142,9 @@ export interface PanelClaimSpec {
  * it. Callers name a claim; they never write one.
  */
 function claim(live: string, quiet: string, neverSeen: string): PanelClaimSpec {
-  return { live, quiet, neverSeen };
+  const spec = { live, quiet, neverSeen };
+  REGISTRY.push(spec);
+  return spec;
 }
 
 /**
@@ -208,6 +240,27 @@ export const CLAIM_NO_KRAKEN_HERE = claim(
   'Your Kraken is showing this page.',
   'Your Kraken is not showing this page right now.',
   'No Kraken is showing this page.',
+);
+
+/**
+ * The low-frame-rate banner's opening clause — round 8's D.
+ *
+ * *"Your Kraken **is running at** 1 FPS"*, flat, in the present progressive,
+ * from `readDisplayFacts()` — a number this window last saw at some point and
+ * then **persisted to `localStorage`**. It therefore outlives the session that
+ * observed it: the first paint of a window opened a week later asserts a frame
+ * rate the panel is achieving right now, on the strength of a record.
+ *
+ * The number itself is worth keeping in every tense — it is the last thing the
+ * panel actually reported and the CAM setting it names is the remedy either
+ * way — so only the verb moves. The banner composes this, the bolded reading,
+ * and the consequence, exactly as `failureLine` composes
+ * {@link CLAIM_PLAYS_FROM_LINK}.
+ */
+export const CLAIM_FRAME_RATE = claim(
+  'Your Kraken is running at',
+  'Your Kraken runs at',
+  'Your Kraken is set to run at',
 );
 
 // ---------------------------------------------------------------------------
@@ -317,6 +370,15 @@ export function playingLine(presence: PanelPresence, held: boolean): string | nu
  * with no dot — a caption of what the panel is set to, not a claim that it is
  * running. The dot carries the tense, so the word does not have to, and round 6
  * pinned that arrangement across both apps.
+ *
+ * That argument is only sound while the dot is honest, and for four rounds it
+ * was not: `HomeView.describeStatus` returned `live: true` as a **literal** for
+ * every non-video module, so "Showing Clock" was lit on a first-run window that
+ * had never heard from a panel — the presence was threaded into the verb and
+ * discarded for the dot, which is precisely the assertion the verb was allowed
+ * to skip because the dot was making it. Round 8's A derives it from the same
+ * `PanelPresence` for all four modules, so the sentence above is a description
+ * of the code rather than of the intention.
  *
  * What the verb must never do is speak at all about a panel nobody has seen,
  * which is why every situation but `showing` falls back to the idle rung. The

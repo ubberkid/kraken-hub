@@ -222,10 +222,12 @@ is a mockup, and nothing is hand-cropped.
 | ![The configuration UI](docs/assets/config-ui.png)            | ![About and diagnostics](docs/assets/diag.png)                                      |
 | The configuration UI, as CAM's Configuration Browser opens it | About & diagnostics — the way to get a report off a panel you cannot copy text from |
 
-<img src="docs/assets/remote.png" alt="The phone remote, paired" width="300">
+<img src="docs/assets/remote.png" alt="The phone remote, holding a pairing code" width="300">
 
-The phone remote, paired. <sub>Captured with the offline `?transport=fake`
-transport, so building the docs never touches a public broker.</sub>
+The phone remote, in a room whose Kraken has not spoken yet — so the card holds
+the code rather than announcing a PC it has heard nothing from.
+<sub>Captured with the offline `?transport=fake` transport, so building the docs
+never touches a public broker.</sub>
 
 ## FAQ
 

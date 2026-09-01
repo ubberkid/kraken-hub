@@ -29,6 +29,89 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **Design audit round 8 — the claim in its non-sentence forms, and the two
+  scans that could not see it.** Round 7's closing audit found the same failure
+  three more times, in three shapes neither round 6's grep nor round 7's type
+  was looking at: a **dot**, a **card headline** and an **instruction**. All
+  three assert something about the LCD panel that the window has no evidence
+  for; none of them is a sentence, which is exactly why they survived a rule
+  about sentences.
+
+  - **The live dot is evidence now, on all four modules.** `describeStatus`
+    returned `live: true` as a literal for clock, stats and image — the presence
+    was threaded into the verb one line below and thrown away for the dot — so
+    the first screen a user ever sees, with the CAM install band still on it,
+    burned a live dot beside "Showing Clock". This is not a bug beside the
+    claim, it IS the claim: `panelClaims.panelVerb` documents the collapse of
+    the `showing` tense onto exactly that pixel — the word may stay in the
+    participle **because** the dot is what asserts "this second" — so a hardcoded
+    dot spent a tense nothing had paid for. It is `panelIsLive(presence)` for
+    every module now, the way the video path has read it since round 6, and the
+    e2e suite pins the verb and the dot together across all four modules in all
+    three states.
+
+  - **"Paired with your PC" waits for the PC.** The remote's card said it on
+    `paired && roomCode !== null`, two facts a phone produces entirely on its
+    own: **Create a code** mints a room and joins it in one commit, so a phone
+    that had never been near a Kraken announced a pairing with one. The card is
+    gated on the presence derivation the sub-line 200 px above it already
+    consumes. The room is real either way, so the code, **Unpair** and **Pairing
+    options** stay exactly where they were; pre-evidence the headline reads
+    **Your pairing code** and the card spends the space on the thing a code with
+    no Kraken behind it actually needs.
+
+  - **…which is a route into CAM, and the old copy named one that does not
+    exist.** The phone's unpaired card read _"Create a code here, then scan it
+    from the CAM window on your PC — nothing to type"_. There is no QR decoder
+    anywhere in `src`, CAM has no camera, the phone draws no square of its own
+    below 700 px, and typing is the only way a code minted on a phone reaches
+    CAM: the sentence asked the one device that can scan to be scanned by the one
+    that cannot, and closed by ruling out the only route that works. Each reader
+    is told the route its own hardware has — CAM hands a code out; the phone
+    takes one with its camera, or types one in — and the phone-created path names
+    **Remote** and **Type a code instead**, both real controls on the surface
+    named. `docs/remote-control.md` gained the phone-created case and the
+    evidence rule; the old sentence is in `RETIRED_PHRASES`.
+
+  - **The literal scan reads what the formatter wrote.** `vocabulary.test.ts`'s
+    extractor was two line-anchored regexes, and Prettier is house style at
+    `printWidth: 100` — so the reflow that makes a paragraph readable is the
+    reflow that makes it invisible, and a sentence long enough to be a claim is
+    by construction long enough to be wrapped. Eighteen prose nodes on the config
+    surfaces were unreadable to it. It parses now (`ts.createSourceFile`, which
+    is error-tolerant and so safe on comment-stripped source): a JSX element that
+    directly contains prose is joined from its children, inline elements
+    flattened and `{' '}` spacers taken as the space they are, so what is scanned
+    is the sentence a reader sees. A fixture holds the three escaped shapes,
+    because a rule proved only against a clean tree is proved against nothing.
+
+  - **…over a wider verb family, and it caught one immediately.** The family was
+    the verbs round 7's findings happened to use; _running_, _looping_,
+    _mirroring_, _displaying_, _up on the panel_ and _is live_ assert what
+    _playing_ asserts. The low-frame-rate banner shipped **"Your Kraken is
+    running at 1 FPS"** — flat, present progressive, from `readDisplayFacts()`,
+    which reads `localStorage` and therefore outlives the session that observed
+    it: a window opened a week later asserted a frame rate on the strength of a
+    record. It is `CLAIM_FRAME_RATE` through the spine now, and only the verb is
+    tensed — the reading and its consequence are facts either way.
+
+  - **The honesty property runs over a registry, not over the exports.**
+    `panelClaims.test.ts` walked `Object.values(claims)` and so reached 6 of the
+    module's 18 claims: the six composed ones are module-private on purpose, and
+    all five `SITUATION_VERB` rungs live in a record, so eleven three-tense
+    sentences were unreachable by the one test that exists to check three-tense
+    sentences — and the guard against the walk finding nothing (`>= 6`) was
+    satisfied by the exports alone however many private claims were added beside
+    them. `claim()` is the only constructor and it registers, so privacy is a
+    property of the door rather than of the check; the vacuity guard is now the
+    module's own `claim(` count. The literal scan's exemption of `panelClaims.ts`
+    and this registry are halves of one bargain, and each file says so.
+
+  - The mini-halo's echo of the status line's name is **audited and kept**: at
+    thumb size the seven-character middle ellipsis is the only identity the bezel
+    has once the poster is gone, which is not the same object R11 removed. The
+    comment sits where the next auditor will look.
+
 - **Design audit round 7 — a claim about the panel is a TYPE, not a phrase.**
   Round 6 built two spines and this round measured what each one bought. The
   **paste** spine held, because `pasteLink.ts` owns a door: there is no way to

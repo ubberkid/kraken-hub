@@ -49,6 +49,7 @@ import {
 } from '../homeState';
 import { PanelClaim } from '../PanelClaim';
 import {
+  CLAIM_FRAME_RATE,
   CLAIM_HANDOFF_PICKUP,
   CLAIM_STREAMING_HEADLINE,
   CLAIM_STREAMING_NO_COPY,
@@ -58,7 +59,7 @@ import {
   panelVerb,
   settledReceipt,
 } from '../panelClaims';
-import { panelPresence, type PanelPresence } from '../panelPresence';
+import { panelIsLive, panelPresence, type PanelPresence } from '../panelPresence';
 import { pasteAction, type PasteAction, type PasteIssue } from '../pasteLink';
 import { ownsBytes } from '../surface';
 import { PHONE_QUERY, useNarrow } from '../useNarrow';
@@ -618,9 +619,19 @@ export function HomeView({
     >
       {isLowFps(facts) && (
         <div className="kh-fps-banner" role="status" data-testid="fps-banner">
-          Your Kraken is running at <b>{String(facts?.targetFps ?? 0)} FPS</b>, so anything that
-          moves looks like a slideshow. {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b>{' '}
-          {CAM_FRAME_RATE_TAIL}.
+          {/*
+            The reading is persisted; the tense is not — round 8's D.
+
+            `readDisplayFacts()` reads `localStorage`, so this banner survives the
+            session that observed the frame rate: a window opened a week later
+            said "Your Kraken **is running at** 1 FPS" on its first paint, from a
+            record, with nothing on the other end. The number stays in every
+            tense — it is the last thing the panel reported, and the CAM setting
+            named after it is the remedy either way — and only the verb is tensed.
+          */}
+          <PanelClaim claim={CLAIM_FRAME_RATE} presence={presence} />{' '}
+          <b>{String(facts?.targetFps ?? 0)} FPS</b>, so anything that moves looks like a slideshow.{' '}
+          {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b> {CAM_FRAME_RATE_TAIL}.
         </div>
       )}
 
@@ -1409,7 +1420,21 @@ function describeStatus(input: {
     // could disagree with the chip six lines below it (R11).
     const mod = getModule(input.activeId);
     return {
-      live: true,
+      /*
+        The dot, from the same evidence as the verb — round 8's A.
+
+        This was `true`, a literal, for clock, stats and image: the presence was
+        threaded into `panelVerb` one line below and thrown away here, so the
+        live dot burned beside "Showing Clock" on a first-run window that has
+        never heard from a panel — under a band explaining how to install CAM.
+        The dot is the app's smallest and loudest present-tense claim, and
+        `panelClaims.panelVerb` documents the collapse of the `showing` tense
+        onto exactly this pixel: the word may stay in the participle BECAUSE
+        the dot is what asserts "this second". That trade is only paid if the
+        dot is derived, so it is — the video path has read `describeVideoStatus`
+        for its dot since round 6, and this is the same rule for the other three.
+      */
+      live: panelIsLive(input.presence),
       // The word was typed here and again as the remote's module-picker label.
       // One claim, one place — `panelClaims.panelVerb` (round 7).
       verb: panelVerb(input.presence, 'showing'),
