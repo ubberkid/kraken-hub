@@ -625,20 +625,6 @@ html.kh-config-mode .kh-app {
   background: var(--kh-panel);
 }
 
-.kh-clip__thumb {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--kh-r-tight);
-  object-fit: cover;
-  background: var(--kh-ground);
-  flex: none;
-}
-
-.kh-clip__meta {
-  flex: 1;
-  min-width: 0;
-}
-
 .kh-clip__name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -648,21 +634,6 @@ html.kh-config-mode .kh-app {
 .kh-clip__detail {
   font-size: 0.82rem;
   color: var(--kh-muted-2);
-}
-
-.kh-dropzone {
-  margin-top: 0.8rem;
-  padding: 1.4rem;
-  border: 2px dashed var(--kh-line);
-  border-radius: var(--kh-r-panel);
-  text-align: center;
-  color: var(--kh-muted-2);
-  transition: all var(--kh-dur) var(--kh-ease);
-}
-
-.kh-dropzone--over {
-  border-color: var(--kh-accent);
-  color: var(--kh-accent-ink);
 }
 
 /* Pairing QR. Rendered as an inline <svg> from src/app/config/qr.ts — never
@@ -1338,6 +1309,346 @@ html.kh-config-mode .kh-app {
   margin-top: 0.6rem;
 }
 
+/* ==========================================================================
+ * Sub-page navigation
+ *
+ * A zero-tab app has exactly one obligation: every screen that is not home
+ * says where home is. Library, Diagnostics, About and Remote shipped without
+ * it, and CAM's Configuration Browser has no browser chrome at all — no back
+ * button, no address bar, no shortcut — so those screens were one-way doors.
+ *
+ * A chevron, "Your Kraken", the page name. It is an ordinary hash link, so it
+ * is focusable, keyboard-operable and correct with no JavaScript, and the
+ * router stays the only thing that decides what is on screen (invariant I1).
+ * ========================================================================== */
+
+.kh-subhead {
+  display: flex;
+  gap: 0.55rem;
+  align-items: baseline;
+  margin: -0.35rem 0 0.35rem;
+}
+
+.kh-subhead__back {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: baseline;
+  padding: 0.2rem 0.5rem 0.2rem 0.35rem;
+  margin-left: -0.35rem;
+  border-radius: var(--kh-r-chip);
+  color: var(--kh-muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition:
+    color var(--kh-dur) var(--kh-ease),
+    background var(--kh-dur) var(--kh-ease);
+}
+
+.kh-subhead__back:hover,
+.kh-subhead__back:focus-visible {
+  color: var(--kh-accent-ink);
+  background: var(--kh-accent-bg);
+}
+
+.kh-subhead__chev {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.kh-subhead__sep {
+  color: var(--kh-muted-3);
+}
+
+.kh-subhead__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/*
+ * The remote is a PHONE surface that a desktop happens to be able to open. On
+ * a phone the page is the app and there is nothing to go back to, so the
+ * sub-header is desktop-only there — the one route where "back to Your Kraken"
+ * would be a link to a screen the user did not come from.
+ */
+@media (max-width: 700px) {
+  .kh-subhead[data-route='remote'] {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+ * Library — one grid, and a + in the corner
+ *
+ * The page this replaces had four stacked sections, two of which were ways of
+ * PUTTING something in the library rather than the library itself, and a clip
+ * being downloaded lived in a different section from the clips that already
+ * existed — so it jumped across the page the moment it finished. Here there is
+ * one grid: a job in flight is a tile with its progress drawn over the space
+ * its thumbnail is about to occupy, and finishing changes the tile, not its
+ * position.
+ * ========================================================================== */
+
+.kh-library__head {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.kh-library__head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.kh-library__head .kh-hint {
+  max-width: 34rem;
+  margin: 0.15rem 0 0;
+}
+
+.kh-add {
+  flex: none;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid var(--kh-accent-line);
+  border-radius: var(--kh-r-chip);
+  background: var(--kh-accent-bg);
+  color: var(--kh-accent-ink);
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform var(--kh-dur) var(--kh-ease),
+    background var(--kh-dur) var(--kh-ease);
+}
+
+.kh-add:hover {
+  background: var(--kh-accent);
+  color: var(--kh-on-accent);
+}
+
+.kh-add[aria-expanded='true'] {
+  transform: rotate(45deg);
+}
+
+/* One add surface: a single input, a Browse button, and the whole panel is the
+   drop target. The old page had a separate paste section and a separate dashed
+   rectangle in a separate section — two boxes to aim at for one gesture. */
+.kh-addpanel {
+  margin: 0.85rem 0 0;
+  padding: 0.85rem 0.9rem;
+  border: 1px dashed var(--kh-line);
+  border-radius: var(--kh-r-panel);
+  background: var(--kh-panel);
+  transition:
+    border-color var(--kh-dur) var(--kh-ease),
+    background var(--kh-dur) var(--kh-ease);
+}
+
+.kh-addpanel--over {
+  border-color: var(--kh-accent);
+  background: var(--kh-accent-bg);
+}
+
+.kh-addpanel__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.kh-addpanel__row .kh-input {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.kh-addpanel .kh-hint {
+  margin: 0.55rem 0 0;
+}
+
+.kh-empty {
+  margin: 1rem 0;
+  padding: 1.6rem 1.2rem;
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+  background: var(--kh-panel);
+  text-align: center;
+}
+
+.kh-empty__title {
+  margin: 0 0 0.2rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.kh-empty .kh-hint {
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.kh-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kh-tile {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-card);
+  background: var(--kh-panel);
+  transition:
+    border-color var(--kh-dur) var(--kh-ease),
+    transform var(--kh-dur) var(--kh-ease);
+}
+
+.kh-tile:hover,
+.kh-tile:focus-within {
+  border-color: var(--kh-accent-line);
+}
+
+.kh-tile--active {
+  border-color: var(--kh-accent);
+}
+
+.kh-tile__art {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--kh-ground);
+}
+
+.kh-tile__thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--kh-ground);
+}
+
+/* The whole picture is the button. Pin and Delete sit ABOVE it rather than
+   inside it: a button inside a button is invalid, and the actions must stay
+   reachable by keyboard in their own right. */
+.kh-tile__hit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.kh-tile__hit:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: -2px;
+}
+
+.kh-tile__badge,
+.kh-tile__on {
+  position: absolute;
+  top: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--kh-r-chip);
+  font-family: var(--kh-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.kh-tile__badge {
+  left: 0.4rem;
+  background: rgb(12 16 23 / 78%);
+  color: var(--kh-muted);
+}
+
+.kh-tile__on {
+  right: 0.4rem;
+  background: var(--kh-accent);
+  color: var(--kh-on-accent);
+}
+
+/* Progress ON the thing being downloaded, which is where everyone else puts
+   it, instead of in a separate "Downloading now" list. */
+.kh-tile__progress {
+  position: absolute;
+  inset: auto 0 0;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  background: linear-gradient(to top, rgb(12 16 23 / 92%), rgb(12 16 23 / 0%));
+}
+
+.kh-tile__pct {
+  font-size: 0.78rem;
+  color: var(--kh-accent-ink);
+}
+
+.kh-tile__meta {
+  padding: 0.5rem 0.6rem 0.35rem;
+  min-width: 0;
+}
+
+.kh-tile__name {
+  overflow: hidden;
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-tile__detail {
+  font-size: 0.72rem;
+  color: var(--kh-muted-2);
+}
+
+.kh-tile__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0 0.6rem 0.6rem;
+  opacity: 0;
+  transition: opacity var(--kh-dur) var(--kh-ease);
+}
+
+.kh-tile__actions .kh-btn {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+/*
+ * Hover reveals the actions; focus-within reveals them too, and a coarse
+ * pointer gets them unconditionally — a tablet has no hover and a hidden
+ * Delete it can never surface is worse than a busy tile.
+ */
+.kh-tile:hover .kh-tile__actions,
+.kh-tile:focus-within .kh-tile__actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .kh-tile__actions {
+    opacity: 1;
+  }
+}
+
+/* A failed job keeps its actions visible: it is asking a question. */
+.kh-tile[data-tile-state='failed'] .kh-tile__actions,
+.kh-tile[data-tile-state='downloading'] .kh-tile__actions {
+  opacity: 1;
+}
+
+.kh-tile[data-tile-state='failed'] .kh-tile__detail {
+  color: var(--kh-warn-ink);
+}
+
 /* ---- library extras ----------------------------------------------------- */
 .kh-quota {
   display: flex;
@@ -1345,16 +1656,24 @@ html.kh-config-mode .kh-app {
   gap: 0.6rem 1rem;
   align-items: center;
   margin-bottom: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .kh-quota .kh-meter {
   flex: 1 1 14rem;
 }
 
-.kh-clip__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+/* Visually hidden, still read aloud and still focusable's label. */
+.kh-sr {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ==========================================================================

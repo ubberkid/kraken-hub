@@ -96,7 +96,7 @@ test.describe('config boot', () => {
     });
 
     await page.goto('/#/sources');
-    await expect(page.getByRole('heading', { name: 'Add a video' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Your library' })).toBeVisible();
     await expect.poll(() => new URL(page.url()).hash).toBe('#/library');
     expect(loads).toBe(1);
 

@@ -1,5 +1,3 @@
-import { fileURLToPath } from 'node:url';
-
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 /**
@@ -12,7 +10,6 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const STATE_KEY = 'kraken-hub:v1:state';
 const FIXTURE_URL = 'http://127.0.0.1:4173/demo/demo.mp4';
-const FIXTURE_PATH = fileURLToPath(new URL('../../public/demo/demo.mp4', import.meta.url));
 
 interface VideoCfg {
   url?: string;
@@ -281,30 +278,12 @@ test.describe('video module', () => {
   });
 });
 
-test.describe('sources page', () => {
-  test('the manual upload fallback adds a clip to the library', async ({ page }) => {
-    await page.goto('/#/library');
-    await expect(page.locator('.kh-app')).toBeVisible();
-
-    await page.locator('[data-testid="clip-file-input"]').setInputFiles(FIXTURE_PATH);
-
-    const row = page.locator('.kh-clip[data-clip-id]');
-    await expect(row).toHaveCount(1, { timeout: 15_000 });
-    await expect(row).toContainText('demo.mp4');
-    // Duration and dimensions came from the metadata probe, not the filename.
-    await expect(row).toContainText('640×640');
-  });
-
-  test('downloading from the Sources page stores the clip', async ({ page }) => {
-    await page.goto('/#/library');
-    await page.locator('#library-url').fill(FIXTURE_URL);
-    await page.getByRole('button', { name: 'Download to library' }).click();
-
-    const row = page.locator('.kh-clip[data-clip-id]');
-    await expect(row).toHaveCount(1, { timeout: 20_000 });
-    await expect(row).toContainText('demo.mp4');
-  });
-});
+/*
+ * The Library page's own flows — the manual-upload fallback and adding a link —
+ * moved to `library.spec.ts` when the page became one grid with a single **+**
+ * add surface. Both assertions live on there, with the tile as the subject
+ * rather than a row in one of four stacked sections.
+ */
 
 test.describe('cold-restore resume', () => {
   const CHECKPOINT_KEY = 'kraken-hub:v1:video:positionCheckpoint';

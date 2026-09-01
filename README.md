@@ -307,7 +307,7 @@ reachable from an ordinary browser tab. Start `npm run dev`, then open:
 | `/?kraken=1&sim=elite&module=stats&layout=grid` | System stats in the compact grid layout                      |
 | `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                    |
 | `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)    |
-| `/#/library`                                    | the clip library: what has been downloaded, and the quota    |
+| `/#/library`                                    | your library: one grid of clips and pictures, plus the quota |
 | `/#/remote`                                     | the phone remote, at whatever size the window is             |
 | `/#/diag`                                       | local probes plus the report the display published, as JSON  |
 

@@ -111,7 +111,8 @@ with no network involved. That is the "is this thing on?" test.
 
 ### Play a video
 
-**Library → paste a link.**
+**Home → paste a link**, or **Library → + → paste a link**. Both go the same
+way: the link is validated, becomes the source, and your Kraken fetches it.
 
 The headline behaviour is that kraken-hub **downloads the video into its own clip
 library and plays the local copy from then on**. What happens next depends on
@@ -260,7 +261,7 @@ profile:
 | Settings, room code, telemetry     | `localStorage`, under keys prefixed `kraken-hub:v1:` |
 | Clips, images and their thumbnails | IndexedDB, database `kraken-hub.v1`                  |
 
-**Library → Your clips → Delete** removes an individual clip and its bytes,
+**Library → hover a tile → Delete** removes an individual clip and its bytes,
 and the quota bar updates as it goes. There is not yet a single button that
 wipes everything at once — clearing site data for the origin from a browser
 pointed at the same URL does it. A one-click "reset all kraken-hub data" control

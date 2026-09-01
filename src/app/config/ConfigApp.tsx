@@ -38,11 +38,56 @@ function HashRedirect({ from, to, children }: { from: string; to: string; childr
   return children;
 }
 
+/**
+ * The name each sub-page answers to, and the proof that it HAS a way back.
+ *
+ * A zero-tab app leans on one thing: every screen that is not home says where
+ * home is. The Library, Diagnostics, About and Remote screens shipped without
+ * that, so a CAM window — which has no browser chrome, no back button and no
+ * keyboard shortcut for one — could reach them and then only leave by editing
+ * the URL. The map is exhaustive over the sub-routes on purpose: adding a route
+ * without a title is a compile error rather than a dead end.
+ */
+const SUBPAGE_TITLE: Readonly<Record<string, string>> = {
+  library: 'Library',
+  sources: 'Library',
+  remote: 'Remote',
+  diag: 'Diagnostics',
+  about: 'About',
+};
+
+/**
+ * Back chevron, "Your Kraken", page title.
+ *
+ * An ordinary `<a href="#/">` and nothing else: the hash router is the only
+ * thing that decides what is on screen, and a navigation API here would be
+ * invariant I1/I2 all over again. A link is also keyboard-operable, focusable
+ * and openable in a new tab for free, which a `<button>` calling the router
+ * would not be.
+ */
+function SubPageHeader({ route, title }: { route: string; title: string }) {
+  return (
+    <nav className="kh-subhead" data-route={route} aria-label="Sub-page">
+      <a className="kh-subhead__back" href="#/" data-testid="nav-back">
+        <span className="kh-subhead__chev" aria-hidden="true">
+          ‹
+        </span>
+        Your Kraken
+      </a>
+      <span className="kh-subhead__sep" aria-hidden="true">
+        /
+      </span>
+      <h2 className="kh-subhead__title">{title}</h2>
+    </nav>
+  );
+}
+
 export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
   const hash = useSyncExternalStore(subscribeRoute, currentHash, () => '#/');
   // Re-render on every state commit so the views always show the stored truth.
   useSyncExternalStore(runtime.store.subscribe, runtime.store.getSnapshot);
   const route = parseRoute(hash);
+  const subTitle = SUBPAGE_TITLE[route.name] ?? null;
 
   return (
     <div className="kh-app">
@@ -58,6 +103,8 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
             <h1>kraken-hub</h1>
           </a>
         </header>
+
+        {subTitle !== null && <SubPageHeader route={route.name} title={subTitle} />}
 
         {/*
           Keyed on the route so a navigation genuinely REPLACES the element:

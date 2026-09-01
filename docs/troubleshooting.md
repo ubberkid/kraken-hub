@@ -181,7 +181,8 @@ of our code runs, and there is no flag for it.
 **Fix.**
 
 - Use the `https://` form of the same URL if the server offers one.
-- Download the file yourself and add it via **Library → Add a file by hand**.
+- Download the file yourself and add it via **Library → + → Browse…** (or drop
+  the file onto the add panel).
 - The one legitimate exception is the resolver companion on `127.0.0.1`:
   loopback is explicitly **exempt** from mixed-content blocking, which is why the
   companion binds loopback and only loopback.

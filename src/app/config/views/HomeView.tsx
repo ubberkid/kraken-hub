@@ -12,15 +12,10 @@ import {
   type DownloadEntry,
 } from '../../../modules/video/local/downloadManager';
 import { ResolverConnectPanel } from '../../../modules/video/resolver/ResolverConnectPanel';
-import {
-  primaryIssue,
-  validateUrl,
-  type ValidationIssue,
-} from '../../../modules/video/routing/validate';
+import { type ValidationIssue } from '../../../modules/video/routing/validate';
 import { readTeleMirror, type TelePacket } from '../../../modules/video/telemetry/videoTelemetry';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { DEVICE_PRESETS } from '../../../platform/devicePresets';
-import { withModuleConfig } from '../../../state/selectors';
 import { Meter, Notice } from '../../../ui';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import {
@@ -34,6 +29,7 @@ import {
   sourceName,
   type FlowState,
 } from '../homeState';
+import { submitVideoLink } from '../pasteLink';
 
 import { CamSetupCard } from './CamSetupCard';
 import { ModuleSettingsView } from './ModuleSettingsView';
@@ -191,21 +187,9 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
   const clipNames = new Map(clips.map((c) => [c.id, c.name]));
 
   const submit = (): void => {
-    const raw = draft.trim();
-    if (raw === '') return;
-    const result = validateUrl(raw, { context: 'config' });
-    setIssue(primaryIssue(result));
-    if (result.blocking) return;
-    // The NORMALIZED url, never the typed one: an http:// link has already been
-    // upgraded by the time it reaches here (§7.1 `mixed-content-http`).
-    runtime.store.commit((s) => ({
-      ...withModuleConfig(s, videoModule.id, videoModule.configVersion, {
-        ...videoCfg,
-        url: result.url,
-      }),
-      activeModuleId: videoModule.id,
-    }));
-    setDraft('');
+    const outcome = submitVideoLink(runtime, draft);
+    setIssue(outcome.issue);
+    if (outcome.accepted) setDraft('');
   };
 
   const ops = describeOps(activeId, state);

@@ -20,6 +20,44 @@ not the headline.
 
 ---
 
+## The Library page
+
+**In CAM → Lighting → your Kraken → Configure**, then **Library** in the row
+under the halo (`#/library`). Every sub-page carries a **‹ Your Kraken** link in
+its top-left corner, which is how you get back — CAM's Configuration Browser has
+no back button of its own.
+
+The page is **one grid of what you have**: clips and pictures together, each tile
+badged with its kind and carrying the real stored metadata (duration, the
+dimensions the file actually is, its size on disk). The tile that is currently on
+the panel is marked **On screen**. Hovering or focusing a tile reveals **Pin** and
+**Delete**; clicking the tile itself puts it on the panel. A compact usage bar
+sits under the grid.
+
+**A download in progress is a tile in that same grid**, with its percentage drawn
+over the space its thumbnail is about to occupy and a **Cancel** next to it. When
+it finishes it becomes an ordinary tile _in the same slot_ — there is no separate
+"downloading" section for it to move out of. If the copy could not be kept, the
+tile says so in plain words and offers **Retry** and **Dismiss**; the video is
+playing either way (see [step 5 below](#how-the-download-first-flow-actually-works)).
+
+### Adding things: the **+**
+
+One button, top right, opens one add surface:
+
+- **Paste a link** into the single input and press **Add**. It travels exactly the
+  route a link pasted on the home screen does — the same validation (including
+  the `http:` → `https:` upgrade) and the same `downloadMode` — so your Kraken
+  fetches it and the progress appears on its tile.
+- **Drop a file anywhere on the panel**, or press **Browse…** for a picker. The
+  file is ingested by this window, because the bytes are already here.
+
+That is the whole of it. There is no separate "paste a URL" section and no
+separate "add a file by hand" section any more: they were two boxes to aim at for
+one intention.
+
+---
+
 ## How the download-first flow actually works
 
 When you set a source URL, the display page (yes, the display — see
@@ -99,9 +137,7 @@ browser storage is partitioned.
 
 ## Manual upload (the fallback)
 
-**In CAM → Lighting → your Kraken → Configure**, then **Library** in the row
-under the halo (`#/library`). Either drop files on the panel or use the picker.
-Each file is:
+**Library → + → Browse…**, or drop the files onto the add panel. Each file is:
 
 1. **Checked for a container Chromium can play.** `.mkv`, `.mka`, `.avi`,
    `.flv`, `.wmv`, `.rmvb` are rejected — Chromium has no Matroska or AVI demuxer
@@ -183,7 +219,7 @@ frame rate than a 60 fps action scene at the same bitrate.
 
 kraken-hub reads `navigator.storage.estimate()` and refuses an add that would
 push usage past 90 % of the quota, naming both numbers in megabytes. The Library
-panel shows a usage bar.
+page shows a usage bar under the grid.
 
 On the first successful add — inside the user gesture, which is the only time the
 browser will grant it — kraken-hub calls `navigator.storage.persist()` and shows

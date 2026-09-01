@@ -558,6 +558,55 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **The Library page is your library — one grid, and a `+`.** It had grown into
+  four stacked sections, two of which were ways of _putting_ something in the
+  library rather than the library itself, and the split was the code's shape
+  rather than the shelf's: "Add a video", "Downloading now", "Your clips", "Add
+  a file by hand".
+  - **One grid** (`kh-grid` / `kh-tile`) holds clips and pictures together,
+    badged by kind, each tile carrying the real stored metadata — duration, the
+    dimensions the file actually is (including the quality-aware heights the
+    resolver path now records), and its size on disk. The tile on the panel
+    right now is marked **On screen**; hover or keyboard focus reveals **Pin**
+    and **Delete**, and the tile itself is the play button.
+  - **A download in flight is a tile in that grid**, with its percentage over
+    the space its thumbnail is about to occupy and a **Cancel** beside it — the
+    way everyone else does it, instead of a separate list. When it completes it
+    becomes an ordinary tile _in the same slot_: `buildLibraryTiles`
+    (`src/app/config/libraryItems.ts`) matches a job to the clip it produced by
+    `clipId` **and** by `sourceUrl`, because the display and the config window
+    mint different job ids for the same link, and sorts a job on `startedAt`
+    against a clip's `createdAt` so the position does not move. A copy that
+    could not be kept is a tile too, in `homeState.failureLine`'s existing
+    honest words — never `Failed to fetch`, and never a claim that the video
+    did not play — with **Retry** and **Dismiss**.
+  - **The two "add" sections became one `+`** in the corner, opening a single
+    surface: one input reading _Paste a link or drop a file_, a **Browse…**
+    button, and the whole panel is the drop target. The link path now goes
+    through `submitVideoLink` (`src/app/config/pasteLink.ts`) — the same
+    function the home screen's paste row calls. That is a real fix, not a
+    refactor: the Library page used to call `downloadToClip()` directly, which
+    skipped the `config` validation context (so an `http://` link was never
+    upgraded) and skipped `downloadMode` entirely, so **"Never store anything"
+    was honoured on one surface and ignored on the other**.
+  - **The empty state says so**, in a card that points at the `+`, instead of
+    telling you to use two sections that no longer exist.
+  - Re-reading IndexedDB is now driven by a signature of what the jobs _are_
+    rather than by the 1 Hz progress tick: `listClips()` hands back freshly
+    structured-cloned `Blob`s, so polling it would mint and revoke an object URL
+    per thumbnail per second and the whole shelf would flicker while one video
+    downloaded.
+- **Every sub-page has a way home.** `#/library`, `#/diag`, `#/about` and — on a
+  desktop-sized window — `#/remote` now carry a compact sub-header: a back
+  chevron reading **‹ Your Kraken**, then the page's name. It is an ordinary
+  `<a href="#/">`, so it is focusable, keyboard-operable and correct before any
+  JavaScript runs, and the hash router stays the only thing that decides what is
+  on screen (invariants I1/I2 — no navigation API is involved). This was a real
+  dead end rather than a polish item: CAM's Configuration Browser has no browser
+  chrome at all — no back button, no address bar, no shortcut — so those four
+  screens could be reached and then only left by editing the URL. The remote's
+  header is hidden below 700 px because there the page _is_ the app and there is
+  nothing to go back to.
 - **`src/ui` is now the Halo design system.** Every component in the config UI
   kit (Panel, Field, TextInput, Select, Button, Chip, Notice, Meter, Code, the
   clip list, the drop zone…) is restyled onto one set of custom properties —
