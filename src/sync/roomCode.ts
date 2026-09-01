@@ -48,6 +48,41 @@ export function normalizeRoomCode(raw: string): string | null {
   return CANONICAL_RE.test(stripped) ? stripped : null;
 }
 
+/**
+ * The shape rule, in one sentence — round 5's S5.
+ *
+ * It was written inline as the pairing field's description, which is fine right
+ * up until something has to SAY it: an invalid submit used to do nothing at all,
+ * with no notice, no `aria-invalid` and no clue which of the eight characters
+ * was wrong. The field's hint and the field's error are the same fact, so they
+ * are the same string.
+ */
+export const ROOM_CODE_HINT =
+  'Eight characters, with no I, L, O or U — so nothing is ambiguous when you read it off a screen.';
+
+/**
+ * What a keystroke is allowed to leave in the box.
+ *
+ * The same folding `normalizeRoomCode` does, applied as the user types rather
+ * than once at the end: uppercase, drop anything that is not a letter or a
+ * digit, map the lookalikes (`I`/`L` → `1`, `O` → `0`) and drop `U`, which
+ * Crockford excludes and which has no lookalike to fold into. Capped at
+ * `ROOM_CODE_LENGTH`, because a ninth character can only ever be a mistake.
+ *
+ * Deliberately NOT a validator: it never rejects, it only refuses to store what
+ * cannot be part of a code. A field that silently eats a keystroke is only
+ * honest when the character it ate could not have been meant.
+ */
+export function filterRoomCodeInput(raw: string): string {
+  return raw
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '')
+    .replace(/[IL]/g, '1')
+    .replace(/O/g, '0')
+    .replace(/U/g, '')
+    .slice(0, ROOM_CODE_LENGTH);
+}
+
 export function isValidRoomCode(raw: string): boolean {
   return CANONICAL_RE.test(raw);
 }

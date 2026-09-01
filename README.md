@@ -45,6 +45,10 @@ account, no telemetry — that:
   all modules, and adding a fifth is one directory and one line;
 - **takes commands from your phone** — scan the code CAM is showing and the
   phone connects on its own, over an encrypted, backendless channel;
+- **takes _files_ from your phone too** — a photo or a video goes from the camera
+  roll straight to your Kraken over your own network, peer to peer, with nothing
+  of ours in the middle, and lands in the same library a file dropped on the PC
+  does ([how it works](docs/remote-control.md#add-from-your-phone));
 - **is honest about what it cannot do**, in writing, with measurements.
 
 ---

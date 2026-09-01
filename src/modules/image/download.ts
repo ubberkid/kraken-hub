@@ -18,6 +18,7 @@
  * where a video is measured in hundreds of megabytes and needs a reader loop.
  */
 
+import { BYTES_PER_MB } from '../../lib/bytes';
 import { createLogger } from '../../lib/log';
 
 import { newImageId, putImage, type ImageRecord } from './imageStore';
@@ -25,7 +26,6 @@ import { makeImageThumbnail } from './thumbnail';
 
 const log = createLogger('image/download');
 
-const BYTES_PER_MB = 1_048_576;
 const MAX_IMAGE_MB = 64;
 /** A picture larger than this is almost certainly not a picture. */
 const MAX_IMAGE_BYTES = MAX_IMAGE_MB * BYTES_PER_MB;

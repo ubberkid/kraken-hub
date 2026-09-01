@@ -86,8 +86,19 @@ export function ConnectionSection({
         page's height budget, spent explaining the default.
       */}
       <GroupField label="Route" id="room-transport">
+        {/*
+          `wrap`, because four options with a three-word one among them is
+          364 px of row (round 5, S6).
+
+          It was the last fixed-width row in the product: at 320 and 360 px the
+          About page scrolled sideways, on a page whose entire purpose is being
+          read when something has gone wrong. Every other four-or-more segment
+          row in the app already wraps; this one did not, for no reason beyond
+          nobody having opened About on a small phone.
+        */}
         <Segmented
           id="room-transport"
+          wrap
           labelledBy="room-transport-label"
           value={state.sync.transport === 'fake' ? 'auto' : state.sync.transport}
           options={[

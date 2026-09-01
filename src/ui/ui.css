@@ -706,6 +706,55 @@ html.kh-config-mode .kh-app {
   transition: width 0.3s linear;
 }
 
+/*
+ * The bar that does not know how far along it is (round 5, S3).
+ *
+ * The old answer was `width: 100%` in the accent colour, which is the exact
+ * shape of a FINISHED download — drawn over a quota nobody had measured and over
+ * a chunked transfer at byte one. So an unknown quantity gets a language of its
+ * own: a soft highlight travelling along the track, never filling it, in a
+ * dimmer wash than the real fill so the two can never be confused at a glance.
+ */
+.kh-meter__pulse {
+  height: 100%;
+  width: 40%;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--kh-accent) 55%, transparent) 50%,
+    transparent 100%
+  );
+  animation: kh-meter-sweep 1.6s var(--kh-ease) infinite;
+}
+
+@keyframes kh-meter-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/*
+ * Reduced motion gets the same MEANING without the travel: a flat half-tone
+ * wash across the whole track. Still unmistakably not a completed accent-colour
+ * bar, and still not a percentage.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .kh-meter__pulse {
+    width: 100%;
+    animation: none;
+    background: repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--kh-accent) 30%, transparent) 0 4px,
+      transparent 4px 8px
+    );
+  }
+}
+
 .kh-meter__label {
   font-size: 0.82rem;
   color: var(--kh-muted-2);
@@ -2719,6 +2768,36 @@ main > .kh-panel .kh-setup {
   }
 }
 
+/*
+ * No orphan action (round 5, minors).
+ *
+ * Three 44 px buttons do not fit across a tile in a two-column grid on a phone,
+ * so `flex-wrap` dropped exactly one of them — usually **Delete** — onto a line
+ * of its own, hard against the left edge, reading as a separate and more
+ * serious control than the two above it. A grid instead: two equal columns, and
+ * a final odd button spans both rather than dangling. The row is the same three
+ * actions either way; it just stops implying a hierarchy that does not exist.
+ *
+ * It sits BELOW the base `.kh-tile__actions` rule rather than up in the phone
+ * block with the 44 px targets, because a media query adds no specificity and
+ * the base `display: flex` would otherwise win wherever it sat — round 4's F7,
+ * caught by `scripts/check-invariants.mjs`.
+ */
+@media (max-width: 700px) {
+  .kh-tile__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kh-tile__actions > *:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .kh-tile__actions .kh-btn {
+    width: 100%;
+  }
+}
+
 /* A failed job keeps its actions visible: it is asking a question. */
 .kh-tile[data-tile-state='failed'] .kh-tile__actions,
 .kh-tile[data-tile-state='downloading'] .kh-tile__actions {
@@ -3299,6 +3378,16 @@ main > .kh-panel .kh-setup {
 .kh-remote__src .kh-input {
   flex: 1;
   min-width: 0;
+}
+
+/*
+ * Clock and Stats: the same quiet switch the home screen shows, in the same
+ * place the field would be (round 5, S1). Centred rather than left-aligned,
+ * because with the input gone the row has nothing to align to.
+ */
+.kh-remote__src--quiet {
+  justify-content: center;
+  margin: 0;
 }
 
 .kh-remote__src .kh-btn {

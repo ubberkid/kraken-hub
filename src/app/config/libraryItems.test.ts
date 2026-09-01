@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildLibraryTiles,
-  formatBytes,
   formatDuration,
   tileDetail,
   tileHue,
@@ -231,12 +230,6 @@ describe('formatting', () => {
   it('renders an em dash rather than a fake zero', () => {
     expect(formatDuration(null)).toBe('—');
     expect(formatDuration(Number.NaN)).toBe('—');
-    expect(formatBytes(0)).toBe('—');
-  });
-
-  it('never rounds a real file down to "0.0 MB"', () => {
-    expect(formatBytes(31_995)).toBe('31 kB');
-    expect(formatBytes(2_097_152)).toBe('2.0 MB');
   });
 
   it('pads the seconds', () => {

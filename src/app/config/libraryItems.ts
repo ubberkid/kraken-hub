@@ -21,6 +21,8 @@
  * IndexedDB or a clock.
  */
 
+import { formatBytes } from '../../lib/bytes';
+
 import type { DownloadEntry } from '../../modules/video/local/downloadManager';
 
 export type LibraryKind = 'clip' | 'image';
@@ -243,24 +245,9 @@ export function buildLibraryTiles(input: LibraryInput): LibraryTile[] {
   );
 }
 
-const BYTES_PER_KB = 1024;
-const BYTES_PER_MB = 1_048_576;
-const MB_DECIMALS = 1;
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
 const PAD_BELOW = 10;
-
-/**
- * Kilobytes below a megabyte, megabytes above it.
- *
- * A fixed `MB` unit renders a 32 kB clip and an empty one identically as
- * "0.0 MB", which is the tile telling the user their file has no size.
- */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '—';
-  if (bytes < BYTES_PER_MB) return `${String(Math.round(bytes / BYTES_PER_KB))} kB`;
-  return `${(bytes / BYTES_PER_MB).toFixed(MB_DECIMALS)} MB`;
-}
 
 /**
  * `94` → `1:34`, `5400` → `1:30:00`. An unknown or zero duration is an em dash.

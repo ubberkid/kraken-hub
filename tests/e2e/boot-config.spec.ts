@@ -333,7 +333,16 @@ test.describe('config boot', () => {
       },
       seed('done', 134_217_728),
     );
-    await expect(flow).toContainText(`128 MB · ${KEPT_A_COPY}`);
+    /*
+      `128.0`, not `128` — round 5's byte-formatter merge.
+
+      This line used to run the home screen's own copy of the formatter at
+      `MB_DECIMALS = 0`, which rendered every download under half a megabyte as
+      "0 MB" while the bytes were visibly climbing. There is one formatter now
+      (`src/lib/bytes.ts`), it keeps one decimal above a megabyte, and the whole
+      product says the size the same way.
+    */
+    await expect(flow).toContainText(`128.0 MB · ${KEPT_A_COPY}`);
     await expect(flow.locator('li').nth(2)).toHaveClass(/kh-step--on/);
     await expect(flow).toContainText('On screen now');
   });

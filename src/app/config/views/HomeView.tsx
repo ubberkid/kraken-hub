@@ -6,6 +6,7 @@ import {
   CAM_PATH_FRAME_RATE,
 } from '../../../config/camPaths';
 import { KEEPING_A_COPY, KEPT_A_COPY, LIBRARY_NOUN } from '../../../config/vocabulary';
+import { formatBytes } from '../../../lib/bytes';
 import { validateClock } from '../../../modules/clock/schema';
 import { validateImageConfig } from '../../../modules/image/schema';
 import { getModule, listModules } from '../../../modules/registry';
@@ -25,6 +26,7 @@ import { Meter, Notice, Segmented } from '../../../ui';
 import { FitControl } from '../../../ui/Framing';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import {
+  RECEIPT_LINGER_MS,
   TELE_FRESH_MS,
   describeFlow,
   describeVideoStatus,
@@ -41,7 +43,7 @@ import {
   type FlowState,
   type Status,
 } from '../homeState';
-import { submitImageLink, submitVideoLink, type PasteIssue } from '../pasteLink';
+import { pasteAction, type PasteAction, type PasteIssue } from '../pasteLink';
 import { ownsBytes } from '../surface';
 import { PHONE_QUERY, useNarrow } from '../useNarrow';
 
@@ -113,22 +115,6 @@ const MIRROR_POLL_MS = 1000;
  * Must be >= `--kh-dur-slow` in `ui.css`, which is what `kh-close` runs for.
  */
 const OPS_CLOSE_MS = 500;
-
-/**
- * How long a *successful* paste receipt stays on the screen.
- *
- * Round 2's R11: the three step-cards are narration, and narration that never
- * ends becomes furniture — 240 px of it, permanently, between the primary
- * action and the module chips, describing something that finished. The status
- * line under the halo already carries the state ("Playing sunset loop · 1:24 /
- * 3:02"), so the receipt says its piece and gets out of the way.
- *
- * Only for stages that have reached a steady state. Something still in flight,
- * or something that went wrong and the user may want to act on, is not a
- * receipt — see `homeState.receiptPersists`, which is where that question is
- * answered for every stage rather than for the two round 2 happened to list.
- */
-const RECEIPT_LINGER_MS = 4000;
 
 /**
  * A localStorage mirror, rendered as React state.
@@ -399,36 +385,17 @@ export function HomeView({
   const videoCfg = validateVideoConfig(state.modules[videoModule.id]?.cfg);
   const clipNames = new Map(clips.map((c) => [c.id, c.name]));
 
-  const imageCfg = validateImageConfig(state.modules['image']?.cfg);
-
   /**
    * The primary action, in the active module's own noun (R9).
    *
    * `null` means the module has nothing to be given — Clock and Stats — and the
    * row becomes the quiet switch instead of a loud, irrelevant video field.
+   *
+   * The mapping itself moved to `pasteLink.ts` in round 5 (S1). It was written
+   * here, so it existed here and nowhere else, and the phone's identical row
+   * spent three waves hard-wired to video — see `pasteAction`'s note.
    */
-  const action: PasteAction | null =
-    activeId === videoModule.id
-      ? {
-          label: 'Paste a video link',
-          placeholder: narrow ? 'Paste a video link' : 'Paste a video link — YouTube, MP4, HLS…',
-          submitLabel: 'Play',
-          submit: (raw) => submitVideoLink(runtime, raw),
-          clearOnAccept: true,
-        }
-      : activeId === 'image'
-        ? {
-            label: 'Paste a picture link',
-            placeholder: narrow
-              ? 'Paste a picture link'
-              : 'Paste a picture link — JPG, PNG, WebP, GIF…',
-            submitLabel: 'Show',
-            // The row IS the field: it keeps the picture it is showing, the way
-            // the panel's own text input used to.
-            submit: (raw) => submitImageLink(runtime, raw),
-            clearOnAccept: false,
-          }
-        : null;
+  const action: PasteAction | null = pasteAction(runtime, activeId, { narrow });
 
   /**
    * Keep the row holding what the Image module is actually showing.
@@ -440,7 +407,7 @@ export function HomeView({
   const [draftOwner, setDraftOwner] = useState(activeId);
   if (draftOwner !== activeId) {
     setDraftOwner(activeId);
-    setDraft(activeId === 'image' ? imageCfg.url : '');
+    setDraft(action === null || action.clearOnAccept ? '' : action.value);
     setIssue(null);
   }
 
@@ -1254,9 +1221,6 @@ function sourceLabel(url: string): string {
   return sourceName(url, new Map());
 }
 
-const BYTES_PER_MB = 1_048_576;
-const MB_DECIMALS = 0;
-
 /**
  * "YouTube video detected", the way the prototype writes it.
  *
@@ -1294,11 +1258,18 @@ function detectedHeadline(url: string): string {
 function downloadingLine(entry: DownloadEntry, pct: number | null): string {
   const pitch = 'Downloading locally — plays forever, no ads, no buffering';
   if (entry.state === 'queued') return pitch;
-  if (entry.state === 'done') {
-    const mb = (entry.receivedBytes / BYTES_PER_MB).toFixed(MB_DECIMALS);
-    return `${mb} MB · ${KEPT_A_COPY}`;
+  if (entry.state === 'done') return `${formatBytes(entry.receivedBytes)} · ${KEPT_A_COPY}`;
+  /*
+   * No `Content-Length`, so there is no percentage — and the bar beside this
+   * line is indeterminate for the same reason (round 5, S3). What IS known is
+   * how much has landed, so the sentence says that rather than repeating the
+   * pitch at a user who can see the bytes moving.
+   */
+  if (pct === null) {
+    return entry.receivedBytes > 0
+      ? `Downloading locally — ${formatBytes(entry.receivedBytes)} so far`
+      : pitch;
   }
-  if (pct === null) return pitch;
   return `Downloading locally — ${String(Math.round(pct))}%`;
 }
 
@@ -1347,15 +1318,4 @@ function describeStatus(input: {
 function activeModuleName(id: string): string {
   const mod = getModule(id);
   return mod === null ? 'Options' : (mod.chipName ?? mod.name);
-}
-
-/** What the one primary action is, for the module that is on the panel (R9). */
-interface PasteAction {
-  /** The input's accessible name. */
-  label: string;
-  placeholder: string;
-  submitLabel: string;
-  submit: (raw: string) => { issue: PasteIssue | null; accepted: boolean };
-  /** False for a field that keeps showing what it committed — the picture link. */
-  clearOnAccept: boolean;
 }

@@ -6,7 +6,7 @@
  * mouse, a keyboard and a real browser window.
  */
 
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 
 import './ui.css';
 
@@ -249,19 +249,44 @@ export function TextInput({
   value,
   placeholder,
   onChange,
+  inputRef,
+  invalid,
+  describedBy,
+  ariaLabel,
+  testId,
 }: {
   id: string;
   value: string;
   placeholder?: string;
   onChange: (next: string) => void;
+  /** For the one field a button elsewhere on the page hands the caret to. */
+  inputRef?: RefObject<HTMLInputElement | null> | undefined;
+  /**
+   * The field's own answer to a rejected submission (round 5, S5).
+   *
+   * Paired with `describedBy` pointing at the notice that names the rule: the
+   * room-code field used to swallow a bad code silently, and a field that
+   * refuses without saying so is the assistive-technology version of nothing
+   * happening.
+   */
+  invalid?: boolean | undefined;
+  describedBy?: string | undefined;
+  /** For a field whose visible label is somewhere the markup cannot reach. */
+  ariaLabel?: string | undefined;
+  testId?: string | undefined;
 }) {
   return (
     <input
       className="kh-input"
       id={id}
+      ref={inputRef}
       type="text"
       value={value}
       placeholder={placeholder ?? ''}
+      aria-invalid={invalid === true ? true : undefined}
+      aria-describedby={describedBy}
+      aria-label={ariaLabel}
+      data-testid={testId}
       onChange={(e) => {
         onChange(e.target.value);
       }}
@@ -504,7 +529,9 @@ export function Notice({ tone, children }: { tone: 'error' | 'warn' | 'ok'; chil
   );
 }
 
-/** Quota / download progress bar. `pct` is 0..100; `null` renders indeterminate. */
+/** A meter's scale. Named so `aria-valuemax` and the fill agree by construction. */
+const PCT_MAX = 100;
+
 /**
  * A progress bar, with the number beside it or folded into the caller's own
  * prose.
@@ -513,12 +540,50 @@ export function Notice({ tone, children }: { tone: 'error' | 'warn' | 'ok'; chil
  * "Downloading locally — 40%" in the step's own sentence, exactly as the
  * prototype writes it; repeating the percentage at the end of the bar would say
  * the same thing twice and shorten the bar to make room for the echo.
+ *
+ * ## `pct === null` means UNKNOWN, and the bar has to say so
+ *
+ * Round 5's S3, and the round's whole theme in eight characters: the fill was
+ * `` width: `${pct ?? 100}%` `` under a docstring promising an indeterminate
+ * render. Every one of the four callers that can pass `null` passes it for the
+ * same reason — the total is not known — and every one of them drew a **full,
+ * completed bar**:
+ *
+ *  - the Library's quota meter, next to the words "space in use — unknown";
+ *  - a chunked download with no `Content-Length`, which is full at byte one and
+ *    stays full while the bytes climb;
+ *  - `RemoteAdd` with `totalBytes <= 0`;
+ *  - the home screen's download step.
+ *
+ * So an unknown quantity gets a treatment of its own rather than the most
+ * misleading value in the range: a soft pulse travelling along the track, with
+ * **no fill element at all**, which is what makes "there is no percentage here"
+ * a fact about the DOM rather than a hope about the CSS. Reduced motion gets a
+ * static half-tone track — still visibly not a completed bar, still not
+ * animating. `Meter.test.tsx` pins the contract.
  */
 export function Meter({ pct, label }: { pct: number | null; label?: string }) {
+  const known = pct !== null && Number.isFinite(pct);
   return (
-    <div className="kh-meter">
-      <div className="kh-meter__track">
-        <div className="kh-meter__fill" style={{ width: `${String(pct ?? 100)}%` }} />
+    <div className="kh-meter" data-testid="meter" data-known={known ? 'true' : 'false'}>
+      <div
+        className="kh-meter__track"
+        role="progressbar"
+        aria-label={label === undefined ? 'Progress' : undefined}
+        aria-valuemin={0}
+        aria-valuemax={PCT_MAX}
+        /*
+          Omitted, not zeroed, when the total is unknown: an absent
+          `aria-valuenow` is precisely how ARIA spells "indeterminate", and a
+          screen reader announcing "0 percent" would be the same lie in audio.
+        */
+        {...(known ? { 'aria-valuenow': Math.round(pct) } : {})}
+      >
+        {known ? (
+          <div className="kh-meter__fill" style={{ width: `${String(pct)}%` }} />
+        ) : (
+          <div className="kh-meter__pulse" data-testid="meter-indeterminate" aria-hidden="true" />
+        )}
       </div>
       {label !== undefined && <span className="kh-meter__label">{label}</span>}
     </div>

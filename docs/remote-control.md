@@ -18,10 +18,13 @@ up for — and the broker in the middle cannot read a single thing you send.
    opens for you, or the same URL in any browser) and follow **Remote** in the
    row under the halo.
 2. Press **Create a code**. You get eight characters, like `H4KM7Q2V`, and the
-   pairing card turns into a QR.
-3. Point your phone's camera at the QR on the pairing card. **That is the whole
-   step** — the phone opens the remote and joins before the card first paints.
-   Nothing to type, no Join button, no account.
+   card collapses to a single paired line — _Paired with your PC_ and the room —
+   with the QR one tap down under **Pairing options**. Pairing a second device
+   is a pairing option, so it lives with the other pairing options rather than
+   dominating a card whose whole message, once you are paired, is one line.
+3. Open **Pairing options** and point your phone's camera at the QR. **That is
+   the whole step** — the phone opens the remote and joins before the card first
+   paints. Nothing to type, no Join button, no account.
 4. The line under the transport reads _Linked to your Kraken_. You are paired,
    and you stay paired: a bookmark to that page reconnects on its own.
 
@@ -42,6 +45,21 @@ phone — the same card has a **Type a code instead** disclosure holding a
 **Room code → Join** field. Typing is the fallback, so it sits behind a door
 rather than competing with the thing that works.
 
+The field defends the one thing typing can get wrong. `filterRoomCodeInput`
+applies, on every keystroke, exactly the folding the code itself is normalised
+with: it uppercases, drops separators, folds `I` and `L` to `1` and `O` to `0`,
+removes `U` — which Crockford excludes and which has no lookalike to fold into —
+and stops at eight characters, because a ninth can only ever be a mistake. It is
+deliberately not a validator; it never rejects, it only declines to store a
+character that could not have been meant.
+
+Judgement happens on **Join**, and it happens visibly: a code that is still not
+eight usable characters sets `aria-invalid` on the input and renders an inline
+error carrying the same sentence as the field's own hint (`ROOM_CODE_HINT`).
+This used to submit silently — `normalizeRoomCode` returned `null`, the handler
+returned, and the card sat there looking exactly as it had a moment earlier,
+which is a button that does nothing (round 5, S5).
+
 ### Unpairing
 
 **Unpair**, on the pairing card itself, clears every place a room hides on that
@@ -51,7 +69,8 @@ that opened it.
 
 ### Rotating a code
 
-**Rotate code** replaces it immediately. Anyone still holding the old code lands
+**Rotate code**, under **Pairing options** beside the QR and the copyable link,
+replaces it immediately. Anyone still holding the old code lands
 on a different topic and simply sees nothing — there is nothing to revoke and no
 list to update. Do this if you have ever shown the code on stream.
 
@@ -82,6 +101,25 @@ compact essentials** and one pairing card. The four are the source field, the
 module picker, Fit and Quality — and they are on the page, not behind a door, as
 segmented rows rather than dropdowns.
 
+**The link field is contextual, and it has to be.** It writes to whichever module
+is actually on screen, so it says what that module takes: with **Video** active
+the placeholder reads _Paste a video link — YouTube, MP4, HLS…_ and the button
+says **Play**; with **Image** active it reads _Paste a picture link — JPG, PNG,
+WebP, GIF…_ and the button says **Show**. On a narrow screen both drop their
+list of examples and read simply _Paste a video link_ / _Paste a picture link_,
+because a placeholder that does not fit is not a hint. Under **Clock** or
+**Stats** there is no link to paste at all, so the field collapses to a quiet
+**Play something** button that switches to Video and puts the cursor in the
+field.
+
+The mapping is one function — `pasteAction` in `src/app/config/pasteLink.ts` —
+and it is shared with the home screen's paste row. That sharing is the point.
+The remote not having it was a defect rather than missing polish: the field was
+hardcoded to the video module while the picker one row below it could perfectly
+well be on **Image**, so a picture link pasted there was validated as a video
+source, written into the _video_ config, answered with a success receipt, and
+changed nothing on the panel (round 5, S1).
+
 **None of it mounts until a room is live.** An unpaired remote is the ring, one
 sentence and **Create a code** — with _Type a code instead_ behind a quiet
 disclosure and nothing else at all. A scrubber reading `0:00 / 60:00` for a
@@ -95,10 +133,13 @@ the app: fourteen controls duplicating the configuration page in different words
 a clip picker, the room settings and a nested privacy note, on a 390 px screen.
 It is gone. **Room settings, the transport internals and the hardware-report pull
 now live in exactly one place** — the `Connection` and `Report` sections of the
-merged About page, which the remote reaches by the single quiet
-_Connection & diagnostics_ link at the bottom of the page (once it is paired),
-and which the configuration page reaches by clicking the version line in its
-footer.
+merged About page, which the remote reaches by the single quiet **About** link
+at the bottom of the page (once it is paired), and which the configuration page
+reaches by clicking the version line in its footer. The link is named after the
+page it opens rather than after the two things on it: _Connection &
+diagnostics_ named a Diagnostics page that has not existed since round 1, and a
+link whose words do not match where it lands teaches the reader not to trust the
+next one.
 
 The one thing the remote deliberately does not do is nudge, zoom or rotate the
 picture — that is setup, not remote control, and it lives under the module's own
@@ -247,13 +288,19 @@ way an A–B loop does. The full per-provider table is in
 
 **Cannot:**
 
-- **Add files to the clip library.** CAM opens the configuration window and the
-  LCD window in two Chromium browsers that share one storage profile; your
-  phone is a third, separate profile. A file picker on the phone would upload
-  into storage the display cannot see. Downloads and uploads happen in the CAM
-  window, and the remote offers a one-click link to open kraken-hub there. The
-  clip picker that used to sit here went with the rest of the remote's duplicate
-  copy of the app (round 2, R4): the remote drives what is on the panel.
+- **Ingest a file into the phone's _own_ browser storage.** CAM opens the
+  configuration window and the LCD window in two Chromium browsers that share
+  one storage profile; your phone is a third, separate profile, and nothing the
+  phone writes to its own IndexedDB will ever be a row the display can read.
+  That is the whole of the limitation, and it is a fact about how browsers
+  partition storage rather than a decision. **The file still reaches the
+  library**: the phone hands the bytes to the display peer to peer over your
+  network, and the display runs the ordinary ingest pipeline on them — see
+  [Add from your phone](#add-from-your-phone). What that costs is a network
+  requirement rather than a missing feature: one STUN server and no TURN relay,
+  so the phone and the PC have to be on the same network. The app says that
+  sentence — _"Your phone and PC need to be on the same network."_ — only after
+  a transfer has genuinely failed or timed out, and never as a warning up front.
 - **Change audio.** There is no volume or mute control on the remote at all. It
   is unverified whether the CAM webview reaches the speakers (hardware checklist
   **H08**), so the display forces mute until somebody measures it — and a
@@ -297,8 +344,8 @@ Three things about it are worth knowing:
 
 The pull lives on the merged About page — `#/about`, which `#/diag` still
 resolves to — inside **Report → Show the technical detail**. Any paired browser
-can press it, including the phone: follow _Connection & diagnostics_ at the
-bottom of the remote.
+can press it, including the phone: follow the **About** link at the bottom of
+the remote.
 
 The same-machine route (the display report the configuration browser reads back
 through `localStorage`, on the same page) is unchanged and remains the
@@ -455,8 +502,9 @@ public-broker exposure disappears entirely.
 ### What telemetry contains
 
 Playback position and duration, achieved and target frame rate, panel geometry
-and DPR, error codes and messages, the names / durations / sizes of stored clips
-(capped at 40 entries, no thumbnails), download progress, and a **hash** of the
+and DPR, error codes and messages, the names / sizes / kinds — and, for a clip,
+the duration — of the things in your library (capped at 40 entries **across
+both kinds**, newest first, no thumbnails), download progress, and a **hash** of the
 source URL — the first eight hex characters of SHA-256, never the URL itself.
 
 The live ring adds two things to that list, and both are worth naming

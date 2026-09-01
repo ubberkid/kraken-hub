@@ -46,13 +46,13 @@ Then open:
 Everything except the final hardware validation is developable in the browser via
 the simulator, which mocks `window.nzxt` and the monitoring feed:
 
-| Parameter                             | Effect                                                         |
-| ------------------------------------- | -------------------------------------------------------------- |
-| `?sim=elite\|plus\|z\|kraken2023`     | sets `width` / `height` / `shape`                              |
-| `?fps=<n>`                            | fakes `targetFps`                                              |
-| `?monitor=idle\|load\|spike\|missing` | drives fake `MonitoringData` at 1 Hz                           |
-| `?inject=late`                        | delays the fake injection by 900 ms, exercising the retry path |
-| `?transport=fake`                     | remote-control work without touching a broker                  |
+| Parameter                             | Effect                                                          |
+| ------------------------------------- | --------------------------------------------------------------- |
+| `?sim=elite\|plus\|z\|kraken2023`     | sets `width` / `height` / `shape`                               |
+| `?fps=<n>`                            | fakes `targetFps`                                               |
+| `?monitor=idle\|load\|spike\|missing` | drives fake `MonitoringData` at 1 Hz                            |
+| `?inject=late`                        | delays the fake injection by 1500 ms, exercising the retry path |
+| `?transport=fake`                     | remote-control work without touching a broker                   |
 
 Simulator parameters are ignored whenever a real `window.nzxt` is present, so
 they can never affect a real device.

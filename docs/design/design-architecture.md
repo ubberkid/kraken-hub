@@ -41,6 +41,20 @@ body of this document still records as it was reasoned out.
 | Touch targets | Unstated | **44 px, for every visible interactive element, at ≤700 px.** `tests/e2e/tap-targets.spec.ts` enumerates the DOM rather than a list of selectors — the round-2 list-based test passed while the four module chips sat at 36 px (F6). |
 | The app's vocabulary | Unstated | **`src/config/vocabulary.ts`**, with `src/config/vocabulary.test.ts` proving no second literal copy exists in the tree. CAM's two menu paths and the frame-rate instruction's grammar live in `src/config/camPaths.ts` on the same rule. |
 
+### Post-M4: the design audit (round 5)
+
+Round 5's theme was **the app saying something it does not know to be true** — a
+control reporting a number nobody measured, a receipt standing over a library
+that had changed underneath it, a form accepting input it had already decided was
+unusable. Three of its six findings are corrections to what this document
+specifies.
+
+| Topic | This doc says | Shipped reality (authoritative) |
+|---|---|---|
+| The shared progress meter (`src/ui`) | Unstated beyond "a usage meter" | **An unknown percentage is drawn as unknown, not as done.** `Meter` took `pct: number \| null` and rendered `null` — which is exactly what a transfer of unknown total, or an estimate the browser would not give, produces — as a **full 100 % bar**. The one state that means "we do not know" was pixel-identical to the one that means "finished". `null` is an indeterminate treatment now, and it is the shared component's problem rather than each caller's, because every caller that hands it a `null` had already got this wrong (round 5, S3). |
+| Room code entry (§5.2) | `normalizeRoomCode` returns `null` for anything that is not a canonical code | **A refusal is now visible.** The pairing card called `normalizeRoomCode`, got `null`, and **returned** — no notice, no state change, a Join button that did nothing and a card that looked exactly as it had. The field filters typed characters to the Crockford alphabet (so `I`, `L`, `O` and `U` never land in it) and an unusable code renders an inline notice with `aria-invalid` on the input. A validator whose failure path is silence is a validator the user cannot see (round 5, S5). |
+| The composition's budget, on the About page | Covered for the home screen (above) at 866×537 | **The 390 px floor binds every route, not just `#/`.** The Connection section's **Route** segmented control — four options, one of them the three-word "Same PC only" — overflowed its row below 390 px and forced the whole page sideways, on the one page somebody opens *because* something is already wrong. Horizontal scroll is the composition failure the home-screen assertions were written to catch, one route over (round 5, S6). |
+
 ---
 
 ## 0. Cross-cutting invariants (executors: violate none of these)

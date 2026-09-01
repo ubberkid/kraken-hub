@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ROOM_ALPHABET,
+  ROOM_CODE_HINT,
   ROOM_CODE_LENGTH,
+  filterRoomCodeInput,
   formatRoomCode,
   generateRoomCode,
   isValidRoomCode,
@@ -67,5 +69,52 @@ describe('formatRoomCode', () => {
   it('groups in fours for reading aloud, and never changes the value', () => {
     expect(formatRoomCode('ABCD1234')).toBe('ABCD 1234');
     expect(normalizeRoomCode(formatRoomCode('ABCD1234'))).toBe('ABCD1234');
+  });
+});
+
+/**
+ * The field filters as you type — round 5's S5.
+ *
+ * `normalizeRoomCode` has always folded the lookalikes, but it did so at the
+ * END, which meant the box happily accepted characters that are not in the
+ * alphabet and then silently rewrote them on submit. Folding on the keystroke
+ * shows the user the code they are actually typing, and `U` — which Crockford
+ * excludes and which has no lookalike to fold into — cannot be entered at all
+ * rather than failing eight characters later.
+ */
+describe('filterRoomCodeInput', () => {
+  it('uppercases and drops separators, so a code read aloud can be typed as heard', () => {
+    expect(filterRoomCodeInput('abcd-2345')).toBe('ABCD2345');
+    expect(filterRoomCodeInput('ab cd 23 45')).toBe('ABCD2345');
+  });
+
+  it('folds the lookalikes exactly as normalizeRoomCode does', () => {
+    expect(filterRoomCodeInput('IO')).toBe('10');
+    expect(filterRoomCodeInput('ill')).toBe('111');
+    // The two must not disagree: what the field leaves behind has to be what
+    // the submit path would have produced.
+    expect(normalizeRoomCode(filterRoomCodeInput('io2345ab'))).toBe('102345AB');
+  });
+
+  it('refuses U, which has no lookalike and is simply not in the alphabet', () => {
+    expect(filterRoomCodeInput('UUUU2345')).toBe('2345');
+    expect(filterRoomCodeInput('ABUCD234')).toBe('ABCD234');
+  });
+
+  it('never grows past a code, because a ninth character can only be a mistake', () => {
+    expect(filterRoomCodeInput('ABCD2345XYZ')).toHaveLength(ROOM_CODE_LENGTH);
+  });
+
+  it('never rejects: it is a filter, not a validator', () => {
+    expect(filterRoomCodeInput('')).toBe('');
+    expect(filterRoomCodeInput('!!!')).toBe('');
+  });
+});
+
+/** The hint and the error are one sentence, so the rule is stated one way. */
+describe('ROOM_CODE_HINT', () => {
+  it('names the four excluded letters', () => {
+    for (const letter of ['I', 'L', 'O', 'U']) expect(ROOM_CODE_HINT).toContain(letter);
+    for (const letter of ['I', 'L', 'O', 'U']) expect(ROOM_ALPHABET).not.toContain(letter);
   });
 });

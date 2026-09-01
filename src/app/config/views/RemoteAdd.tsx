@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { LINK_RECEIPT, SAME_NETWORK_NOTE } from '../../../config/vocabulary';
+import { formatBytes } from '../../../lib/bytes';
 import { Button, Meter, Notice } from '../../../ui';
-import { formatBytes } from '../libraryItems';
+import { RECEIPT_LINGER_MS } from '../homeState';
 import { submitVideoLink } from '../pasteLink';
 
 import type { SendStatus, TransferSendHandle } from '../../../transfer/send';
@@ -127,6 +128,35 @@ export function RemoteAdd({ runtime, sync }: { runtime: ConfigRuntime; sync: Syn
       setLinkNote({ tone: 'ok', text: LINK_RECEIPT });
     }
   };
+
+  /**
+   * The receipts here retire too — round 5's S4.
+   *
+   * *"Added to your library."* and `LINK_RECEIPT` are claims about a moment,
+   * and both used to stand for the rest of the session: a phone left on a sofa
+   * kept asserting a completed transfer for a file somebody had since deleted
+   * in CAM. A failure is deliberately NOT retired — it names a remedy, and a
+   * remedy that vanishes after four seconds is worse than none.
+   */
+  useEffect(() => {
+    if (status?.phase !== 'done') return undefined;
+    const timer = setTimeout(() => {
+      setStatus(null);
+    }, RECEIPT_LINGER_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [status]);
+
+  useEffect(() => {
+    if (linkNote?.tone !== 'ok') return undefined;
+    const timer = setTimeout(() => {
+      setLinkNote(null);
+    }, RECEIPT_LINGER_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [linkNote]);
 
   const busy =
     status !== null &&

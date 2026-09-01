@@ -8,6 +8,7 @@ import {
   LINK_RECEIPT,
   NOTHING_KEPT,
 } from '../../../config/vocabulary';
+import { formatBytes } from '../../../lib/bytes';
 import { imageModule } from '../../../modules/image';
 import {
   deleteImage,
@@ -47,8 +48,8 @@ import { ingestFile, makeThumbnail } from '../../../modules/video/local/ingest';
 import { detect } from '../../../modules/video/routing/detect';
 import { validateVideoConfig } from '../../../modules/video/types';
 import { Button, Chip, Meter, Notice } from '../../../ui';
-import { failureLine } from '../homeState';
-import { buildLibraryTiles, formatBytes, tileDetail, type LibraryTile } from '../libraryItems';
+import { RECEIPT_LINGER_MS, failureLine } from '../homeState';
+import { buildLibraryTiles, tileDetail, type LibraryTile } from '../libraryItems';
 import { submitVideoLink } from '../pasteLink';
 import { activeTileKey, showTile } from '../showTile';
 import { ownsBytes } from '../surface';
@@ -87,26 +88,22 @@ import type { ConfigRuntime } from '../runtime';
 
 const PCT = 100;
 const PCT_DECIMALS = 0;
-const BYTES_PER_MB = 1_048_576;
-const MB_DECIMALS = 1;
-/** Below this a tenth of a megabyte is real information; above it, it is noise. */
-const TENTHS_BELOW_MB = 10;
 /** The quota warning earns its orange above this much of the budget in use. */
 const QUOTA_WARN_PCT = 50;
 const POLL_MS = 1000;
 
 /**
- * Megabytes, without inventing a decimal place that means nothing.
+ * How much room something takes, in the quota meter's own sentence.
  *
- * An empty library reported "0.0 MB of 4096.0 MB used" — false precision in
- * both halves (design audit, F10). Nothing stored says *nothing*, and a whole
- * number of megabytes is rendered as one.
+ * The number comes from `lib/bytes` — the ONE formatter (round 5, minors); this
+ * function is only the prose around it. An empty library reported "0.0 MB of
+ * 4096.0 MB used", which is false precision in both halves (design audit, F10):
+ * nothing stored says *nothing*, and it says it in a word rather than in a
+ * quantity that rounds to zero.
  */
 function mb(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return 'nothing';
-  if (bytes < BYTES_PER_MB) return 'under 1 MB';
-  const value = bytes / BYTES_PER_MB;
-  return `${value < TENTHS_BELOW_MB ? value.toFixed(MB_DECIMALS) : String(Math.round(value))} MB`;
+  return formatBytes(bytes);
 }
 
 /**
@@ -233,9 +230,35 @@ function ImageThumb({ id, name }: { id: string; name: string }) {
   return <ClipThumb blob={blob} name={name} />;
 }
 
+/**
+ * A line under the head — and, for the ones that are receipts, a claim.
+ *
+ * Round 5's S4. *"Added “dunes.mp4”."* is not a status, it is an ASSERTION
+ * about the shelf: that shelf now contains a thing called dunes.mp4. The page
+ * printed it and then never revisited it, so deleting the file left the
+ * assertion standing directly above **Nothing kept here** — and a delete
+ * performed from the PHONE left it standing in CAM for the rest of the session,
+ * with nobody in the room who could have known it was wrong.
+ *
+ * A receipt therefore retires two ways, and it needs both:
+ *
+ *  - **it lingers**, on `RECEIPT_LINGER_MS`, the home screen's number, because
+ *    narration that never ends becomes furniture (round 2's R11);
+ *  - **it is void the moment its subject leaves the shelf**, which no timer can
+ *    know. `claim` names that subject, and it is reconciled against the tiles
+ *    themselves — the same list the grid draws, refreshed by the same
+ *    `storage` event a remote delete arrives on — rather than against a
+ *    guess about how long a delete takes.
+ *
+ * `claim` is absent for the messages that are not receipts: an error the user
+ * may want to act on, and `LINK_RECEIPT`, whose subject does not exist yet
+ * (the display has not fetched it).
+ */
 interface Message {
   tone: 'error' | 'warn' | 'ok';
   text: string;
+  /** The shelf entry this message asserts something about, by name. */
+  claim?: string;
 }
 
 export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
@@ -367,12 +390,44 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
     [clips, images, downloads, dismissed],
   );
 
+  /**
+   * A receipt is void the moment its subject leaves the shelf — S4.
+   *
+   * The reconciliation is against `tiles`, the list the grid itself draws, so
+   * every route a row can disappear by is covered by construction: a delete in
+   * this window, a delete performed from the phone (which arrives as the
+   * display's `storage` write and lands here through `refresh()`), and an
+   * eviction. There is no timer racing a database here — the claim is simply
+   * checked against what is true.
+   */
+  const standing =
+    message?.claim === undefined || tiles.some((t) => t.name === message.claim) ? message : null;
+
+  /**
+   * …and it lingers, on the home screen's clock, even while it stays true.
+   *
+   * Only `ok`. A warning or an error is something the user may still want to
+   * act on — "Add anyway" is literally rendered underneath one — and a remedy
+   * that vanishes after four seconds is worse than no remedy. The timer is what
+   * finally clears the *state*; the derivation above is what clears the
+   * *claim*, on the render after the shelf changed, with no timer in between.
+   */
+  useEffect(() => {
+    if (message?.tone !== 'ok') return undefined;
+    const timer = setTimeout(() => {
+      setMessage(null);
+    }, RECEIPT_LINGER_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [message]);
+
   const show = (tile: LibraryTile): void => {
     if (tile.id === null) return;
     // The shared commit (`showTile`), so a tile does the same thing whichever
     // window it was tapped in — see A3.
     showTile(runtime.store, tile);
-    setMessage({ tone: 'ok', text: `“${tile.name}” is on your Kraken.` });
+    setMessage({ tone: 'ok', text: `“${tile.name}” is on your Kraken.`, claim: tile.name });
   };
 
   const togglePin = (tile: LibraryTile): void => {
@@ -500,7 +555,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           const picture = await ingestImageBlob(file, file.name);
           setMessage(
             picture.ok
-              ? { tone: 'ok', text: `Added “${file.name}”.` }
+              ? { tone: 'ok', text: `Added “${file.name}”.`, claim: file.name }
               : {
                   tone: 'error',
                   text: picture.message ?? 'That file could not be added.',
@@ -517,7 +572,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         } else if (result.warnings.length > 0) {
           setMessage({ tone: 'warn', text: result.warnings[0]?.message ?? '' });
         } else {
-          setMessage({ tone: 'ok', text: `Added “${file.name}”.` });
+          setMessage({ tone: 'ok', text: `Added “${file.name}”.`, claim: file.name });
         }
       }
       await publishClipIndex();
@@ -754,7 +809,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         </div>
       )}
 
-      {message !== null && <Notice tone={message.tone}>{message.text}</Notice>}
+      {standing !== null && <Notice tone={standing.tone}>{standing.text}</Notice>}
 
       {forceable !== null && (
         <div className="kh-row">

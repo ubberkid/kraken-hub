@@ -28,6 +28,12 @@ This document is historical source material: it records the design as it was rea
 | Where the app's user-facing strings live | Unspecified | `src/config/vocabulary.ts` (the keep-a-copy vocabulary and the one destination phrase) and `src/config/camPaths.ts` (CAM's two menu paths and the frame-rate instruction). Both are dependency-free so the display graph can import them (I8), and both are guarded by unit tests that grep the tree for a second literal copy. |
 | Doc screenshots | `config-ui.png`, `remote.png`, `diag.png` | Unchanged as files, but every one of them is now a picture of a different screen: `#/diag` redirects to the merged `#/about`, the configuration UI is the halo home screen rather than a Setup page, and the remote's unpaired state is a pairing card rather than a full instrument. `npm run capture` regenerates them from the built app on every round, which is the only reason they are not four rounds stale. |
 
+### Post-M4: the design audit (round 5)
+
+| Topic | This doc says | Shipped reality (authoritative) |
+|---|---|---|
+| What the docs are allowed to assert (§2.9, §2.11) | The docs suite is a per-page contents list; nothing says what keeps a page true | **The docs asserted a shipped feature was impossible.** `docs/remote-control.md`'s "Cannot" list opened with *"Add files to the clip library"* and `docs/troubleshooting.md` answered "You are expecting it to upload a file" with *"It cannot, and this is not a bug"* — for a wave and a half after the LAN file transfer shipped, documented correctly two hundred lines further up the **same file**. Both also pointed at a one-click link to open kraken-hub in CAM that has never existed on the remote, whose only navigation is one quiet **About** link. This is the round's theme in its purest form: prose is the one surface with no compiler, no test and no reviewer who has to look at it, so a doc goes on confidently describing a product that has changed underneath it. The corrected claims are in those two files; the standing rule is that a "cannot" is a claim about the code and has to be re-read against the code (round 5, S2). |
+
 ---
 
 ## 0. Decisions made here (no options left open)

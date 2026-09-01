@@ -6,11 +6,16 @@ import { localImageId, validateImageConfig } from '../../../modules/image/schema
 import { listModules } from '../../../modules/registry';
 import { detect } from '../../../modules/video/routing/detect';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
-import { validateUrl, primaryIssue } from '../../../modules/video/routing/validate';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { withModuleConfig } from '../../../state/selectors';
 import { anchorPosition, type WirePosition } from '../../../sync/position';
-import { formatRoomCode, generateRoomCode, normalizeRoomCode } from '../../../sync/roomCode';
+import {
+  ROOM_CODE_HINT,
+  filterRoomCodeInput,
+  formatRoomCode,
+  generateRoomCode,
+  normalizeRoomCode,
+} from '../../../sync/roomCode';
 import {
   Button,
   Code,
@@ -23,7 +28,8 @@ import {
   TextInput,
 } from '../../../ui';
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
-import { sourceName } from '../homeState';
+import { RECEIPT_LINGER_MS, sourceName } from '../homeState';
+import { pasteAction, type PasteIssue } from '../pasteLink';
 import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
 import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom';
 import { currentHash, hashQuery, subscribeRoute } from '../router';
@@ -130,6 +136,18 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const hash = useSyncExternalStore(subscribeRoute, currentHash, () => '#/');
 
   const [urlDraft, setUrlDraft] = useState<string | null>(null);
+  /**
+   * The line under the row, from whichever validator ran.
+   *
+   * On submit, not on every keystroke. The field is contextual now (S1), so
+   * "which validator" is a question with two answers, and `pasteLink` is the one
+   * place that knows — the row used to run `validateUrl` inline against whatever
+   * was in the box, which is the same hard-wiring that lost the picture link.
+   */
+  const [urlIssue, setUrlIssue] = useState<PasteIssue | null>(null);
+  /** The link field, so "Play something" can hand it the caret — as home does. */
+  const pasteRef = useRef<HTMLInputElement | null>(null);
+  const wantsPaste = useRef(false);
   const lastLoopWrite = useRef(0);
   const pendingLoop = useRef<VideoModuleConfig['loop'] | null>(null);
   const loopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -171,10 +189,6 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
 
   const commit = (mutate: (s: AppState) => AppState): void => {
     runtime.store.commit(mutate);
-  };
-
-  const setVideo = (patch: Partial<VideoModuleConfig>): void => {
-    commit((s) => withModuleConfig(s, VIDEO_ID, 1, { ...videoCfg, ...patch }));
   };
 
   // -------------------------------------------------------------------------
@@ -492,10 +506,6 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
     publishSeek(positionSec + delta);
   };
 
-  const urlValue = urlDraft ?? videoCfg.url;
-  const urlCheck = urlValue.trim().length === 0 ? null : validateUrl(urlValue.trim());
-  const urlIssue = urlCheck === null ? null : primaryIssue(urlCheck);
-
   /**
    * The receipt for a link handed over from here — A5.
    *
@@ -504,8 +514,23 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    * least (CAM) carried the full receipt, and the one that needed it most said
    * "Play" and nothing else, so nobody ever found out. Same sentence as the
    * Library's, from `vocabulary.ts`, because it is the same act.
+   *
+   * Round 5's S4: it also has to STOP being true. A receipt with no end is a
+   * claim the screen keeps making about a moment that has passed, so it lingers
+   * for `RECEIPT_LINGER_MS` — the home screen's rule, the home screen's number —
+   * and it is dropped the instant the field is touched or the module changes
+   * under it.
    */
   const [receipt, setReceipt] = useState(false);
+  useEffect(() => {
+    if (!receipt) return undefined;
+    const timer = setTimeout(() => {
+      setReceipt(false);
+    }, RECEIPT_LINGER_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [receipt]);
 
   /*
    * What the ring shows for a picture module.
@@ -575,6 +600,48 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    */
   const narrow = useNarrow(PHONE_QUERY);
   const offerInstall = !live && !narrow && !runtime.camDetected;
+
+  /**
+   * The link row, in the active module's own noun — round 5's S1.
+   *
+   * The SAME object CAM's home row is built from (`pasteAction`), so the two
+   * fields cannot drift again. What was here instead was `setVideo({ url })`
+   * unconditionally under the words "Paste a video link" and a button that said
+   * Play: with **Image** on the panel, a pasted `.jpg` went into
+   * `modules.video.cfg.url`, the picture module stayed empty, and the receipt
+   * below the field said it had been sent. Three lies in one gesture.
+   */
+  const action = pasteAction(runtime, state.activeModuleId, { narrow });
+  const urlValue = urlDraft ?? action?.value ?? '';
+
+  /**
+   * The field belongs to the module it is the field FOR.
+   *
+   * Same rule as the home screen's `draftOwner`: switching modules must not
+   * carry a picture URL into the video field, and arriving on a module shows
+   * what that module is holding.
+   */
+  const [draftOwner, setDraftOwner] = useState(state.activeModuleId);
+  if (draftOwner !== state.activeModuleId) {
+    setDraftOwner(state.activeModuleId);
+    setUrlDraft(null);
+    setUrlIssue(null);
+    setReceipt(false);
+  }
+
+  useEffect(() => {
+    if (!wantsPaste.current) return;
+    wantsPaste.current = false;
+    pasteRef.current?.focus();
+  }, [state.activeModuleId]);
+
+  const submitLink = (): void => {
+    if (action === null) return;
+    const outcome = action.submit(urlValue);
+    setUrlIssue(outcome.issue);
+    setReceipt(outcome.accepted && outcome.issue === null);
+    if (outcome.accepted && action.clearOnAccept) setUrlDraft(null);
+  };
 
   return (
     <div className="kh-remote" data-testid="remote" data-live={live ? 'true' : 'false'}>
@@ -734,31 +801,54 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         `ui/Framing`, so the same setting is never learned twice.
       */}
           <section className="kh-remote__ess" data-testid="remote-essentials" aria-label="Controls">
-            <form
-              className="kh-remote__src"
-              onSubmit={(e) => {
-                e.preventDefault();
-                setVideo({ url: urlValue.trim() });
-                setUrlDraft(null);
-                setReceipt(true);
-              }}
-            >
-              <label className="kh-sr" htmlFor="remote-src">
-                Video link
-              </label>
-              <TextInput
-                id="remote-src"
-                value={urlValue}
-                placeholder="Paste a video link"
-                onChange={(next) => {
-                  setUrlDraft(next);
-                  setReceipt(false);
+            {action === null ? (
+              /*
+                Clock and Stats have nothing to be handed — the home screen's
+                answer, on the screen that never got it (S1). A field asking a
+                sofa for a video link while the panel shows a clock is the most
+                prominent control on the page addressing a module that cannot
+                use it.
+              */
+              <p className="kh-remote__src kh-remote__src--quiet">
+                <button
+                  type="button"
+                  className="kh-quiet"
+                  data-testid="remote-paste-switch"
+                  onClick={() => {
+                    commit((s) => ({ ...s, activeModuleId: VIDEO_ID }));
+                    wantsPaste.current = true;
+                  }}
+                >
+                  Play something
+                </button>
+              </p>
+            ) : (
+              <form
+                className="kh-remote__src"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  submitLink();
                 }}
-              />
-              <button type="submit" className="kh-btn kh-btn--primary" data-testid="remote-play">
-                Play
-              </button>
-            </form>
+              >
+                <label className="kh-sr" htmlFor="remote-src">
+                  {action.label}
+                </label>
+                <TextInput
+                  id="remote-src"
+                  inputRef={pasteRef}
+                  value={urlValue}
+                  placeholder={action.placeholder}
+                  onChange={(next) => {
+                    setUrlDraft(next);
+                    setUrlIssue(null);
+                    setReceipt(false);
+                  }}
+                />
+                <button type="submit" className="kh-btn kh-btn--primary" data-testid="remote-play">
+                  {action.submitLabel}
+                </button>
+              </form>
+            )}
             {urlIssue !== null && (
               <Notice tone={urlIssue.severity === 'error' ? 'error' : 'warn'}>
                 {urlIssue.message}
@@ -956,6 +1046,16 @@ function PairingCard({
 }) {
   const [draft, setDraft] = useState(roomCode ?? '');
   const [copied, setCopied] = useState(false);
+  /**
+   * Whether the last **Join** was refused — round 5's S5.
+   *
+   * `normalizeRoomCode` returns `null` for anything that is not eight
+   * alphabet characters, and `join()` simply returned on that: the button
+   * moved, the field kept the text, and nothing on the screen or in the
+   * accessibility tree said why. A control that refuses in silence is
+   * indistinguishable from one that is broken.
+   */
+  const [badCode, setBadCode] = useState(false);
 
   const qr = useMemo(() => {
     if (remoteUrl === null) return null;
@@ -982,30 +1082,55 @@ function PairingCard({
 
   /** The by-hand path: type a code somebody read off a monitor. */
   const codeField = (
-    <Field
-      label="Room code"
-      htmlFor="remote-room"
-      description="Eight characters, with no I, L, O or U — so nothing is ambiguous when you read it off a screen."
-    >
+    <Field label="Room code" htmlFor="remote-room" description={ROOM_CODE_HINT}>
       <Row>
+        {/*
+          The box filters as you type (S5).
+
+          `normalizeRoomCode` has always folded `I`/`L` → `1` and `O` → `0` at
+          the end, which meant the field happily accepted characters the code
+          format does not contain and then quietly rewrote them on submit. Doing
+          the fold on the keystroke shows the user the code they are actually
+          typing — and `U`, which Crockford excludes and which has no lookalike
+          to fold into, simply cannot be entered rather than failing eight
+          characters later.
+        */}
         <TextInput
           id="remote-room"
           value={draft}
           placeholder="ABCD1234"
+          invalid={badCode}
+          describedBy={badCode ? 'remote-room-bad' : undefined}
           onChange={(next) => {
-            setDraft(next.toUpperCase());
+            setDraft(filterRoomCodeInput(next));
+            setBadCode(false);
           }}
         />
         <Button
           primary
           testId="pair-join"
           onClick={() => {
+            if (normalizeRoomCode(draft) === null) {
+              setBadCode(true);
+              return;
+            }
+            setBadCode(false);
             onJoin(draft);
           }}
         >
           Join
         </Button>
       </Row>
+      {badCode && (
+        <div id="remote-room-bad" data-testid="pair-code-error">
+          {/*
+            The hint and the error are the same sentence, from `roomCode.ts`.
+            A rule stated one way when it is advice and another way when it is
+            a complaint is two rules to the person reading them.
+          */}
+          <Notice tone="error">{ROOM_CODE_HINT}</Notice>
+        </div>
+      )}
     </Field>
   );
 

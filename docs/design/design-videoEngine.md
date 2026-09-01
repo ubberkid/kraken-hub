@@ -23,6 +23,17 @@ reality diverges, the shipped side wins and the divergence is listed here.
 | The paste receipt | Unspecified | **Narrates transitions, then leaves.** Every stage that reaches a steady state collapses into the status line after four seconds; only an unfinished download and a failure persist (`homeState.receiptPersists`, exhaustive over `FlowStage`). Source properties — YouTube's in-video ads — live in the module's options next to the control that answers them, never in the ladder. |
 | `PROXY_PRESETS` (§7.3 step 4) | A two-entry preset table for the proxy `<select>` | The control is a Switch plus a text field; the table had no reader after round 1 and is deleted. **The proxy field itself stays** — whether to ship a public proxy at all is one of the audit's §6 product decisions, reserved for the user. |
 
+### Post-M4: the design audit (round 5)
+
+Round 5 asked what the app **claims** rather than what it does, and two of its
+findings land on the URL field and its receipt — the two surfaces this document
+specifies that exist to tell the user what just happened.
+
+| Topic | This doc says | Shipped reality (authoritative) |
+|---|---|---|
+| Where the URL field writes (§7) | The video module's config panel owns a URL field, so the destination is implied | **The field belongs to whichever module is on screen.** The phone remote's link field was hardcoded to the video config while the module picker one row below it could be on **Image** — so a picture link pasted there was validated as a video source, written to `modules.video.cfg.url`, answered with a success receipt, and changed nothing on the panel. The field is contextual now, off the one `pasteAction` mapping in `src/app/config/pasteLink.ts` that the home screen's paste row already used: _Paste a video link_ / **Play** under Video, _Paste a picture link_ / **Show** under Image, and a quiet **Play something** button under Clock or Stats that switches to Video and focuses the field. A control that writes somewhere the user cannot see is worse than one that refuses (round 5, S1). |
+| The paste receipt's lifetime (§7.5) | Transitions collapse into the status line after four seconds; a failure and an unfinished download persist | **A persisting receipt is now invalidated by what it describes, not only by time.** "Persists until the next thing happens" was specified for the failure cases and inherited by the success ones, so a receipt announcing a kept copy could still be on screen over a library the row had since been **deleted** or **evicted** from — a true sentence about a past that no longer matched the present, which is the exact class of claim this round was auditing. A success receipt now expires, and is dropped outright when the thing it names leaves the library (round 5, S4). |
+
 ---
 
 ## 0. Module file layout (exact)

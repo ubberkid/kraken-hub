@@ -201,7 +201,13 @@ async function markDisplaySeen(page) {
 async function captureHero(browser) {
   const { context, page } = await freshPage(browser, { width: 740, height: 780 }, DOC_SCALE);
   await markDisplaySeen(page);
-  await page.goto(`${ORIGIN}/#/`, { waitUntil: 'networkidle' });
+  /*
+    `?cam=1`, because the halo IS a display iframe and only the window that
+    shares CAM's storage partition may mount one (wave 1, A1 — `ownsBytes`).
+    Without it this run waited thirty seconds for a frame the surface gate is
+    right to refuse, and the hero has not regenerated since that gate shipped.
+  */
+  await page.goto(`${ORIGIN}/?cam=1#/`, { waitUntil: 'networkidle' });
   await page.getByTestId('module-chip-clock').click();
 
   const halo = page.getByTestId('mirror');
@@ -221,7 +227,9 @@ async function captureHero(browser) {
 async function captureConfigUi(browser) {
   const { context, page } = await freshPage(browser, { width: 1000, height: 700 }, DOC_SCALE);
   await markDisplaySeen(page);
-  await page.goto(`${ORIGIN}/#/`, { waitUntil: 'networkidle' });
+  // The window this shot is OF: `?cam=1` is the simulator seam for the surface
+  // gate, so the capture shows what a Configuration Browser shows.
+  await page.goto(`${ORIGIN}/?cam=1#/`, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { level: 1, name: 'kraken-hub' }).waitFor();
   await page.locator('.kh-footer').waitFor();
   const file = join(assetsDir, 'config-ui.png');
@@ -271,7 +279,7 @@ async function captureRemote(browser) {
  */
 async function captureDiag(browser) {
   const { context, page } = await freshPage(browser, { width: 1000, height: 880 }, DOC_SCALE);
-  await page.goto(`${ORIGIN}/#/about`, { waitUntil: 'networkidle' });
+  await page.goto(`${ORIGIN}/?cam=1#/about`, { waitUntil: 'networkidle' });
   await page.getByTestId('tech-detail').locator('summary').click();
   await page.getByRole('heading', { name: 'This browser' }).waitFor();
   // The codec/storage probes are async; give them a beat to fill in.

@@ -29,6 +29,78 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **Design audit round 5 — the app saying something it does not know to be
+  true.** Six findings and a batch of minors, and they are one class rather than
+  six: a surface asserting a fact it had not checked, could not check, or had
+  stopped checking. A receipt for a link that went into the wrong module; a
+  progress bar drawing a completed download over a quantity nobody had measured;
+  a success line standing over the shelf it said something about, after the thing
+  was deleted; two documents declaring a shipped feature impossible.
+
+  - **The phone's link field is the field for whatever is on the panel (S1).**
+    The home screen's paste row has taken the active module's noun since round
+    2's R9 — "Paste a picture link" / **Show** for Image, the quiet "Play
+    something" for Clock and Stats — and the mapping that does it was written
+    inside `HomeView`, so it existed on exactly one of the two screens that draw
+    that row. The remote called `setVideo({ url })` unconditionally under the
+    words _"Paste a video link"_ and a button that said Play: with **Image**
+    active, a pasted `.jpg` was written to `modules.video.cfg.url`,
+    `modules.image.cfg.url` stayed undefined, the receipt below the field said
+    it had been sent, and the panel went on saying "No picture." Three claims,
+    none of them true. The mapping is `pasteLink.pasteAction` now, next to the
+    two submit functions it chooses between, and both surfaces read it — so a
+    module added later gets a row on both screens or on neither, rather than on
+    the screen whose author remembered.
+  - **The docs no longer declare the LAN transfer impossible (S2).**
+    `remote-control.md` described **Send a file** correctly in one section and,
+    a hundred lines later, listed _"Cannot: Add files to the clip library"_
+    among the remote's limits; `troubleshooting.md` answered the same question
+    with _"It cannot, and this is not a bug."_ Both were true right up until
+    wave 3 shipped the peer-to-peer transfer, and both went on being read.
+    Rewritten to the shipped truth — where the bytes go, what the same-network
+    requirement actually is, and where the app says so — along with a promised
+    one-click link into CAM that no longer exists on the remote and a claim that
+    the remote can only _choose_ from the shelf, which curation retired.
+  - **A meter that does not know the percentage says so (S3).** `Meter` rendered
+    `pct` as `` `${pct ?? 100}%` `` under a docstring promising an indeterminate
+    render, and all four callers that pass `null` pass it for the same reason —
+    the total is not known. So an unmeasured quota drew a full disk, and a
+    chunked download with no `Content-Length` was a finished bar at byte one and
+    stayed finished while the bytes climbed. There is a real indeterminate
+    treatment now: a soft pulse travelling the track, **no fill element at all**
+    (asserted structurally, so no stylesheet can reintroduce a width), no
+    `aria-valuenow`, and a static half-tone under `prefers-reduced-motion`.
+  - **Receipts expire, and they invalidate (S4).** A receipt is an assertion
+    about the world, and it needs both retirements: it lingers on
+    `RECEIPT_LINGER_MS` — the home screen's rule, now shared — and it is void the
+    instant its subject stops existing, which no timer can know. The Library
+    page's _"Added “x”."_ stood directly above **Nothing kept here** after the
+    file was deleted, and a delete performed from the phone left it standing in
+    CAM for the rest of the session. Library messages carry a `claim` now,
+    reconciled against the tiles the grid itself draws.
+  - **A rejected room code is answered (S5).** `normalizeRoomCode` returns
+    `null` for anything that is not eight alphabet characters and **Join**
+    simply returned on it: no notice, no `aria-invalid`, no clue. The field
+    carries both now, naming the rule in the same sentence its hint uses, and it
+    filters to the Crockford alphabet as you type — folding `I`/`L` → `1` and
+    `O` → `0` on the keystroke instead of silently at submit, and refusing `U`,
+    which the alphabet excludes and which has no lookalike to fold into.
+  - **Nothing scrolls sideways on a phone (S6).** The About page's **Route**
+    control was 364 px of fixed-width segments, so the page somebody opens when
+    something has already gone wrong side-scrolled at 320 and 360 px. It wraps
+    like every other four-option row, and the property is swept: every route, at
+    320, 360 and 390.
+  - **Minors.** ONE byte formatter (`src/lib/bytes.ts`), replacing three that
+    disagreed — including the home screen's `MB_DECIMALS = 0`, which rendered
+    every download under half a megabyte as **"0 MB"** while the bytes were
+    visibly climbing, and five separate definitions of `BYTES_PER_MB`. Phone tile
+    actions are a two-column grid rather than a wrap that dropped **Delete** onto
+    a line of its own, reading as a more serious control than the two above it.
+    Doc drift: the one media library's real store names, `.3gp` among the
+    rejected containers, pictures where the doc said clips, `?inject=late`'s real
+    1500 ms, the shelf's own noun on the remote, and the phone-to-PC transfer in
+    the README's feature list.
+
 - **One Kraken, many windows — wave 1 (architecture proposal, phases A and B).**
   The report was _"the library is different on my phone and the files are
   separate."_ It was not a perception problem: `#/library` was routed with no

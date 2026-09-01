@@ -20,6 +20,7 @@
  * the network switched off.
  */
 
+import { formatBytes } from '../../../lib/bytes';
 import { createLogger } from '../../../lib/log';
 import {
   STORE_KV,
@@ -284,12 +285,6 @@ export interface QuotaVerdict {
   message: string | null;
 }
 
-const BYTES_PER_MB = 1_048_576;
-
-function mb(bytes: number): string {
-  return `${(bytes / BYTES_PER_MB).toFixed(1)} MB`;
-}
-
 /** §5.3 step 5. A zero/unknown quota is treated as "go ahead" — refusing on no data helps nobody. */
 export async function checkQuotaFor(sizeBytes: number): Promise<QuotaVerdict> {
   const quota = await readQuota();
@@ -299,9 +294,9 @@ export async function checkQuotaFor(sizeBytes: number): Promise<QuotaVerdict> {
   return {
     ok: false,
     quota,
-    message: `Not enough room: this clip is ${mb(sizeBytes)} and the library already uses ${mb(
+    message: `Not enough room: this clip is ${formatBytes(sizeBytes)} and the library already uses ${formatBytes(
       quota.usageBytes,
-    )} of ${mb(quota.quotaBytes)}. Delete a clip and try again.`,
+    )} of ${formatBytes(quota.quotaBytes)}. Delete a clip and try again.`,
   };
 }
 

@@ -129,6 +129,27 @@ export interface FlowState {
 }
 
 /**
+ * How long a *successful* receipt stays on the screen — the ONE number.
+ *
+ * Round 2's R11 established it for the home screen's download ladder: narration
+ * that never ends becomes furniture, so a step that has reached a steady state
+ * says its piece and gets out of the way.
+ *
+ * It lived in `HomeView` until round 5's S4, which is why it applied to exactly
+ * one of the four surfaces that print a receipt. The Library page's "Added
+ * X." stood over an empty shelf after the file was deleted, and the remote's
+ * LINK_RECEIPT stayed up for the rest of the session. A claim with no end is a
+ * claim the screen keeps making about a moment that has passed — so the timer
+ * is here, next to the rule about which stages earn one, and every surface
+ * imports both.
+ *
+ * The linger is only half of it. A receipt must ALSO be dropped the moment the
+ * thing it asserts stops being true, which no timer can know; see
+ * `LibraryView`'s `claim`, which is reconciled against the shelf itself.
+ */
+export const RECEIPT_LINGER_MS = 4000;
+
+/**
  * Whether a stage's receipt is allowed to stay on the screen (round 3, F4).
  *
  * Round 2 gave the receipt a retirement and then hard-coded the set of stages

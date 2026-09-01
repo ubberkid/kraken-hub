@@ -6,8 +6,13 @@ keeps playing with the network switched off.
 
 So that is the **default** in kraken-hub, and it does not involve a file picker:
 
-> **Paste a URL. kraken-hub downloads it into its own clip library and plays the
+> **Paste a URL. kraken-hub downloads it into its own library and plays the
 > local copy from then on.**
+
+That library is one library. A clip and a picture are the same kind of row in the
+same store, on the same shelf, under the same quota — so everything below about
+where the bytes live, what the quota does and when the browser is allowed to
+throw them away is true of a GIF you kept exactly as it is of a video.
 
 You paste it into the row under the halo on the home screen, and the app narrates
 what it did in three cards: **YouTube video detected** (whatever it actually
@@ -148,8 +153,8 @@ browser storage is partitioned.
 **Library → Add → Browse…**, or drop the files onto the add panel. Each file is:
 
 1. **Checked for a container Chromium can play.** `.mkv`, `.mka`, `.avi`,
-   `.flv`, `.wmv`, `.rmvb` are rejected — Chromium has no Matroska or AVI demuxer
-   in `<video>`, and no library fixes that. See
+   `.flv`, `.wmv`, `.rmvb` and `.3gp` are rejected — Chromium has no Matroska or
+   AVI demuxer in `<video>`, and no library fixes that. See
    [the remux one-liner](#preparing-a-clip-the-one-liner) below.
 2. **Feature-detected for codecs.** HEVC and AV1 are _warned_ about rather than
    rejected: HEVC in Chromium depends on GPU support with no software fallback,
@@ -233,17 +238,19 @@ frame rate than a 60 fps action scene at the same bitrate.
 **Recommended:** ≤ 200 MB per clip, ≤ 2 GB for the whole library.
 
 kraken-hub reads `navigator.storage.estimate()` and refuses an add that would
-push usage past 90 % of the quota, naming both numbers in megabytes. The Library
-page shows a usage bar under the grid.
+push usage past 90 % of the quota, naming both numbers in megabytes. That gate is
+the same one for a picture as for a clip — there is one library and one quota, so
+a shelf full of GIFs is what refuses the next video. The Library page shows a
+usage bar under the grid, counting everything on it.
 
 On the first successful add — inside the user gesture, which is the only time the
 browser will grant it — kraken-hub calls `navigator.storage.persist()` and shows
 the result as a badge:
 
-| Chip                                                                  | Meaning                                           |
-| --------------------------------------------------------------------- | ------------------------------------------------- |
-| **Kept for good**                                                     | The browser has promised not to evict your clips. |
-| **May be cleared if the disk fills up — pin the ones you care about** | Chromium may evict clips under disk pressure.     |
+| Chip                                                                  | Meaning                                                                                                                                  |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Kept for good**                                                     | The browser has promised not to evict your library.                                                                                      |
+| **May be cleared if the disk fills up — pin the ones you care about** | Chromium may evict the whole bucket under disk pressure — clips and pictures alike, which is why **Pin** is on every tile of both kinds. |
 
 The warning chip is drawn only when it is actionable — once something is
 actually stored, or once the quota is genuinely under pressure. On an empty
@@ -263,21 +270,40 @@ blob in memory for that whole time.
 
 ## Where the data lives
 
-| What                         | Where                                                                |
-| ---------------------------- | -------------------------------------------------------------------- |
-| Clip metadata and bytes      | IndexedDB database **`kraken-hub.v1`**, stores `clips` / `clipBlobs` |
-| Clip index (change notifier) | `localStorage` key `kraken-hub:v1:video:clipIndex`                   |
-| Download progress mirror     | `localStorage` key `kraken-hub:v1:video:downloads`                   |
-| Diagnostics ring buffer      | `localStorage` key `kraken-hub:v1:video:log`                         |
+| What                                    | Where                                                                                           |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Clip and picture metadata and bytes     | IndexedDB database **`kraken-hub.v1`** at **version 4**, stores `media` / `mediaBlobs`          |
+| The two libraries as they used to be    | Same database, stores `clips` / `clipBlobs` and `images` / `imageBlobs` — **legacy, read-only** |
+| Change notifiers (clips, then pictures) | `localStorage` keys `kraken-hub:v1:video:clipIndex` and `kraken-hub:v1:image:index`             |
+| Download progress mirror                | `localStorage` key `kraken-hub:v1:video:downloads`                                              |
+| Diagnostics ring buffer                 | `localStorage` key `kraken-hub:v1:video:log`                                                    |
 
-The clip index is **not** what the remote is sent. A `localStorage` write fires a
-`storage` event in every other window on the origin, and that is what the index is
-for now: CAM's grid refreshes on it, and the display re-reads the merged media
-store and re-announces the shelf on it. What goes on the wire is built from
-`listMedia()` — one library, one reader — because a mirror and a store that can
-disagree are two libraries with extra steps.
+**There is one store, and `kind` is a property of a row rather than a place it
+lives.** Wave 2 merged the video module's `clips` and the image module's `images`
+into `media`, because a clip and a picture share everything a _shelf_ is made of
+— an id, a name, a size, a creation time, a pin, a source URL, a thumbnail — and
+the two fields that differ (a duration, an animation flag) are exactly what a
+`kind` property is for. Keeping them apart meant they were one shelf only in the
+view layer, which is the thing that kept going wrong.
 
-Clip ids are random (`crypto.randomUUID()`), never derived from the filename.
+The old four stores are still **read as a fallback** for a library that has not
+finished copying itself across, and a delete still removes the legacy row so a
+deleted thing cannot come back through that fallback; nothing new is ever written
+to them. They are dropped in a later release rather than this one — the overlap
+costs a duplicate library on disk and buys a rollback. Note what the v4 upgrade
+does _not_ do: it creates a store and reads nothing, so an interrupted upgrade
+cannot leave a half-migrated library. The copying happens afterwards, one row at
+a time, in an ordinary transaction, idempotently — an interruption means "not
+finished yet".
+
+The change notifiers are **not** what the remote is sent. A `localStorage` write
+fires a `storage` event in every other window on the origin, and that is all the
+two keys are for now: CAM's grid refreshes on them, and the display re-reads the
+merged media store and re-announces the shelf. What goes on the wire is built
+from `listMedia()` — one library, one reader — because a mirror and a store that
+can disagree are two libraries with extra steps.
+
+Ids are random (`crypto.randomUUID()`), never derived from the filename.
 
 Everything is namespaced `kraken-hub:v1:` because `<user>.github.io` is a single
 origin shared across every repository that user publishes — an unnamespaced key

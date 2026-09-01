@@ -23,6 +23,7 @@
  *    `download-cors-blocked`; the user sees their video either way.
  */
 
+import { BYTES_PER_MB } from '../../../lib/bytes';
 import { createLogger } from '../../../lib/log';
 import { readRaw, writeRaw } from '../../../platform/storage';
 import { publish } from '../telemetry/videoTelemetry';
@@ -43,7 +44,6 @@ const BACKOFF_BASE_MS = 800;
 const BACKOFF_FACTOR = 2;
 const PROGRESS_THROTTLE_MS = 200;
 const MAX_MIRRORED = 8;
-const BYTES_PER_MB = 1_048_576;
 const PCT = 100;
 
 export type DownloadState = 'queued' | 'downloading' | 'storing' | 'done' | 'error' | 'aborted';
