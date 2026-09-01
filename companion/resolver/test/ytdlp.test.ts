@@ -5,15 +5,20 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  META_PRINT_TEMPLATE,
+  META_SEPARATOR,
   MediaError,
   autoDownloadRefused,
   classifyStderr,
   digestFor,
   downloadArgs,
   ensureYtDlpBinary,
+  explainStderr,
   formatSelector,
+  parseDownloadMeta,
   parseProbe,
   probeArgs,
+  sniffContainerMime,
   ytDlpAssetName,
   ytDlpOnPath,
   type Runner,
@@ -93,49 +98,115 @@ describe('argument construction', () => {
   });
 });
 
-describe('formatSelector (§6 — progressive first, mux only if ffmpeg is there)', () => {
-  it('never asks for a rendition taller than maxHeight as a hard requirement', () => {
-    const s = formatSelector({
-      maxHeight: 1080,
-      audio: false,
-      prefer: 'progressive',
-      hasFfmpeg: true,
-    });
-    expect(s).toContain('height<=?1080');
-    expect(s).not.toContain('height<=1080]'); // the hard form would 404 tall-only sources
+/**
+ * The regression suite for the bug that shipped: every rung of the old ladder
+ * was a `best`, which in yt-dlp's language means "a format that already carries
+ * both video and audio". YouTube publishes no such format for most uploads, so
+ * every rung missed and yt-dlp answered `Requested format is not available`.
+ *
+ * The invariant these cases exist to hold is one sentence: **no branch may end
+ * in a rung that requires a muxed format.**
+ */
+describe('formatSelector — never demands a format the source cannot have', () => {
+  const ALL = [
+    { audio: false, hasFfmpeg: false },
+    { audio: false, hasFfmpeg: true },
+    { audio: true, hasFfmpeg: false },
+    { audio: true, hasFfmpeg: true },
+  ] as const;
+
+  it.each(ALL)('ends in an unconstrained video rung (audio=$audio ffmpeg=$hasFfmpeg)', (c) => {
+    const s = formatSelector({ maxHeight: 1080, prefer: 'progressive', ...c });
+    const rungs = s.split('/');
+
+    // The last rung must match "any format containing video", with no height
+    // filter and no `+` — that is the rung that makes a hard failure impossible.
+    expect(rungs.at(-1)).toBe('bv*');
+    // And the ladder must contain a `bv*` rung that is not just the tail: the
+    // capped video-only rung is what saves an adaptive-only source at the
+    // requested quality rather than at whatever is left.
+    expect(s).toContain('bv*[height<=?1080]');
   });
 
-  it('falls back to the best progressive rather than failing when ffmpeg is absent', () => {
-    const s = formatSelector({
-      maxHeight: 720,
+  it.each(ALL)('never emits the muxed-only `b` as a last resort ($audio/$hasFfmpeg)', (c) => {
+    const rungs = formatSelector({ maxHeight: 720, prefer: 'progressive', ...c }).split('/');
+    // `b` may appear — a single muxed file is the nicest outcome when one exists
+    // — but it must never be the rung everything else falls through to.
+    expect(rungs.at(-1)).not.toBe('b');
+  });
+
+  it('caps height with the `<=?` form, which also admits unknown heights', () => {
+    const s = formatSelector({ maxHeight: 1080, audio: true, prefer: 'any', hasFfmpeg: true });
+    expect(s).toContain('height<=?1080');
+    // The bare form would drop every format whose height yt-dlp cannot read.
+    expect(s).not.toContain('height<=1080]');
+  });
+
+  it('merges video and audio when ffmpeg is there and audio was asked for', () => {
+    const s = formatSelector({ maxHeight: 1080, audio: true, prefer: 'any', hasFfmpeg: true });
+    expect(s.startsWith('bv*[height<=?1080]+ba/b[height<=?1080]/')).toBe(true);
+  });
+
+  it('emits no `+` at all without ffmpeg — nothing would be there to join them', () => {
+    for (const audio of [true, false]) {
+      const s = formatSelector({ maxHeight: 720, audio, prefer: 'any', hasFfmpeg: false });
+      expect(s).not.toContain('+');
+    }
+  });
+
+  it('starts from the muxed rung without ffmpeg, since that is the only way to keep audio', () => {
+    const s = formatSelector({ maxHeight: 720, audio: true, prefer: 'any', hasFfmpeg: false });
+    expect(s).toBe('b[height<=?720]/bv*[height<=?720]/b/bv*');
+  });
+
+  it('skips audio entirely when the caller did not ask for it, ffmpeg or not', () => {
+    const withFfmpeg = formatSelector({
+      maxHeight: 480,
       audio: false,
-      prefer: 'progressive',
+      prefer: 'any',
+      hasFfmpeg: true,
+    });
+    const without = formatSelector({
+      maxHeight: 480,
+      audio: false,
+      prefer: 'any',
       hasFfmpeg: false,
     });
-    expect(s).not.toContain('+bestaudio');
-    expect(s.endsWith('/best')).toBe(true);
+    // A muted panel needs no merge, so the ffmpeg branch is irrelevant here.
+    expect(withFfmpeg).toBe('bv*[height<=?480]/b[height<=?480]/bv*');
+    expect(without).toBe(withFfmpeg);
   });
 
-  it('prefers the muxed pair when the caller asked for any and ffmpeg exists', () => {
-    const s = formatSelector({ maxHeight: 2160, audio: true, prefer: 'any', hasFfmpeg: true });
-    expect(s.startsWith('bestvideo[height<=?2160]+bestaudio')).toBe(true);
+  it('derives H by flooring, and never lets it reach zero', () => {
+    expect(
+      formatSelector({ maxHeight: 720.9, audio: true, prefer: 'any', hasFfmpeg: true }),
+    ).toContain('height<=?720]');
+    expect(formatSelector({ maxHeight: 0, audio: true, prefer: 'any', hasFfmpeg: true })).toContain(
+      'height<=?1]',
+    );
+    expect(
+      formatSelector({ maxHeight: -50, audio: true, prefer: 'any', hasFfmpeg: true }),
+    ).toContain('height<=?1]');
   });
 
-  it('requires an audio track only when audio was opted in', () => {
-    const muted = formatSelector({
-      maxHeight: 1080,
-      audio: false,
-      prefer: 'progressive',
-      hasFfmpeg: true,
-    });
-    const loud = formatSelector({
+  it('reaches the download argv verbatim', () => {
+    const selector = formatSelector({
       maxHeight: 1080,
       audio: true,
-      prefer: 'progressive',
+      prefer: 'any',
       hasFfmpeg: true,
     });
-    expect(muted).not.toContain('acodec!=none');
-    expect(loud).toContain('acodec!=none');
+    const args = downloadArgs(
+      {
+        url: 'https://e.com/a',
+        maxHeight: 1080,
+        audio: true,
+        prefer: 'any',
+        destFile: join(dir, 'a.mp4'),
+      },
+      selector,
+    );
+    expect(args[args.indexOf('-f') + 1]).toBe(selector);
   });
 });
 
@@ -143,11 +214,112 @@ describe('error mapping onto the closed enum', () => {
   it.each([
     ['ERROR: Unsupported URL: https://example.com/x', 'unsupported-url'],
     ['ERROR: Video unavailable', 'not-found'],
+    ['ERROR: [youtube] zzz: This video is unavailable', 'not-found'],
     ['ERROR: This video has been removed by the uploader', 'not-found'],
     ['ERROR: Private video. Sign in if you have been granted access', 'forbidden'],
     ['ERROR: something nobody has ever seen', 'upstream-failed'],
+    // The bug report's own stderr. It is an upstream problem, not a bad URL and
+    // not a missing video, so it must not be miscoded as either.
+    [
+      'ERROR: [youtube] abc: Requested format is not available. Use --list-formats for a list of available formats',
+      'upstream-failed',
+    ],
+    ['ERROR: [generic] x: No video formats found!', 'upstream-failed'],
   ])('maps %s', (stderr, code) => {
     expect(classifyStderr(stderr)).toBe(code);
+  });
+});
+
+describe('the message a person reads', () => {
+  it('replaces the format failure with one that names the actual problem', () => {
+    const message = explainStderr(
+      'ERROR: [youtube] abc: Requested format is not available. Use --list-formats for a list of available formats',
+    );
+    expect(message).toContain('ffmpeg');
+    // `--list-formats` is a yt-dlp flag; this program has no such thing, and
+    // sending the reader to look for it is the opposite of a diagnosis.
+    expect(message).not.toContain('--list-formats');
+  });
+
+  it('says so plainly when the page has no video at all', () => {
+    expect(explainStderr('ERROR: No video formats found!')).toMatch(/no video/i);
+  });
+
+  it('names ffmpeg when yt-dlp itself complains it is missing', () => {
+    expect(explainStderr('ERROR: You have requested merging but ffmpeg is not installed')).toMatch(
+      /ffmpeg/,
+    );
+  });
+
+  it('passes an unrecognised error through rather than replacing it with a guess', () => {
+    expect(explainStderr('ERROR: something nobody has ever seen')).toBe(
+      'ERROR: something nobody has ever seen',
+    );
+  });
+
+  it('still says something when yt-dlp says nothing', () => {
+    expect(explainStderr('   ')).toMatch(/without saying why/);
+  });
+});
+
+describe('the metadata yt-dlp prints about what it actually downloaded', () => {
+  const SEP = META_SEPARATOR;
+  const line = (...fields: string[]): string => `KHMETA${SEP}${fields.join(SEP)}`;
+
+  it('asks for the fields after the file has been moved into place', () => {
+    expect(META_PRINT_TEMPLATE.startsWith('after_move:KHMETA')).toBe(true);
+    expect(META_PRINT_TEMPLATE).toContain('%(height)s');
+    expect(META_PRINT_TEMPLATE).toContain('%(filepath)s');
+  });
+
+  it('turns the printed line into the real height, not the page’s', () => {
+    const meta = parseDownloadMeta(
+      [
+        '[download] Destination: /c/a.mp4',
+        line('1280', '720', '24', '398+251', '150', 'https://i/t.webp', '/c/a.mp4', 'Caminandes 3'),
+      ].join('\n'),
+    );
+    expect(meta).toEqual({
+      width: 1280,
+      height: 720,
+      fps: 24,
+      formatId: '398+251',
+      durationSec: 150,
+      thumbUrl: 'https://i/t.webp',
+      filepath: '/c/a.mp4',
+      title: 'Caminandes 3',
+    });
+  });
+
+  it('drops yt-dlp’s `NA` rather than reporting it as a value', () => {
+    const meta = parseDownloadMeta(line('NA', '360', 'NA', '18', 'NA', 'NA', '/c/a.mp4', 'NA'));
+    expect(meta).toEqual({ height: 360, formatId: '18', filepath: '/c/a.mp4' });
+  });
+
+  it('keeps a title that contains the separator whole', () => {
+    const meta = parseDownloadMeta(
+      line('1280', '720', '24', '18', '10', 'NA', '/c/a.mp4', `odd${SEP}title`),
+    );
+    expect(meta?.title).toBe(`odd${SEP}title`);
+    expect(meta?.height).toBe(720);
+  });
+
+  it('reports nothing at all rather than guessing when the line is absent', () => {
+    expect(parseDownloadMeta('[download] 100% of 4MiB\n')).toBeNull();
+  });
+});
+
+describe('the mime the companion promises', () => {
+  it('reads the container off the file rather than assuming mp4', () => {
+    const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 0x20]), Buffer.from('ftypisom', 'ascii')]);
+    expect(sniffContainerMime(mp4)).toBe('video/mp4');
+    expect(sniffContainerMime(Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02]))).toBe(
+      'video/webm',
+    );
+  });
+
+  it('falls back to what it asked for when the bytes say nothing', () => {
+    expect(sniffContainerMime(Buffer.alloc(0))).toBe('video/mp4');
   });
 });
 

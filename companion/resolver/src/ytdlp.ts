@@ -16,25 +16,29 @@
  *     when `CI` or `KRAKEN_HUB_RESOLVER_NO_DOWNLOAD` is in the environment.
  */
 
-import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { chmod, copyFile, mkdir, rename, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, open, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { resolveFfmpeg, type FfmpegResolution } from './ffmpeg.js';
 import { type Logger, silentLogger } from './log.js';
+import {
+  MediaError,
+  autoDownloadRefused,
+  digestFor,
+  fetchVerifiedAsset,
+  isExecutable,
+  run,
+  type RunResult,
+  type Runner,
+} from './exec.js';
 
 import type { ResolverErrorCode, ResolverKind } from './contract.js';
 
-/** A failure that already knows which contract code it maps onto. */
-export class MediaError extends Error {
-  readonly code: ResolverErrorCode;
-
-  constructor(code: ResolverErrorCode, message: string) {
-    super(message);
-    this.name = 'MediaError';
-    this.code = code;
-  }
-}
+// `resolve.ts`, the tests and the published types have imported these from here
+// since v1. They live in `exec.ts` now because `ffmpeg.ts` needs them too;
+// re-exporting keeps that an implementation detail.
+export { MediaError, autoDownloadRefused, digestFor, run };
+export type { RunResult, Runner };
 
 export interface ProbeInfo {
   title?: string;
@@ -72,12 +76,43 @@ export interface MediaDownloader {
 // ---------------------------------------------------------------------------
 
 /**
- * §6 of the protocol: *best progressive ≤ maxHeight; when only adaptive formats
- * exist, mux with ffmpeg if it is there, otherwise fall back to the best
- * progressive rather than failing.*
+ * The format ladder.
  *
- * `best[height<=?H]` is yt-dlp's "prefer, do not require" form, so a source
- * whose only rendition is taller still plays instead of 404-ing.
+ * ## The thing that makes this hard
+ *
+ * In yt-dlp's selector language `b` (`best`) does **not** mean "the best
+ * format". It means "the best format that already contains both a video and an
+ * audio stream". `bv*` means "the best format containing video, muxed or not".
+ * That one letter is the difference between a working companion and this, which
+ * is what users saw:
+ *
+ *     ERROR: Requested format is not available
+ *
+ * A present-day YouTube watch page commonly offers audio-only formats and
+ * video-only formats and *nothing else* — not even the old 360p `itag 18`. Every
+ * rung of the previous ladder (`best[…]/best[…]/best`) was a `best`, so every
+ * rung matched nothing and yt-dlp exited non-zero with that message. There was
+ * no bug in the height filter and no bug in the fallback chain; the chain simply
+ * had no rung that could ever match an adaptive-only source.
+ *
+ * ## The rule this ladder keeps
+ *
+ * **While yt-dlp can see any format containing video, this must not fail.**
+ * Every branch therefore ends in an unconstrained `bv*`. Quality degrades;
+ * nothing errors. (A URL with no video stream at all still errors — handing a
+ * `<video>` element an audio-only file is a black panel with no diagnostic,
+ * which is worse than a message.)
+ *
+ * ## Why `audio` reorders rather than filters
+ *
+ * The Kraken panel has no speaker, so `audio=0` is the common case — and a
+ * video-only format needs no merge, which means no ffmpeg, no second download
+ * and no remux. Asking for video only when only video was wanted is both the
+ * fastest path and the one most likely to succeed.
+ *
+ * `prefer` no longer changes the selector. Its purpose was "give me one file,
+ * not a manifest", and an ffmpeg merge *produces* one file — the distinction
+ * lives in the output, not in the format request.
  */
 export function formatSelector(args: {
   maxHeight: number;
@@ -86,19 +121,109 @@ export function formatSelector(args: {
   hasFfmpeg: boolean;
 }): string {
   const h = String(Math.max(1, Math.floor(args.maxHeight)));
-  const progressive = args.audio
-    ? `best[height<=?${h}][vcodec!=none][acodec!=none]`
-    : `best[height<=?${h}][vcodec!=none]`;
-  const muxed = `bestvideo[height<=?${h}]+bestaudio`;
+  // `<=?` lets a format through when its height is unknown. It is a hard cap on
+  // known heights, which is why every branch needs an uncapped rung after it:
+  // a source whose smallest rendition is taller than `h` must still play.
+  const cap = `[height<=?${h}]`;
 
-  if (!args.hasFfmpeg) return `${progressive}/best[height<=?${h}]/best`;
-  if (args.prefer === 'progressive') return `${progressive}/${muxed}/best[height<=?${h}]/best`;
-  return `${muxed}/${progressive}/best`;
+  // No trailing `/b`: every muxed format contains video, so an uncapped `bv*`
+  // has already matched anything an uncapped `b` could. A rung that can never
+  // fire is a rung the next reader has to reason about for nothing.
+  if (!args.audio) return `bv*${cap}/b${cap}/bv*`;
+  // Without ffmpeg a `+` cannot be honoured, so no rung may contain one: the
+  // best available is a single file that already carries its own audio.
+  if (!args.hasFfmpeg) return `b${cap}/bv*${cap}/b/bv*`;
+  return `bv*${cap}+ba/b${cap}/bv*${cap}/bv*+ba/b/bv*`;
 }
 
 /** `-J --no-playlist` metadata probe. The URL is the final, separate argv. */
 export function probeArgs(url: string): string[] {
   return ['-J', '--no-playlist', '--no-warnings', '--no-progress', '--', url];
+}
+
+/**
+ * A line yt-dlp prints once the file is in its final place, describing **what it
+ * actually got** rather than what the page advertises.
+ *
+ * This is load-bearing for honesty. The old code re-probed the URL after the
+ * download and reported the *source's* dimensions, so a companion that had
+ * fallen back to a 360p rendition still told the app "1080p". Now the app can
+ * show the height it really has.
+ *
+ * `\x1f` (ASCII unit separator) is the delimiter because it cannot occur in any
+ * of these fields, unlike a space, a tab or a pipe — video titles contain all
+ * three.
+ */
+export const META_SENTINEL = 'KHMETA';
+export const META_SEPARATOR = '\u001f';
+
+/**
+ * `after_move:` runs after the merge and the remux, so `filepath` is the real
+ * final name — which matters, because a merge yt-dlp cannot fit into mp4 lands
+ * beside `destFile` under a different extension.
+ */
+export const META_PRINT_TEMPLATE = [
+  `after_move:${META_SENTINEL}`,
+  '%(width)s',
+  '%(height)s',
+  '%(fps)s',
+  '%(format_id)s',
+  '%(duration)s',
+  '%(thumbnail)s',
+  '%(filepath)s',
+  // Last, so a title containing the separator cannot shift any other field.
+  '%(title)s',
+].join(META_SEPARATOR);
+
+export interface DownloadMeta extends ProbeInfo {
+  formatId?: string;
+  filepath?: string;
+}
+
+function field(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const text = value.trim();
+  // yt-dlp writes the literal string `NA` for a field it does not have.
+  return text === '' || text === 'NA' ? undefined : text;
+}
+
+function numeric(value: string | undefined): number | undefined {
+  const text = field(value);
+  if (text === undefined) return undefined;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Pulls {@link META_PRINT_TEMPLATE}'s line back out of a download's stdout. */
+export function parseDownloadMeta(stdout: string): DownloadMeta | null {
+  const prefix = `${META_SENTINEL}${META_SEPARATOR}`;
+  const line = stdout
+    .split('\n')
+    .reverse()
+    .find((l) => l.trimStart().startsWith(prefix));
+  if (line === undefined) return null;
+
+  const parts = line.trimStart().slice(prefix.length).split(META_SEPARATOR);
+  const meta: DownloadMeta = {};
+  const width = numeric(parts[0]);
+  const height = numeric(parts[1]);
+  const fps = numeric(parts[2]);
+  const formatId = field(parts[3]);
+  const durationSec = numeric(parts[4]);
+  const thumbUrl = field(parts[5]);
+  const filepath = field(parts[6]);
+  // Anything past the last field is a title that contained the separator.
+  const title = field(parts.slice(7).join(META_SEPARATOR));
+
+  if (width !== undefined) meta.width = width;
+  if (height !== undefined) meta.height = height;
+  if (fps !== undefined) meta.fps = fps;
+  if (formatId !== undefined) meta.formatId = formatId;
+  if (durationSec !== undefined) meta.durationSec = durationSec;
+  if (thumbUrl !== undefined) meta.thumbUrl = thumbUrl;
+  if (filepath !== undefined) meta.filepath = filepath;
+  if (title !== undefined) meta.title = title;
+  return meta;
 }
 
 export function downloadArgs(req: FetchRequest, selector: string, ffmpegPath?: string): string[] {
@@ -116,6 +241,12 @@ export function downloadArgs(req: FetchRequest, selector: string, ffmpegPath?: s
     selector,
     '-o',
     req.destFile,
+    // `--print` implies `--simulate`; `--no-simulate` takes the download back.
+    // Order does not matter to yt-dlp, but keeping them adjacent keeps the pair
+    // from being split up by a later edit.
+    '--no-simulate',
+    '--print',
+    META_PRINT_TEMPLATE,
     '--',
     req.url,
   ];
@@ -125,71 +256,8 @@ export function downloadArgs(req: FetchRequest, selector: string, ffmpegPath?: s
 // Process plumbing
 // ---------------------------------------------------------------------------
 
-const MAX_STDOUT_BYTES = 32 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 45_000;
 const DOWNLOAD_TIMEOUT_MS = 30 * 60_000;
-
-export interface RunResult {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
-
-function run(
-  bin: string,
-  args: string[],
-  opts: { timeoutMs: number; signal?: AbortSignal },
-): Promise<RunResult> {
-  return new Promise<RunResult>((resolve, reject) => {
-    // `shell: false` is the default and is spelled out because the whole
-    // security story of this file rests on it.
-    const child = spawn(bin, args, { shell: false, windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-
-    const finish = (fn: () => void): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      opts.signal?.removeEventListener('abort', onAbort);
-      fn();
-    };
-
-    const onAbort = (): void => {
-      child.kill('SIGKILL');
-      finish(() => {
-        reject(new MediaError('internal', 'Cancelled.'));
-      });
-    };
-
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish(() => {
-        reject(new MediaError('upstream-failed', 'yt-dlp timed out.'));
-      });
-    }, opts.timeoutMs);
-
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (stdout.length < MAX_STDOUT_BYTES) stdout += chunk.toString('utf8');
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderr.length < MAX_STDOUT_BYTES) stderr += chunk.toString('utf8');
-    });
-    child.on('error', (err: Error) => {
-      finish(() => {
-        reject(new MediaError('upstream-failed', `yt-dlp could not be started: ${err.message}`));
-      });
-    });
-    child.on('close', (code) => {
-      finish(() => {
-        resolve({ code, stdout, stderr });
-      });
-    });
-
-    opts.signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
 
 /** yt-dlp says a lot; only a few things are worth a distinct contract code. */
 export function classifyStderr(stderr: string): ResolverErrorCode {
@@ -199,6 +267,7 @@ export function classifyStderr(stderr: string): ResolverErrorCode {
   }
   if (
     text.includes('video unavailable') ||
+    text.includes('this video is unavailable') ||
     text.includes('404') ||
     text.includes('does not exist') ||
     text.includes('removed by the uploader')
@@ -214,6 +283,40 @@ export function classifyStderr(stderr: string): ResolverErrorCode {
     return 'forbidden';
   }
   return 'upstream-failed';
+}
+
+/**
+ * The message a person reads. Raw yt-dlp stderr is written for someone
+ * debugging yt-dlp, and the format failures in particular ("Requested format is
+ * not available. Use --list-formats…") send the reader off to a flag that does
+ * not exist on this program.
+ *
+ * Only the cases where the raw text actively misleads are rewritten. Everything
+ * else is passed through, trimmed, because a real error message beats a vague
+ * one that was written months before the failure.
+ */
+export function explainStderr(stderr: string): string {
+  const text = stderr.toLowerCase();
+  if (text.includes('requested format is not available') || text.includes('requested format not')) {
+    return (
+      'That source offers no format this companion can use. This is usually a sign that ' +
+      'ffmpeg is missing and the site only publishes separate video and audio streams — ' +
+      'install ffmpeg, or pass --ffmpeg <path>, and try again.'
+    );
+  }
+  if (text.includes('no video formats found') || text.includes('no formats found')) {
+    return 'That page has no video on it that yt-dlp can see.';
+  }
+  if (text.includes('ffmpeg is not installed') || text.includes('ffmpeg not found')) {
+    return 'This download needed ffmpeg to join its video and audio streams, and ffmpeg is not installed.';
+  }
+  const trimmed = stderr.trim();
+  return trimmed === '' ? 'yt-dlp failed without saying why.' : trimmed.slice(0, 300);
+}
+
+/** Both halves of a yt-dlp failure, mapped onto the contract in one place. */
+function failure(stderr: string): MediaError {
+  return new MediaError(classifyStderr(stderr), explainStderr(stderr));
 }
 
 interface RawInfo {
@@ -245,6 +348,49 @@ export function parseProbe(stdout: string): ProbeInfo {
 }
 
 // ---------------------------------------------------------------------------
+// What actually landed on disk
+// ---------------------------------------------------------------------------
+
+/**
+ * The container, read from the file's own first bytes.
+ *
+ * The companion used to hard-code `video/mp4` on every fetch. `--merge-output-format
+ * mp4` makes that true almost always — but "almost" is the problem: when ffmpeg
+ * cannot put the chosen codecs in an mp4 it writes a Matroska instead, and a
+ * `<video>` element told `video/mp4` about a WebM fails at playback time, on the
+ * panel, with no diagnostic. Reading the magic bytes costs one 16-byte read and
+ * removes the possibility of lying.
+ */
+export function sniffContainerMime(head: Uint8Array): string {
+  if (head.length >= 8) {
+    const brand = Buffer.from(head.subarray(4, 8)).toString('ascii');
+    if (brand === 'ftyp') return 'video/mp4';
+  }
+  // EBML — Matroska and WebM share it. WebM is the one browsers accept.
+  if (
+    head.length >= 4 &&
+    head[0] === 0x1a &&
+    head[1] === 0x45 &&
+    head[2] === 0xdf &&
+    head[3] === 0xa3
+  ) {
+    return 'video/webm';
+  }
+  return 'video/mp4';
+}
+
+async function readHead(path: string, bytes = 16): Promise<Uint8Array> {
+  const handle = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Binary discovery and verified auto-download
 // ---------------------------------------------------------------------------
 
@@ -257,29 +403,8 @@ export function ytDlpAssetName(platform: NodeJS.Platform, arch: string): string 
   return 'yt-dlp_linux';
 }
 
-/**
- * The `SHA2-256SUMS` file the release ships: `<sha256>␠␠<asset>` per line.
- * Returns `null` when the asset is absent, which must be treated as a failure —
- * "no digest published" is never a reason to install the bytes anyway.
- */
-export function digestFor(sums: string, asset: string): string | null {
-  for (const line of sums.split('\n')) {
-    const parts = line.trim().split(/\s+/);
-    if (parts.length >= 2 && parts[1] === asset && typeof parts[0] === 'string') {
-      return parts[0].toLowerCase();
-    }
-  }
-  return null;
-}
-
 export const YT_DLP_RELEASE_BASE = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download';
-
-/** The shape of {@link run}, so the PATH probe can be stubbed in a unit test. */
-export type Runner = (
-  bin: string,
-  args: string[],
-  opts: { timeoutMs: number; signal?: AbortSignal },
-) => Promise<RunResult>;
+export const YT_DLP_SUMS_FILE = 'SHA2-256SUMS';
 
 export interface EnsureBinaryOptions {
   cacheDir: string;
@@ -291,24 +416,6 @@ export interface EnsureBinaryOptions {
   env?: NodeJS.ProcessEnv;
   /** Injection seam for the PATH probe; defaults to a real `spawn`. */
   runImpl?: Runner;
-}
-
-/** The environment kill switches. Both mean "never touch the network". */
-export function autoDownloadRefused(env: NodeJS.ProcessEnv): string | null {
-  if (env['KRAKEN_HUB_RESOLVER_NO_DOWNLOAD'] === '1') {
-    return 'KRAKEN_HUB_RESOLVER_NO_DOWNLOAD=1';
-  }
-  if (typeof env['CI'] === 'string' && env['CI'] !== '' && env['CI'] !== 'false') {
-    return 'CI';
-  }
-  return null;
-}
-
-async function isExecutable(path: string): Promise<boolean> {
-  return stat(path).then(
-    (s) => s.isFile(),
-    () => false,
-  );
 }
 
 /** How long the `yt-dlp --version` PATH probe may take before it counts as absent. */
@@ -373,30 +480,13 @@ export async function ensureYtDlpBinary(opts: EnsureBinaryOptions): Promise<stri
     );
   }
 
-  const doFetch = opts.fetchImpl ?? globalThis.fetch;
   log.info(`downloading ${asset} from the yt-dlp release (checksum-verified)…`);
-
-  const sumsRes = await doFetch(`${YT_DLP_RELEASE_BASE}/SHA2-256SUMS`);
-  if (!sumsRes.ok) {
-    throw new MediaError('upstream-failed', 'Could not fetch the yt-dlp checksum file.');
-  }
-  const expected = digestFor(await sumsRes.text(), asset);
-  if (expected === null) {
-    throw new MediaError('upstream-failed', `The release publishes no digest for ${asset}.`);
-  }
-
-  const binRes = await doFetch(`${YT_DLP_RELEASE_BASE}/${asset}`);
-  if (!binRes.ok) {
-    throw new MediaError('upstream-failed', `Could not download ${asset}.`);
-  }
-  const bytes = Buffer.from(await binRes.arrayBuffer());
-  const actual = createHash('sha256').update(bytes).digest('hex');
-  if (actual !== expected) {
-    throw new MediaError(
-      'upstream-failed',
-      `Checksum mismatch for ${asset} — refusing to install it.`,
-    );
-  }
+  const bytes = await fetchVerifiedAsset({
+    base: YT_DLP_RELEASE_BASE,
+    asset,
+    sumsFile: YT_DLP_SUMS_FILE,
+    fetchImpl: opts.fetchImpl ?? globalThis.fetch,
+  });
 
   await mkdir(binDir, { recursive: true });
   const tmp = `${local}.download`;
@@ -405,15 +495,6 @@ export async function ensureYtDlpBinary(opts: EnsureBinaryOptions): Promise<stri
   await rename(tmp, local);
   log.info(`yt-dlp installed at ${local}`);
   return local;
-}
-
-async function findFfmpeg(explicit?: string): Promise<string | undefined> {
-  if (explicit !== undefined && explicit !== '') return explicit;
-  const result = await run(process.platform === 'win32' ? 'where' : 'which', ['ffmpeg'], {
-    timeoutMs: 5000,
-  }).catch(() => null);
-  const first = result?.stdout.split('\n')[0]?.trim();
-  return result?.code === 0 && first !== undefined && first !== '' ? first : undefined;
 }
 
 export interface YtDlpOptions {
@@ -427,7 +508,7 @@ export interface YtDlpOptions {
 export function createYtDlpDownloader(opts: YtDlpOptions): MediaDownloader {
   const log = opts.log ?? silentLogger;
   let binary: Promise<string> | null = null;
-  let ffmpeg: Promise<string | undefined> | null = null;
+  let ffmpeg: Promise<FfmpegResolution> | null = null;
 
   const bin = (): Promise<string> => {
     binary ??= ensureYtDlpBinary({
@@ -439,14 +520,22 @@ export function createYtDlpDownloader(opts: YtDlpOptions): MediaDownloader {
     return binary;
   };
 
+  const ff = (): Promise<FfmpegResolution> => {
+    ffmpeg ??= resolveFfmpeg({
+      cacheDir: opts.cacheDir,
+      allowAutoDownload: opts.allowAutoDownload,
+      log,
+      ...(opts.ffmpegPath === undefined ? {} : { explicitPath: opts.ffmpegPath }),
+    });
+    return ffmpeg;
+  };
+
   const probe = async (url: string, signal?: AbortSignal): Promise<ProbeInfo> => {
     const result = await run(await bin(), probeArgs(url), {
       timeoutMs: PROBE_TIMEOUT_MS,
       ...(signal === undefined ? {} : { signal }),
     });
-    if (result.code !== 0) {
-      throw new MediaError(classifyStderr(result.stderr), result.stderr.trim().slice(0, 300));
-    }
+    if (result.code !== 0) throw failure(result.stderr);
     return parseProbe(result.stdout);
   };
 
@@ -454,32 +543,41 @@ export function createYtDlpDownloader(opts: YtDlpOptions): MediaDownloader {
     probe,
 
     async fetch(req) {
-      ffmpeg ??= findFfmpeg(opts.ffmpegPath);
-      const ffmpegPath = await ffmpeg;
+      const ffmpegInfo = await ff();
       const selector = formatSelector({
         maxHeight: req.maxHeight,
         audio: req.audio,
         prefer: req.prefer,
-        hasFfmpeg: ffmpegPath !== undefined,
+        hasFfmpeg: ffmpegInfo.present,
       });
-      const args = downloadArgs(req, selector, ffmpegPath);
-      log.debug('yt-dlp', selector);
+      const args = downloadArgs(req, selector, ffmpegInfo.location);
+      log.debug(`yt-dlp -f ${selector} (ffmpeg: ${ffmpegInfo.source})`);
       const result = await run(await bin(), args, {
         timeoutMs: DOWNLOAD_TIMEOUT_MS,
         ...(req.signal === undefined ? {} : { signal: req.signal }),
       });
-      if (result.code !== 0) {
-        throw new MediaError(classifyStderr(result.stderr), result.stderr.trim().slice(0, 300));
-      }
-      const info = await stat(req.destFile).catch(() => null);
+      if (result.code !== 0) throw failure(result.stderr);
+
+      // yt-dlp reports where the file ended up. Trust that over `destFile`: a
+      // merge it could not fit into mp4 writes a sibling with another extension,
+      // and stat-ing the name we asked for would report "produced no file".
+      const printed = parseDownloadMeta(result.stdout);
+      const file = printed?.filepath ?? req.destFile;
+      const info = await stat(file).catch(() => null);
       if (info === null || info.size === 0) {
         throw new MediaError('upstream-failed', 'yt-dlp produced no file.');
       }
-      const meta = await probe(req.url, req.signal).catch((): ProbeInfo => ({}));
+
+      // The print line already carries the *selected* format's dimensions, which
+      // is what the app should display. Only fall back to a second network round
+      // trip when yt-dlp printed nothing at all.
+      const meta: ProbeInfo =
+        printed ?? (await probe(req.url, req.signal).catch((): ProbeInfo => ({})));
+
       return {
         ...meta,
-        file: req.destFile,
-        mime: 'video/mp4',
+        file,
+        mime: sniffContainerMime(await readHead(file)),
         kind: 'progressive',
         bytes: info.size,
       };

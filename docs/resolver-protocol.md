@@ -75,13 +75,13 @@ twice and the other CAM window does not pay it either.
 GET /resolve?url=<encoded>&maxHeight=1080&prefer=progressive&audio=0[&token=…]
 ```
 
-| Parameter   | Meaning                                                                                                                       |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `url`       | The page URL the user pasted. Percent-encoded.                                                                                |
-| `maxHeight` | The tallest rendition worth producing. See [§4](#4-how-the-client-chooses-maxheight).                                         |
-| `prefer`    | `progressive` (default) or `any`. Progressive is a single muxed file — the cheapest thing for the client to play and to keep. |
-| `audio`     | `0` or `1`. The Kraken display is always muted, so this is `0` unless the user opted audio in.                                |
-| `token`     | Optional shared secret; see [§5](#5-security-posture). May also travel as `X-Krakenhub-Token`.                                |
+| Parameter   | Meaning                                                                                                                                                                                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`       | The page URL the user pasted. Percent-encoded.                                                                                                                                                                                                                                                                |
+| `maxHeight` | The tallest rendition worth producing. See [§4](#4-how-the-client-chooses-maxheight).                                                                                                                                                                                                                         |
+| `prefer`    | `progressive` (default) or `any`. Progressive is a single muxed file — the cheapest thing for the client to play and to keep. The reference companion satisfies it in the _output_ (an ffmpeg merge produces one file), so both values behave alike; a companion that can return a manifest should honour it. |
+| `audio`     | `0` or `1`. The Kraken display is always muted, so this is `0` unless the user opted audio in.                                                                                                                                                                                                                |
+| `token`     | Optional shared secret; see [§5](#5-security-posture). May also travel as `X-Krakenhub-Token`.                                                                                                                                                                                                                |
 
 **Success:**
 
@@ -135,6 +135,21 @@ unsupported-url | not-found | upstream-failed | rate-limited | forbidden | inter
 A companion must not invent codes. A client that receives an unrecognised one
 maps it to `internal` rather than surfacing it, so an unknown string can never
 reach a user-facing message.
+
+**Format failures are `upstream-failed`.** When the extractor reports that it
+could not satisfy the format request — yt-dlp's `Requested format is not
+available`, or `No video formats found` — it is neither a bad URL
+(`unsupported-url`) nor a missing video (`not-found`): the page is fine and the
+extractor is fine, and only the negotiation between them failed. Misclassifying
+it sends the user to fix the wrong thing.
+
+`message` must say what the _user_ can do about it. The extractor's own text
+here points at `--list-formats`, a flag no companion exposes, so the reference
+implementation replaces it: _"That source offers no format this companion can
+use. This is usually a sign that ffmpeg is missing and the site only publishes
+separate video and audio streams — install ffmpeg, or pass `--ffmpeg <path>`, and
+try again."_ Unrecognised extractor errors are passed through verbatim, because a
+real message beats a vague one written months earlier.
 
 ### `GET /job/<jobId>`
 
@@ -222,8 +237,24 @@ so an independent implementation can match it:
 - Wraps **yt-dlp**, preferring `--yt-dlp <path>`, then a working copy on `PATH`,
   and only then auto-downloading the platform binary **with checksum
   verification**.
-- Uses **ffmpeg** to mux when only adaptive formats exist; when ffmpeg is absent,
-  serves the best _progressive_ format ≤ `maxHeight` rather than failing.
+- Uses **ffmpeg** to mux when only adaptive formats exist, and finds it the same
+  way it finds yt-dlp: `--ffmpeg <path>`, then `PATH`, then a cached copy, then —
+  **Windows only** — a checksum-verified download from the yt-dlp FFmpeg-Builds
+  release. Unix installs it through a package manager instead.
+- **Never fails while the source has any format containing video.** This is a
+  requirement on the format ladder, not a nicety: on YouTube there is usually no
+  format that carries video and audio in one file, so a selector built only from
+  yt-dlp's `best`/`b` (which means "already muxed") matches nothing and the
+  extractor exits with `Requested format is not available`. Every branch of the
+  ladder therefore ends in an unconstrained video-only rung. Without ffmpeg the
+  result is a single file — often silent, occasionally lower resolution — rather
+  than an error.
+- **Reports what it got, not what the page advertises.** `width` / `height` /
+  `fps` in the `ok` envelope describe the rendition actually downloaded, so a
+  client can show the user that a 1080p request came back as 360p.
+- **Derives `mime` from the delivered file's own magic bytes.** A companion must
+  not hard-code `video/mp4`: `--merge-output-format mp4` governs merges, and a
+  source whose single rendition is a WebM is written through untouched.
 - Answers **202 + `/job` polling** while a download is in flight — never blocks a
   request for minutes.
 - **LRU disk cache**, default 4 GB, in the OS cache directory, with eviction.

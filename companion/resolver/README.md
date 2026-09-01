@@ -66,9 +66,25 @@ npm run smoke:sea --workspace kraken-hub-resolver   # starts it and drives the v
 **Requirements (from a clone):** Node ≥ 20. The exe needs nothing at all. `yt-dlp` is found in this order: an explicit
 `--yt-dlp <path>`, then a working `yt-dlp` on your `PATH` (probed with
 `--version`), then a previously auto-downloaded copy, then a checksum-verified
-download (see below). `ffmpeg` is optional — with it, sources
-that only publish separate video and audio streams can be muxed; without it, the
-best _progressive_ rendition ≤ `maxHeight` is used instead of failing.
+download (see below).
+
+`ffmpeg` is found the same way: `--ffmpeg <path>`, then a working `ffmpeg` on
+`PATH`, then a cached copy, and **on Windows** a checksum-verified download from
+the [yt-dlp FFmpeg-Builds][ffbuilds] release. On macOS and Linux there is no
+auto-download: a package manager (`brew install ffmpeg`, or your distro's) is
+both the expected route and the better one, because a system package keeps
+getting security updates and a blob in a cache directory does not.
+
+**ffmpeg is not required, and a missing one never fails a resolve.** It is worth
+having anyway. YouTube publishes no combined video+audio format for most uploads
+— separate video-only and audio-only streams and nothing else — so joining them
+is the only way past whatever single file happens to exist. With ffmpeg you get
+the best rendition ≤ `maxHeight`, with sound. Without it you get the best single
+file, which is usually a silent video-only stream at full resolution, and
+occasionally a low-resolution one. The companion reports the height it actually
+got, so the app can show you which you have.
+
+[ffbuilds]: https://github.com/yt-dlp/FFmpeg-Builds
 
 ## Flags
 
@@ -80,7 +96,7 @@ best _progressive_ rendition ≤ `maxHeight` is used instead of failing.
 | `--token <secret>`   | none                  | Require `?token=` / `X-Krakenhub-Token` on every request.       |
 | `--max-height <n>`   | `2160`                | The tallest rendition this companion will ever produce.         |
 | `--yt-dlp <path>`    | `PATH`, else download | Use a specific yt-dlp. Otherwise `PATH` wins over the download. |
-| `--ffmpeg <path>`    | auto (`which ffmpeg`) | Use a specific ffmpeg for muxing.                               |
+| `--ffmpeg <path>`    | `PATH`, else download | Use a specific ffmpeg for muxing. Windows auto-downloads one.   |
 | `--log-level <l>`    | `info`                | `silent` \| `error` \| `warn` \| `info` \| `debug`.             |
 
 Plus two Windows-only actions that do not start the server:
@@ -112,12 +128,16 @@ because that is true — not to make it sound smaller.
   hand it a URL and have it fetch that URL for you.
 - **It is rate-limited** to 10 resolves a minute per caller and never runs more
   than 2 extractor processes at once.
-- **The yt-dlp binary is checksum-verified.** Your own `PATH` install is
+- **Every binary it installs is checksum-verified.** Your own `PATH` install is
   preferred and used as-is; only when there is none does the companion download
   the platform asset from the official GitHub release _together with_ that release's
-  `SHA2-256SUMS`, and refuses to install a byte that does not match. Auto-download
-  is skipped entirely when `CI` or `KRAKEN_HUB_RESOLVER_NO_DOWNLOAD=1` is set —
-  the test suite has never contacted the network and never will.
+  checksum manifest, and refuses to install a byte that does not match. That is
+  yt-dlp's `SHA2-256SUMS`, and — on Windows only — FFmpeg-Builds'
+  `checksums.sha256`. The ffmpeg archive gets a second check on the way out: each
+  file's CRC and declared length are verified as it is unpacked, so a partially
+  extracted executable is an error rather than a broken exe. Auto-download is
+  skipped entirely when `CI` or `KRAKEN_HUB_RESOLVER_NO_DOWNLOAD=1` is set — the
+  test suite has never contacted the network and never will.
 - **`--token` closes it off completely** if you want it closed. When set, every
   endpoint demands the token, and the minted `streamUrl` carries it so the app
   keeps working unchanged.
@@ -158,6 +178,26 @@ There is no `yt-dlp` on your `PATH` and you are running with `CI` or
 `KRAKEN_HUB_RESOLVER_NO_DOWNLOAD=1` in the environment. Install yt-dlp — putting
 it on `PATH` is enough — or point at it: `--yt-dlp /path/to/yt-dlp`.
 
+**`Requested format is not available`, or "that source offers no format this
+companion can use".**
+Update the companion first — versions before this fix asked yt-dlp for a format
+that carries video _and_ audio in one file, and YouTube has stopped publishing
+one for most uploads, so the request matched nothing and failed outright. The
+current ladder always falls back to a single-file format instead. If you still
+see it after updating, the source genuinely has no video stream yt-dlp can read
+(a live stream that has not started, a members-only upload, or a page that is not
+a video at all). Installing ffmpeg is the fix worth doing either way: it is what
+lets the companion join separate video and audio streams instead of settling for
+whatever single file exists.
+
+**The video has no sound.**
+There is no ffmpeg on this machine, so the companion took the best _single_
+format — and on YouTube that is usually a video-only stream. Put `ffmpeg` on your
+`PATH` (`brew install ffmpeg`, `apt install ffmpeg`, `winget install ffmpeg`) or
+pass `--ffmpeg <path>`; on Windows the companion will fetch one for itself if you
+do neither. Note that the Kraken panel has no speaker, so this only matters if
+you are asking for audio (`audio=1`) on purpose.
+
 **Everything resolves, but the video is only 720p.**
 That is deliberate. The app asks for the smallest rung of the delivery ladder
 that covers its panel — a 640×640 Kraken Elite asks for 1080, never 2160.
@@ -169,6 +209,12 @@ Usually an out-of-date extractor. If it came from `PATH`, update it there
 (`yt-dlp -U`, or your package manager). Otherwise delete the cached binary
 (`<cache-dir>/bin/yt-dlp*`) and restart to fetch the current release, or pass a
 `--yt-dlp` you keep updated yourself.
+
+**`could not install ffmpeg … continuing without it, at reduced quality`.**
+A warning, not an error — the resolve went through. GitHub was unreachable, or
+the download did not match its published digest, so the companion refused it and
+fell back to single-file formats. Retry later, or install ffmpeg yourself and put
+it on `PATH`. To force a fresh attempt, delete `<cache-dir>/bin/ffmpeg*`.
 
 **Downloads stop after a while.**
 The cache is capped (`--max-cache-gb`, 4 GB by default) and evicts the

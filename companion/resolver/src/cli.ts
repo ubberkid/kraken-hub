@@ -178,7 +178,10 @@ export const USAGE = `${PACKAGE_NAME} ${VERSION}
   --token <secret>      Require ?token= / X-Krakenhub-Token on every request
   --max-height <n>      The tallest rendition this companion will produce (default ${String(DEFAULT_MAX_HEIGHT)})
   --yt-dlp <path>       Use this yt-dlp binary instead of downloading one
-  --ffmpeg <path>       Use this ffmpeg binary for muxing adaptive formats
+  --ffmpeg <path>       Use this ffmpeg binary for muxing adaptive formats.
+                        Without it: PATH, then a cached copy, then (Windows
+                        only) a checksum-verified download. No ffmpeg anywhere
+                        still works — it just caps the quality YouTube can give.
   --log-level <level>   silent | error | warn | info | debug (default info)
   --version, --help
 

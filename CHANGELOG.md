@@ -667,6 +667,90 @@ companion/resolver/dist/cli.js` — is the documented fallback for macOS, Linux
 
 ### Fixed
 
+- **YouTube failed outright on every machine without ffmpeg:
+  `Requested format is not available`.** Reported from a Windows PC running the
+  real companion exe, on ordinary YouTube links. The cause was one letter of
+  yt-dlp's selector language. `b` (`best`) does not mean "the best format"; it
+  means "the best format that _already_ carries video and audio in one file".
+  Every rung of the shipped ladder was a `best` —
+  `best[height<=?H][vcodec!=none]/best[height<=?H]/best` — and a present-day
+  YouTube watch page publishes no such format at all, not even the 360p `itag 18`
+  everything used to fall back to. So all three rungs matched nothing and yt-dlp
+  exited non-zero. The height filter was fine and the fallback chain was fine;
+  the chain simply had no rung that could ever match an adaptive-only source,
+  which is what
+  [`docs/design/research/research-youtubePlayback.md`](docs/design/research/research-youtubePlayback.md)
+  had already documented YouTube as being. CI never caught it because the whole
+  suite injects a stub downloader and the one live test required ffmpeg to be
+  installed before it would run — so the branch that broke was the branch no test
+  could reach.
+  - **The ladder now ends in a video-only rung on every branch**
+    (`companion/resolver/src/ytdlp.ts`). With ffmpeg and audio requested:
+    `bv*[height<=?H]+ba/b[height<=?H]/bv*[height<=?H]/bv*+ba/b/bv*`. Without
+    ffmpeg: `b[height<=?H]/bv*[height<=?H]/b/bv*` — no `+`, because nothing would
+    be there to join the two streams. When the caller did not ask for audio at
+    all (the Kraken panel has no speaker, so this is the common case):
+    `bv*[height<=?H]/b[height<=?H]/bv*`, which needs no merge and therefore no
+    ffmpeg. The invariant is a unit test in its own right: **no branch may
+    terminate in a rung that requires a muxed format.**
+  - **`upstream-failed` now says something a person can act on.** yt-dlp's text
+    sends the reader to `--list-formats`, a flag this program does not have.
+    `explainStderr` replaces the format failures — and only those — with a
+    message naming ffmpeg as the likely cause; anything unrecognised is still
+    passed through verbatim.
+
+- **The companion installs ffmpeg for itself on Windows.** The ladder above stops
+  the hard failure, but without ffmpeg the best YouTube can offer is one file —
+  usually a silent video-only stream. A user who double-clicked an exe has no
+  ffmpeg and no reason to want one, so the companion now finds it the way it
+  already found yt-dlp: `--ffmpeg <path>`, then `PATH` (verified by running
+  `ffmpeg -version`, not by checking for a file), then a cached copy, then a
+  checksum-verified download of the static `win64-gpl` build from the yt-dlp
+  FFmpeg-Builds release, extracted into `<cache-dir>/bin`
+  (`companion/resolver/src/ffmpeg.ts`). Refused under `CI` and
+  `KRAKEN_HUB_RESOLVER_NO_DOWNLOAD=1` like every other download, and **a failed
+  install is a warning, not a failed resolve** — it degrades to the no-ffmpeg
+  branch. macOS and Linux resolve from `--ffmpeg`/`PATH` only, deliberately: a
+  package manager keeps ffmpeg patched and a blob in a cache directory does not.
+  - Those builds ship as `.zip`, and `node:zlib` decompresses streams but knows
+    nothing about ZIP's container, so `companion/resolver/src/unzip.ts` reads the
+    central directory and inflates one entry — rather than take a runtime
+    dependency on a package whose whole job is to unpack the file this program is
+    about to execute. It refuses ZIP64, encryption, unknown compression methods
+    and truncated archives, streams the 145 MB executable to disk instead of
+    buffering it, and verifies each entry's CRC and declared length on the way
+    out. Entry names are never turned into paths: the destination is named by the
+    caller and entries are matched by exact suffix, so a crafted archive cannot
+    write outside the cache directory.
+
+- **The companion reported the page's resolution, not the one it downloaded.**
+  `fetch` re-probed the URL after the download and returned _that_ metadata, so a
+  resolve that had quietly fallen back to a lower rendition still answered
+  `height: 1080`. It now asks yt-dlp to print the selected format's real
+  dimensions once the file is in place (`--print after_move:…`, parsed by
+  `parseDownloadMeta`), which also removes a second network round trip per
+  resolve. `filepath` comes back the same way, so a merge that landed under a
+  different extension is found instead of being reported as "yt-dlp produced no
+  file".
+
+- **The companion promised `video/mp4` for files that were not mp4.**
+  `mime` was hard-coded on every fetch. `--merge-output-format mp4` governs
+  _merges_ — a source whose only rendition is a WebM is written through
+  untouched, under the `.mp4` name the cache minted. It is now read from the
+  file's own magic bytes (`sniffContainerMime`), so the envelope, the cache
+  record and `/stream`'s `Content-Type` cannot disagree with the bytes. Found by
+  the live test the moment it was made to assert this rather than assume it: the
+  Wikimedia fixture it has always used is one of these files.
+
+- **The one live test that could have caught any of this never passed.** It was
+  gated on ffmpeg being installed — which meant the no-ffmpeg branch, the one
+  that broke, was unreachable by construction — and its opaque-id assertion
+  checked `<id>.mp4` against a regex for `<id>`, so it could not have gone green
+  even when run. Both fixed, and it gained a case that resolves all four rungs of
+  the ladder against a real adaptive-only YouTube URL under `--simulate`, plus
+  one that asserts **the selector that shipped still fails**, so the regression
+  suite goes red if it ever stops proving anything.
+
 - **The companion's cache-directory test only passed on the machine that wrote
   it.** `defaultCacheDir` assembles its answer with `node:path`'s `join`, which
   emits the **host's** separator no matter which platform it is asked about, so
