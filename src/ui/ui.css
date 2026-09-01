@@ -476,13 +476,20 @@ html.kh-config-mode .kh-app {
   align-items: center;
 }
 
-/* A heading inside a panel, below the panel's own <h2>. */
-.kh-subhead {
-  margin: 1rem 0 0.25rem;
-  font-size: 0.86rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
+/*
+ * `.kh-subhead` used to be declared here too, as "a heading inside a panel".
+ *
+ * Round 4's F7: two different components wore one class name. Nothing has used
+ * this one since the panels were rewritten — the in-panel heading is
+ * `.kh-subhead3`, further down — but the declarations were not dead, because
+ * `.kh-subhead` is ALSO the sub-page breadcrumb (see "Sub-page navigation" near
+ * the foot of this file). So a rule written for a heading was silently setting
+ * the navigation's font size, weight and letter spacing, from 1,500 lines away,
+ * and the breadcrumb's own block only overrode two of the four.
+ *
+ * One name, one component. The heading's declarations are deleted rather than
+ * renamed because there is no heading left to style.
+ */
 
 .kh-list {
   display: grid;
@@ -774,9 +781,21 @@ html.kh-config-mode .kh-app {
     padding: 0.75rem 0;
   }
 
-  /* Breathing room: four chips edge-to-edge on a 390 px screen read as a
-     segmented control, which is not what they are. */
-  .kh-mods {
+  /*
+   * Breathing room: four chips edge-to-edge on a 390 px screen read as a
+   * segmented control, which is not what they are.
+   *
+   * Qualified by `.kh-home`, and that is load-bearing — round 4's F7. This rule
+   * shipped unqualified, twenty-five lines below the comment block that warns
+   * about exactly this failure, and its `gap` was dead: `.kh-mods` is declared
+   * again at (0,1,0) further down the file, so the later declaration won and
+   * every phone got 8 px where the design asked for 10. The ancestor makes this
+   * (0,2,0), which beats a later equal-specificity rule wherever it sits.
+   *
+   * `scripts/check-invariants.mjs` now fails the build on this shape rather
+   * than leaving it to the next audit to measure.
+   */
+  .kh-home .kh-mods {
     gap: 10px 12px;
     padding: 0 0.25rem;
   }
@@ -864,14 +883,14 @@ html.kh-config-mode .kh-app {
  */
 @media (max-height: 640px) {
   .kh-shell {
-    padding: 0.7rem 1.25rem;
-    gap: 0.55rem;
+    padding: 0.6rem 1.25rem;
+    gap: 0.45rem;
   }
 
   /* The wordmark is a link home; at 537 px it does not also need a rule under
      it and a full line of leading above the screen it names. */
   .kh-header {
-    padding-bottom: 0.4rem;
+    padding-bottom: 0.3rem;
   }
 
   .kh-header h1 {
@@ -879,7 +898,7 @@ html.kh-config-mode .kh-app {
   }
 
   .kh-footer {
-    padding-top: 0.35rem;
+    padding-top: 0.3rem;
   }
 
   .kh-home {
@@ -910,7 +929,7 @@ html.kh-config-mode .kh-app {
   }
 
   .kh-home .kh-more {
-    margin-top: 10px;
+    margin-top: 6px;
   }
 
   /*
@@ -921,8 +940,21 @@ html.kh-config-mode .kh-app {
    * suite now makes, per module.
    */
   .kh-home .kh-disclosure {
-    margin-top: 0.4rem;
-    padding: 0.4rem 0.85rem 0.05rem;
+    margin-top: 0.25rem;
+    padding: 0.3rem 0.85rem 0.05rem;
+  }
+
+  /*
+   * The paste row, while something else has the floor.
+   *
+   * It is still the primary action and it still reads as one; what it stops
+   * being, once the options are open under it, is the tallest control on the
+   * screen. Only at this window, and only while compact.
+   */
+  .kh-home[data-compact='true'] .kh-paste__input,
+  .kh-home[data-compact='true'] .kh-paste .kh-btn {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
   }
 
   .kh-home .kh-disclosure__head {
@@ -980,7 +1012,8 @@ html.kh-config-mode .kh-app {
     padding: 0.35rem 0.8rem;
   }
 
-  .kh-home[data-firstrun='true'] .kh-status {
+  .kh-home[data-firstrun='true'] .kh-status,
+  .kh-home[data-compact='true'] .kh-status {
     margin: 8px 0 2px;
   }
 
@@ -989,15 +1022,57 @@ html.kh-config-mode .kh-app {
   }
 
   .kh-home[data-compact='true'] .kh-mods {
-    margin-top: 6px;
+    margin-top: 5px;
   }
 
   .kh-home[data-compact='true'] .kh-ops {
-    margin-top: 6px;
+    margin-top: 5px;
+  }
+
+  /*
+   * The receipt, compressed like everything else that takes the floor
+   * (round 4, F1).
+   *
+   * The halo yielding its ~120 px is most of the room the ladder needs, and it
+   * is not all of it: three cards at the prototype's own spacing are 202 px, and
+   * with the options panel open underneath them the composition still ran 81 px
+   * past CAM's fold. Same treatment as every other object on this screen at this
+   * window — proportional, nothing rearranged, no card removed. The receipt is
+   * the one thing on the page that is *narration*, so it is also the one thing
+   * that can afford to be quiet while something else is being read.
+   */
+  .kh-home[data-compact='true'] .kh-flow {
+    gap: 5px;
+    margin-top: 8px;
+  }
+
+  .kh-home[data-compact='true'] .kh-step {
+    gap: 9px;
+    padding: 5px 10px;
+  }
+
+  .kh-home[data-compact='true'] .kh-step__ic {
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+
+  .kh-home[data-compact='true'] .kh-step b {
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+
+  .kh-home[data-compact='true'] .kh-step small {
+    font-size: 0.7rem;
+    line-height: 1.3;
+  }
+
+  .kh-home[data-compact='true'] .kh-step .kh-meter {
+    margin-top: 3px;
   }
 
   .kh-home .kh-disclosure .kh-panel {
-    padding: 0.45rem 0.75rem;
+    padding: 0.3rem 0.75rem;
     margin-bottom: 0;
   }
 
@@ -1012,12 +1087,51 @@ html.kh-config-mode .kh-app {
    * page has 537 of.
    */
   .kh-home .kh-disclosure .kh-field {
+    gap: 0.35rem 1rem;
     margin-top: 0.3rem;
-    padding: 0.25rem 0;
+    padding: 0.12rem 0;
   }
 
   .kh-home .kh-disclosure .kh-desc {
     margin-top: 0.1rem;
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  /*
+   * The prose inside the options, at CAM's window (round 4, F1).
+   *
+   * The video panel is not one panel: a YouTube link adds the ads notice and the
+   * bias helper — 73 px of true, useful sentences that no other source shows —
+   * and the round-3 fit assertion only ever opened the options on the DEFAULT
+   * config, which has an empty URL and therefore neither of them. Measured with
+   * a YouTube link in it, the flagship source, the composition ran 75 px past
+   * the fold with nothing on screen to say so.
+   *
+   * Same answer as everywhere else on this screen at this window: the rhythm
+   * compresses, proportionally, and no sentence is removed. The controls keep
+   * their 44 px hit boxes, which is why only type and spacing move here.
+   */
+  .kh-home .kh-disclosure .kh-notice {
+    margin-top: 0.25rem;
+    font-size: 0.74rem;
+    line-height: 1.35;
+  }
+
+  .kh-home .kh-disclosure .kh-hint {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  /* The panel's last word does not also need a paragraph's worth of air under
+     it: the panel's own padding is already there. */
+  .kh-home .kh-disclosure .kh-panel > .kh-hint:last-child {
+    margin-bottom: 0;
+  }
+
+  .kh-home .kh-disclosure .kh-field > label,
+  .kh-home .kh-disclosure .kh-field > .kh-field__lab {
+    font-size: 0.82rem;
   }
 
   .kh-home .kh-disclosure .kh-subhead3 {
@@ -1029,7 +1143,7 @@ html.kh-config-mode .kh-app {
   }
 
   .kh-home .kh-disclosure .kh-details__summary {
-    padding: 0.3rem 0;
+    padding: 0.15rem 0;
   }
 
   .kh-home .kh-disclosure .kh-list--shelf {
@@ -1790,6 +1904,51 @@ html.kh-config-mode .kh-app {
   margin: 0 0 0.75rem;
 }
 
+/*
+ * The way out stays on the screen while the page is taller than the screen
+ * (round 4, F3).
+ *
+ * With Advanced open the composition is a deliberate, honest 1,343 px flow in
+ * CAM's 537 px window — and at the bottom of it the panel's × was 557 px above
+ * the fold. CAM's Configuration Browser has no chrome: no back button, no
+ * address bar, no tab strip. Escape closes the panel from anywhere (see
+ * `HomeView`), and this is the same promise for a pointer: while
+ * `data-advanced` is true the head — the module's name and its × — rides along
+ * the top of the viewport, so an exit is visible at every scroll position.
+ *
+ * Gated on the attribute rather than applied always, because sticky positioning
+ * is only meaningful when there is something to scroll. `data-advanced` is the
+ * app's own statement about which promise the page is making, which makes it
+ * exactly the right condition.
+ */
+.kh-home[data-advanced='true'] .kh-disclosure__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* An opaque ground: the rows underneath scroll THROUGH this, not behind it. */
+  background: var(--kh-panel-2);
+  /* The panel's own padding is above this row; the negative margin lets the
+     ground cover it so nothing shows in the gap. */
+  margin: -0.9rem -1rem 0.75rem;
+  padding: 0.9rem 1rem 0.5rem;
+}
+
+/*
+ * …and the same row, at CAM's window, where the panel's padding is compressed.
+ *
+ * Deliberately AFTER the base rule rather than up in the short-viewport block
+ * with its siblings: this selector is (0,3,0) and so is that one, so putting it
+ * earlier would make it the dead half of exactly the collision
+ * `scripts/check-invariants.mjs` now fails the build on. Source order is the
+ * tie-breaker, so the conditional rule goes second.
+ */
+@media (max-height: 640px) {
+  .kh-home[data-advanced='true'] .kh-disclosure__head {
+    margin: -0.4rem -0.85rem 0.2rem;
+    padding: 0.4rem 0.85rem 0.3rem;
+  }
+}
+
 /* Not `OPTIONS` in a code font any more: this is a word, not a machine string. */
 .kh-disclosure__head h2 {
   margin: 0;
@@ -2497,6 +2656,23 @@ main > .kh-panel .kh-setup {
   color: var(--kh-muted-2);
   font-size: 1.9rem;
   font-weight: 600;
+}
+
+/*
+ * Warm means ONE thing (round 4, F5).
+ *
+ * The identity hue is clamped to the cool band in `libraryItems.tileHue`, so
+ * nothing a user happens to name their file can put an ordinary tile in the
+ * failure colour. This is the other half of that rule: a tile whose copy could
+ * not be kept is warm, on purpose, and it is `data-tile-state` that says so —
+ * a fact about the download, never a hash of the name.
+ *
+ * The rotation is absolute rather than an offset on `--kh-tile-hue`: the point
+ * is that every failed tile looks the same, and identity stops mattering the
+ * moment status does.
+ */
+.kh-tile[data-tile-state='failed'] .kh-tile__thumb--treated {
+  filter: hue-rotate(180deg) saturate(1.35);
 }
 
 .kh-tile__name {

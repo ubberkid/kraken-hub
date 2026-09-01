@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
-import { COPY_HOME, KEEPING_A_COPY_NOW } from '../../../config/vocabulary';
+import { COPY_HOME, KEEPING_A_COPY_NOW, KEPT_VERB, NOTHING_KEPT } from '../../../config/vocabulary';
 import { imageModule } from '../../../modules/image';
 import {
   deleteImage,
@@ -38,7 +38,13 @@ import { validateVideoConfig } from '../../../modules/video/types';
 import { withModuleConfig } from '../../../state/selectors';
 import { Button, Chip, Meter, Notice } from '../../../ui';
 import { failureLine } from '../homeState';
-import { buildLibraryTiles, formatBytes, tileDetail, type LibraryTile } from '../libraryItems';
+import {
+  buildLibraryTiles,
+  formatBytes,
+  tileDetail,
+  tileHue,
+  type LibraryTile,
+} from '../libraryItems';
 import { submitVideoLink } from '../pasteLink';
 
 import type { ConfigRuntime } from '../runtime';
@@ -127,22 +133,25 @@ function TreatedArt({ name }: { name: string }) {
   // renders one character instead of half a surrogate pair.
   const first = trimmed.codePointAt(0);
   const initial = first === undefined ? '?' : String.fromCodePoint(first).toUpperCase();
-  let hash = 0;
-  for (const ch of trimmed) hash = (hash * HUE_MIX + (ch.codePointAt(0) ?? 0)) % HUE_STEPS;
   return (
     <div
       className="kh-tile__thumb kh-tile__thumb--treated"
       data-testid="tile-treated"
-      style={{ '--kh-tile-hue': `${String(hash)}deg` } as CSSProperties}
+      /*
+        A cool hue, always (round 4, F5).
+
+        The rotation used to be `hash % 360` — a full turn — so a name could put
+        an ordinary clip in red or amber, which are this product's failure
+        colours and nothing else. `libraryItems.tileHue` clamps the hash into
+        blue → teal → violet; the warm end is spoken for by `data-tile-state`,
+        in the stylesheet, and means exactly one thing.
+      */
+      style={{ '--kh-tile-hue': `${String(tileHue(trimmed))}deg` } as CSSProperties}
     >
       <span aria-hidden="true">{initial}</span>
     </div>
   );
 }
-
-/** Small odd multiplier plus a full turn of hue: cheap, stable, no collisions that matter. */
-const HUE_MIX = 31;
-const HUE_STEPS = 360;
 
 /**
  * Clips whose thumbnail we have already tried to generate, this page load.
@@ -463,7 +472,10 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
       <div className="kh-library__head">
         <div>
           <h2>Your library</h2>
-          <p className="kh-hint">Kept {COPY_HOME}, inside CAM’s own browser storage.</p>
+          <p className="kh-hint">
+            {`${KEPT_VERB.charAt(0).toUpperCase()}${KEPT_VERB.slice(1)}`} {COPY_HOME}, inside CAM’s
+            own browser storage.
+          </p>
         </div>
         <button
           type="button"
@@ -610,7 +622,17 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
 
       {tiles.length === 0 ? (
         <div className="kh-empty" data-testid="library-empty">
-          <p className="kh-empty__title">Nothing saved yet</p>
+          {/*
+            One verb, and no apology (round 4, F4 and the "…yet" sweep).
+
+            This card said "Nothing saved yet", the header two rows up said
+            things were **Kept** here, and the meter below said "Nothing stored
+            yet" — three verbs for one act, within 200 px, plus two "yet"s
+            apologising for a resting state that is simply what is true. The
+            verb is `vocabulary.KEPT_VERB` on all three now, and an empty shelf
+            describes itself in the present tense.
+          */}
+          <p className="kh-empty__title">{NOTHING_KEPT}</p>
           {/*
             One sentence, and it does not describe its own buttons.
 
@@ -650,7 +672,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
             quota === null || quota.quotaBytes <= 0
               ? 'space in use — unknown'
               : quota.usageBytes <= 0
-                ? `Nothing stored yet — ${mb(quota.quotaBytes)} available`
+                ? `Nothing ${KEPT_VERB} — ${mb(quota.quotaBytes)} available`
                 : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
           }
         />

@@ -123,7 +123,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           {library.length === 0 ? (
             /* Empty needs one line, not a heading over a paragraph saying the
                heading has nothing under it. */
-            <p className="kh-hint">Your pictures — nothing kept yet.</p>
+            <p className="kh-hint">Your pictures — the shelf is empty.</p>
           ) : (
             <ul className="kh-list kh-list--shelf" aria-label="Your pictures">
               {library.map((row) => (

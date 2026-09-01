@@ -241,7 +241,10 @@ export function describeQuality(cfg: QualityConfig, readout: QualityReadout): st
     if (nowText === null) return `${qualityLabel(cfg.height)} (asked)${suffix}`;
     return `${nowText}${suffix}`;
   }
-  if (nowText === null) return `Auto${suffix === '' ? '' : suffix} — quality not reported yet`;
+  // Just "Auto". The trailing "— quality not reported yet" was an apology for
+  // the setting doing exactly what it says: the display picks. There is nothing
+  // for the reader to do about it and nothing being waited for (round 4, minors).
+  if (nowText === null) return `Auto${suffix}`;
   return `Auto — ${nowText} right now${suffix}`;
 }
 

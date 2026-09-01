@@ -5,11 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   COPY_HOME,
+  FLAT_COLOURS_WHY,
   KEEPING_A_COPY,
   KEEPING_A_COPY_NOW,
   KEEP_A_COPY,
   KEEP_A_COPY_LABEL,
   KEPT_A_COPY,
+  KEPT_VERB,
+  NOTHING_KEPT,
   RETIRED_PHRASES,
   STREAM_ONLY,
 } from './vocabulary';
@@ -83,6 +86,9 @@ const SINGLE_SOURCE: readonly string[] = [
   STREAM_ONLY,
   KEEPING_A_COPY_NOW,
   KEPT_A_COPY,
+  // Round 4, F4 — the two families that were hand-written twice.
+  NOTHING_KEPT,
+  FLAT_COLOURS_WHY,
 ];
 
 describe('the app has one vocabulary', () => {
@@ -105,6 +111,28 @@ describe('the app has one vocabulary', () => {
       expect(offenders).toEqual([]);
     });
   }
+
+  /**
+   * Round 4's F4, as a rule rather than three string fixes.
+   *
+   * The Library said **Kept**, **saved** and **stored** about one act, in three
+   * places on one screen. The verb is a constant now, and the two other verbs
+   * are banned in the shapes they actually appeared in (`RETIRED_PHRASES`
+   * carries "Nothing saved" and "Nothing stored"); this pins the composition so
+   * a fourth spelling cannot be introduced by editing the constant alone.
+   */
+  it('the library keeps things, and only keeps them', () => {
+    expect(NOTHING_KEPT).toContain(KEPT_VERB);
+    expect(KEPT_A_COPY).toContain(KEPT_VERB);
+    // …and the two verbs it replaced cannot come back through the constant.
+    expect(NOTHING_KEPT).not.toContain('saved');
+    expect(NOTHING_KEPT).not.toContain('stored');
+  });
+
+  /** The frame-rate economics: one sentence, and short enough to belong in a panel. */
+  it('says why the colours are flat in eight words or fewer', () => {
+    expect(FLAT_COLOURS_WHY.split(/\s+/).length).toBeLessThanOrEqual(8);
+  });
 
   it('composes the destination into every phrase that names one', () => {
     expect(KEEPING_A_COPY_NOW).toContain(COPY_HOME);

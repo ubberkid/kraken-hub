@@ -24,14 +24,20 @@ export type Route =
  * them with a wordmark and one quiet disclosure row on the home screen, so the
  * list of sections has exactly one home and it is the home screen itself.
  *
- * Two routes here are deliberately not reachable from any link and exist only
- * so an old bookmark, a doc link or a fork's deep link still resolves:
+ * FOUR of the routes here are deliberately not reachable from any link and
+ * exist only so an old bookmark, a doc link or a fork's deep link still
+ * resolves:
  *
  *  - `preview` — folded into the home screen's live mirror (stage 1);
  *  - `sources` — renamed to `library`, because "sources" is a word from the
- *    architecture and "library" is the word for a shelf of clips.
+ *    architecture and "library" is the word for a shelf of clips;
+ *  - `diag` — merged into `about`, because reading a report and reading what
+ *    this is were always the same errand (round 1, F7);
+ *  - `module/<id>` — the settings page that no longer exists as a page: the
+ *    options resolve on the home screen, with that module active and its panel
+ *    open (round 1, F1).
  *
- * Both redirect in page, by rewriting the hash. Never `location.replace()`:
+ * All four redirect in page, by rewriting the hash. Never `location.replace()`:
  * that IS a navigation, and the Kraken Browser does not follow one (invariant
  * I1/I2). See `ConfigApp`.
  */

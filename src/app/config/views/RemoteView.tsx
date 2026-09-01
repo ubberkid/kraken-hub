@@ -109,7 +109,9 @@ function describeBadge(
     parts.push(quality.label);
   }
   if (url.startsWith(LOCAL_CLIP_SCHEME)) parts.push('local');
-  return parts.length === 0 ? 'quality not reported yet' : parts.join(' ');
+  // "Auto" is what is true when the display has not named a height — the same
+  // resting word `modules/video/quality.ts` settled on (round 4, minors).
+  return parts.length === 0 ? 'Auto' : parts.join(' ');
 }
 
 /** The remote's whole surface: watch, drive, pair — in that order. */
@@ -207,7 +209,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    *  3. **The remembered room** — a home-screen bookmark or a plain reload
    *     arriving at `#/remote` with no code in the link at all.
    *
-   * The latch matters: without it, "Forget this Kraken" would be undone on the
+   * The latch matters: without it, Unpair would be undone on the
    * component's next render by the same hash it was pressed under. Forgetting
    * therefore also clears the room out of the hash (a hash rewrite, not a
    * navigation — invariant I1/I2), and the latch keeps the effect from
@@ -237,7 +239,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   };
 
   /**
-   * "Forget this Kraken" — genuinely unpaired, not re-paired on the next load.
+   * Unpair — genuinely unpaired, not re-paired on the next load.
    *
    * Three things have to go, and missing any one of them leaves the remote
    * reconnecting to a room the user just said they were done with: the
@@ -750,8 +752,17 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
       */}
       {live && (
         <p className="kh-remote__foot">
+          {/*
+            The label is the destination (round 4, minors).
+
+            "Connection & diagnostics" named two things, one of which — a
+            Diagnostics page — has not existed since round 1; what the link opens
+            is About, which carries the connection settings and the report. A
+            link whose words do not match the page it lands on teaches the reader
+            not to trust the next one.
+          */}
           <a href="#/about" data-testid="remote-connection-link">
-            Connection &amp; diagnostics
+            About
           </a>
         </p>
       )}
@@ -769,8 +780,9 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
  * The chips said `mqtt — online`, `local bus — idle`, `display seen 2s ago`.
  * Every one of them is a fact about the plumbing, and exactly one question is
  * actually being asked here — is my Kraken on the other end? — so that is what
- * the line answers, in words. The plumbing moved into the Diagnostics
- * disclosure, where it is still one tap away.
+ * the line answers, in words. The plumbing moved to the About page's Connection
+ * section, behind its "Connection detail" disclosure, where it is still one tap
+ * away — the Diagnostics page it used to name has not existed since round 1.
  *
  * The `data-*` attributes are the machine-readable copy of the same answer, so
  * the e2e suite can assert on state rather than on user-facing prose.
@@ -791,7 +803,7 @@ function LinkStatus({ sync, now, online }: { sync: SyncHandle; now: number; onli
    */
   let text: string;
   if (online) text = `Linked to your Kraken · seen ${String(seenSec ?? 0)}s ago`;
-  else if (network === 'online') text = 'Linked, but your Kraken has not said anything yet.';
+  else if (network === 'online') text = 'Linked — waiting for your Kraken.';
   else text = 'Looking for your Kraken…';
 
   return (
@@ -909,28 +921,6 @@ function PairingCard({
   if (paired && roomCode !== null) {
     return (
       <section className="kh-roomcard" data-testid="pairing-card" data-paired="true">
-        {/*
-          The square is for the OTHER device.
-
-          A phone showing itself a code to scan is furniture, and this card is
-          what the audit's phone capture (F-ph-remote-room) is mostly made of.
-          So `ui.css` hides it below 700 px: on a desktop, where somebody is
-          pairing a phone against it, it is exactly what they came for.
-
-          Which is why it is no longer a 56 px thumbnail wedged into the summary
-          row beside the name and the button. At 56 px a version-4 code draws its
-          modules at roughly one and a half CSS pixels — under a phone camera
-          that is a grey square, not a code. It is a scan target, so it is sized
-          like one and given the row to itself.
-        */}
-        {qr !== null && remoteUrl !== null && (
-          <div className="kh-roomcard__qr" data-testid="pair-qr">
-            <QrCode qr={qr} payload={remoteUrl} />
-            <small className="kh-roomcard__caption">
-              Point your phone’s camera at this to pair it.
-            </small>
-          </div>
-        )}
         <div className="kh-roomcard__head" data-testid="paired-summary">
           <div className="kh-roomcard__who">
             <b data-testid="paired-title">
@@ -948,6 +938,31 @@ function PairingCard({
           </Button>
         </div>
         <Disclosure summary="Pairing options" testId="pairing-options">
+          {/*
+            The square is for the OTHER device — and it is not the first thing
+            about a room that is already paired (round 4, minors).
+
+            A phone showing itself a code to scan is furniture, so `ui.css`
+            already hid it below 700 px. Round 4 measured the desktop case: at
+            176 px plus its caption it is by some distance the loudest object on
+            a card whose whole message, once you are paired, is one line — and
+            it pushed the thing you came back for below the fold. Pairing a
+            SECOND device is a pairing option, so it lives with the other pairing
+            options, one tap down, at the size a camera actually needs.
+
+            It stays 176 px rather than the 56 px thumbnail it once was: a
+            version-4 code is 33 modules plus 8 of quiet zone, and at 56 px each
+            module is roughly one and a half CSS pixels — under a phone camera
+            that is a grey square, not a code.
+          */}
+          {qr !== null && remoteUrl !== null && (
+            <div className="kh-roomcard__qr" data-testid="pair-qr">
+              <QrCode qr={qr} payload={remoteUrl} />
+              <small className="kh-roomcard__caption">
+                Point your phone’s camera at this to pair it.
+              </small>
+            </div>
+          )}
           {codeField}
           {remoteUrl !== null && (
             <>

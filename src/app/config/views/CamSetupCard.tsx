@@ -107,7 +107,8 @@ export function CamSetupCard({
             `camPaths.ts` owns the grammar now and everybody says it once.
           */}
           <p className="kh-band__text">
-            <b id="kh-setup-title">Your Kraken has not shown up yet.</b>
+            {/* A resting state describes what IS, without apologising for it. */}
+            <b id="kh-setup-title">No Kraken is showing this page.</b>
             {!dense && (
               <>
                 {' '}

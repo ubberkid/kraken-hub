@@ -14,6 +14,7 @@
  * is no room to open, so the gesture always lands on a control.
  */
 
+import { FLAT_COLOURS_WHY } from '../../config/vocabulary';
 import { GroupField, ModuleOptions, Segmented } from '../../ui';
 
 import {
@@ -76,11 +77,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         ) : null
       }
       advanced={
-        <GroupField
-          label="Colour"
-          id="stats-theme"
-          description="Flat fills only — the dial arc is a single stroke. A glowing gauge would repaint the whole tile every second, and CAM charges for that in the frame rate you actually get."
-        >
+        <GroupField label="Colour" id="stats-theme" description={FLAT_COLOURS_WHY}>
           <Segmented
             id="stats-theme"
             wrap

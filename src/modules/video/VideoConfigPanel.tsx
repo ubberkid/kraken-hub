@@ -189,9 +189,18 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         ONE door, one level. Everything the census moved rather than killed is
         flat inside it — a disclosure inside a disclosure is a settings page
         wearing a costume.
+
+        Two subheads, and no third level (round 4, minors). Video is the only
+        module with enough behind its door to need a map: seven controls, in two
+        unrelated conversations — how the picture is cropped, and how the bytes
+        are fetched. A reader scanning for the proxy switch had to read the
+        aspect controls to find out they were not it. Headings are not a
+        hierarchy, they are a table of contents: everything stays exactly one
+        level down, still flat, still one door.
       */
       advanced={
         <>
+          <h3 className="kh-subhead3">Framing</h3>
           <GroupField
             label="Shape of the video"
             id="video-yt-aspect"
@@ -221,6 +230,8 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
               set({ render: { ...cfg.render, ...patch } });
             }}
           />
+
+          <h3 className="kh-subhead3">Delivery</h3>
 
           <LocalDownloaderCard cfg={cfg} set={set} />
 

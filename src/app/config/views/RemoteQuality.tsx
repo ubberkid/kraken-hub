@@ -82,7 +82,7 @@ export const RemoteQuality = memo(function RemoteQuality({
         {reading}
         {control === 'readonly'
           ? ' — one resolution, nothing to choose.'
-          : ' — nothing is playing yet.'}
+          : ' — this source has no quality setting.'}
       </p>
     );
   }

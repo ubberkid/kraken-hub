@@ -150,10 +150,16 @@ describe('describeQuality', () => {
     );
   });
 
-  it('says so plainly when nothing has been reported at all', () => {
-    expect(describeQuality(DEFAULT_QUALITY, { reported: null, local: false })).toBe(
-      'Auto — quality not reported yet',
-    );
+  /**
+   * A resting state, not an apology (round 4, minors).
+   *
+   * "Auto — quality not reported yet" told the reader that a setting whose whole
+   * meaning is *the display picks* had not yet been second-guessed. Auto is what
+   * is true; the reading gains the resolution when there is one to gain.
+   */
+  it('says just Auto when nothing has been reported at all', () => {
+    expect(describeQuality(DEFAULT_QUALITY, { reported: null, local: false })).toBe('Auto');
+    expect(describeQuality(DEFAULT_QUALITY, { reported: null, local: true })).toBe('Auto · local');
   });
 });
 

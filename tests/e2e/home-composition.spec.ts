@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { FLOW_STAGES } from '../../src/app/config/flowStages';
+
 /**
  * The home screen, measured — design audit, rounds 2 and 3.
  *
@@ -237,9 +239,31 @@ test.describe('the page fits CAM’s window — every module, every panel state'
           () => document.querySelector('[data-testid="ops-panel"]')?.scrollHeight ?? 0,
         );
       };
-      const before = await panelHeight();
       const summary = page.locator('[data-testid="ops-panel"] .kh-details__summary');
       const doors = await summary.count();
+      /*
+       * The door may arrive ALREADY OPEN (round 4, F2).
+       *
+       * A module whose primary set is empty for the current config opens with
+       * Advanced open rather than relocating its controls to the top level, so
+       * "before" has to be measured from the closed state whichever way the
+       * panel arrived. Closing it first is setup, not an assertion.
+       */
+      /* eslint-disable playwright/no-conditional-in-test, playwright/no-conditional-expect --
+         Whether this module's door starts open is a property of its config, and
+         both paths reach the same measured state. */
+      if (
+        doors > 0 &&
+        (await page
+          .locator('[data-testid="ops-panel"] details')
+          .first()
+          .evaluate((el) => (el as HTMLDetailsElement).open))
+      ) {
+        await summary.first().click();
+        await expect(page.locator('.kh-home')).toHaveAttribute('data-advanced', 'false');
+      }
+      /* eslint-enable playwright/no-conditional-in-test, playwright/no-conditional-expect */
+      const before = await panelHeight();
       /* eslint-disable playwright/no-conditional-in-test, playwright/no-conditional-expect --
          Whether a module HAS an Advanced door is a property of the module, and
          "there is no door because there was nothing to put behind one" is the
@@ -312,12 +336,20 @@ test.describe('the page fits CAM’s window — every module, every panel state'
 
       // At least one control is reachable WITHOUT opening anything: either the
       // panel has primary controls, or the advanced ones were promoted into it.
+      // The whole panel, not just its `.kh-panel` box: a module with no primary
+      // controls has no box, because round 4 stopped relocating its advanced
+      // controls into one and opens the door instead (F2). What the rule is
+      // about is unchanged — one tap lands on a control you can use.
       const openControls = await page.evaluate(() => {
-        const root = document.querySelector('[data-testid="ops-panel"] .kh-panel');
+        const root = document.querySelector('[data-testid="ops-panel"]');
         if (root === null) return 0;
-        return [...root.querySelectorAll('button, input, [role="radio"], [role="switch"]')].filter(
-          (el) => el.closest('details:not([open])') === null,
-        ).length;
+        return [
+          ...root.querySelectorAll(
+            '.kh-panel button, .kh-panel input, .kh-panel [role="radio"], .kh-panel [role="switch"],' +
+              ' .kh-details__body button, .kh-details__body input,' +
+              ' .kh-details__body [role="radio"], .kh-details__body [role="switch"]',
+          ),
+        ].filter((el) => el.closest('details:not([open])') === null).length;
       });
       expect(openControls, `${id}: the options panel opens onto no control at all`).toBeGreaterThan(
         0,
@@ -667,4 +699,168 @@ test('the stats module is called Stats everywhere it is named', async ({ page })
   const picker = page.locator('#remote-module');
   await expect(picker).not.toContainText('System stats');
   await expect(page.getByTestId('remote-module-stats')).toHaveText('Stats');
+});
+
+// ---------------------------------------------------------------------------
+// Round 4, F1 — the receipt is a state of the page, and every stage is measured
+// ---------------------------------------------------------------------------
+
+/**
+ * The class fix behind F1.
+ *
+ * Round 3 shipped a twelve-state page-fit assertion — four modules × three
+ * panel states — and called the composition measured. Round 4 pasted a YouTube
+ * link into it and watched the page run **179 px** past CAM's fold, with the
+ * error state 11 px worse: the receipt is a ~180 px object that opens in the
+ * halo's slot, produced by the primary action itself, and it was in none of the
+ * twelve states because nobody had written it down. The round-3 audit dump had
+ * even PRINTED `overflow=237` for it.
+ *
+ * A suite that enumerates the states somebody thought of will always be one
+ * gesture behind the product. `homeState.FLOW_STAGES` is the union itself, so
+ * the loop below visits every stage the receipt can ever be in — present and
+ * future — crossed with the panel being closed and open, at 866×537.
+ */
+
+/** One download job, shaped so a stage can be produced from a state and a reason. */
+function job(url: string, state: string, reason: string | null): Record<string, unknown> {
+  return {
+    id: 'd-stage',
+    url,
+    sourceUrl: url,
+    name: 'dunes.mp4',
+    state,
+    reason,
+    receivedBytes: 2_097_152,
+    totalBytes: 8_388_608,
+    error: null,
+    clipId: null,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+const MP4 = 'https://example.test/clips/dunes.mp4';
+const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+/**
+ * What has to be in storage for the home screen to reach a given stage.
+ *
+ * Every one of these is the real path: `describeFlow` reads the same mirror the
+ * display writes, and nothing here reaches past it into the component.
+ */
+function seedFor(stage: string): { url: string; entry: Record<string, unknown> | null } {
+  switch (stage) {
+    case 'downloading':
+      return { url: MP4, entry: job(MP4, 'downloading', null) };
+    case 'stored':
+      return { url: MP4, entry: job(MP4, 'done', null) };
+    case 'streaming':
+      return { url: MP4, entry: job(MP4, 'error', 'cors') };
+    case 'unsaved':
+      return { url: MP4, entry: job(MP4, 'error', 'network') };
+    case 'youtube-embed':
+      return { url: YT, entry: null };
+    default:
+      // `accepted` — a recognised link and nothing has said anything else.
+      return { url: MP4, entry: null };
+  }
+}
+
+test.describe('the page fits CAM’s window in every stage of the paste story', () => {
+  for (const stage of FLOW_STAGES) {
+    test(`${stage}: the receipt takes the floor without taking the page`, async ({ page }) => {
+      const seed = seedFor(stage);
+      await page.setViewportSize({ width: CAM.width, height: CAM.height });
+      await page.addInitScript(
+        ([url, entry]) => {
+          localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+          localStorage.setItem(
+            'kraken-hub:v1:state',
+            JSON.stringify({
+              schema: 2,
+              rev: 1,
+              updatedAt: Date.now(),
+              writerId: 'e2e-stage',
+              writerRole: 'config',
+              activeModuleId: 'video',
+              modules: { video: { v: 1, cfg: { url } } },
+            }),
+          );
+          if (entry !== null) {
+            localStorage.setItem('kraken-hub:v1:video:downloads', JSON.stringify([entry]));
+          }
+        },
+        [seed.url, seed.entry] as const,
+      );
+      await page.goto('/');
+
+      const flow = page.getByTestId('paste-flow');
+      await expect(flow).toHaveAttribute('data-flow-stage', stage);
+      // The receipt is genuinely up: a stage that had already retired would make
+      // the measurement below a measurement of the base composition.
+      await expect(flow).toHaveAttribute('data-collapsed', 'false');
+
+      // 1. The receipt alone. This is the state that overflowed by 179–189 px.
+      await expect
+        .poll(async () => (await pageMetrics(page)).overflow, {
+          message: `${stage}: the receipt pushes the composition past CAM's fold`,
+        })
+        .toBe(0);
+
+      const withReceipt = await pageMetrics(page);
+      expect(withReceipt.clipped, `${stage}: something is clipped`).toBe(0);
+      expect(withReceipt.navFullyVisible, `${stage}: the nav row is cut by the fold`).toBe(true);
+      expect(withReceipt.footerFullyVisible, `${stage}: the footer is cut by the fold`).toBe(true);
+      expect(withReceipt.scrollY).toBe(0);
+
+      // 2. …and then the options, which are the OTHER thing that opens into the
+      //    halo's slot. The floor holds one object: measured at this window the
+      //    ladder is 148 px and the video options are 201 px inside a 537 px
+      //    composition that also carries a header, a nav row and a footer, so
+      //    the receipt — the only one of the two that is narration rather than
+      //    something the user is doing — yields. The page still fits, in every
+      //    stage, which is the assertion; that it fits BECAUSE the ladder stood
+      //    down is asserted directly below.
+      await openOptions(page, 'video');
+      await expect(flow).toHaveAttribute('data-collapsed', 'true');
+      await expect
+        .poll(async () => (await pageMetrics(page)).overflow, {
+          message: `${stage}: receipt plus options runs past CAM's fold`,
+        })
+        .toBe(0);
+      const both = await pageMetrics(page);
+      expect(both.clipped).toBe(0);
+      expect(both.navFullyVisible).toBe(true);
+      expect(both.footerFullyVisible).toBe(true);
+    });
+  }
+
+  /**
+   * And the halo actually yields, rather than the page happening to fit.
+   *
+   * The mechanism is the assertion: the mirror shrinks to its corner thumb while
+   * a receipt is up, exactly as it does for the options panel, and takes the
+   * floor back when the receipt retires.
+   */
+  test('the halo yields to the receipt and takes its place back', async ({ page }) => {
+    await cam(page);
+    await page.goto('/');
+    await expect(page.getByTestId('mirror')).toBeVisible();
+    await expect.poll(async () => haloWidth(page)).toBeGreaterThan(150);
+
+    await page.getByTestId('paste-input').fill(MP4);
+    await page.getByTestId('paste-submit').click();
+
+    await expect(page.getByTestId('paste-flow')).toHaveAttribute('data-flow-stage', 'accepted');
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-compact', 'true');
+    await expect.poll(async () => haloWidth(page)).toBeLessThan(90);
+
+    // The receipt retires, and the composition comes back whole.
+    await expect(page.getByTestId('paste-flow')).toHaveAttribute('data-collapsed', 'true', {
+      timeout: 10_000,
+    });
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-compact', 'false');
+    await expect.poll(async () => haloWidth(page)).toBeGreaterThan(150);
+  });
 });

@@ -34,8 +34,10 @@ import {
   pickMirrorPreset,
   readDisplayFacts,
   receiptPersists,
+  receiptSubLine,
   resolverHealthyFromTele,
   sourceName,
+  type FlowStage,
   type FlowState,
   type Status,
 } from '../homeState';
@@ -303,20 +305,71 @@ export function HomeView({
   useEffect(() => {
     const host = panelRef.current;
     if (host === null) return undefined;
+    const sync = (): void => {
+      setAdvancedOpen(host.querySelector('details[open]') !== null);
+    };
     const onToggle = (event: Event): void => {
       const target = event.target;
       if (!(target instanceof HTMLDetailsElement)) return;
-      setAdvancedOpen(host.querySelector('details[open]') !== null);
+      sync();
       if (target.open) target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     };
     host.addEventListener('toggle', onToggle, true);
+    /*
+     * A door can arrive ALREADY OPEN (round 4, F2).
+     *
+     * `ModuleOptions` opens Advanced on arrival when there is nothing above it,
+     * and rendering `<details open>` fires no `toggle` event — so a listener
+     * alone would leave `data-advanced` saying `false` while the page was in
+     * fact the taller, scrolling composition. That is the exact class of bug
+     * round 3 fixed on the other side of this attribute: the page's promise
+     * has to match the page.
+     *
+     * The observer rather than a one-shot read because the panel's chunk can
+     * land a tick after this effect runs (`ModuleSettingsView`'s cold path),
+     * and the door arrives with it.
+     */
+    sync();
+    const watcher = new MutationObserver(sync);
+    watcher.observe(host, { childList: true, subtree: true, attributes: true });
     return () => {
       host.removeEventListener('toggle', onToggle, true);
+      watcher.disconnect();
     };
   }, [openOps, activeId]);
   /** The A/B scrubber, revealed under the ops strip by the Loop control. */
   const [loopOpen, setLoopOpen] = useState(false);
   const setupDone = hasDisplayBeenSeen();
+
+  /**
+   * Escape closes what is open — round 4's F3.
+   *
+   * The two things that take the floor on this screen both had exactly one exit:
+   * a 22 px × in the panel's head. With Advanced open the page is 1,343 px in a
+   * 537 px window, and a user who has scrolled to the bottom of it is 557 px
+   * below the only way out — no key, no gesture, and nothing on screen that
+   * closes anything. The keyboard's universal dismissal costs two lines and
+   * works from anywhere on the page, at any scroll position.
+   *
+   * `keydown` on `window` rather than on the panel: the whole point is that it
+   * works when focus is nowhere near the thing being dismissed.
+   */
+  useEffect(() => {
+    if (!openOps && !loopOpen) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      if (openOps) {
+        setOpenOps(false);
+        setClosingOps(true);
+        setAdvancedOpen(false);
+      }
+      setLoopOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [openOps, loopOpen]);
 
   /**
    * Make the deep-linked module the active one — the store is the external
@@ -468,6 +521,52 @@ export function HomeView({
       : Math.max(0, Math.min(1, liveStats.currentTime / durationSec));
 
   /**
+   * The receipt's own retirement, owned by the screen rather than by the card.
+   *
+   * It used to live inside `DownloadFlow`, which was the natural place for it
+   * right up until round 4 measured what the card costs the composition: the
+   * ladder is ~180 px, and the page ran 179–189 px past CAM's fold for as long
+   * as it was up — on the flagship paste path, the app's single most common
+   * gesture. The halo's floor-yielding rule (below) is what pays for a second
+   * object on this screen, and it could not see this one because the fact that
+   * the receipt was up was a `useState` two components down.
+   *
+   * Keyed on `stage` so a story that moves on — downloading → stored — restarts
+   * the clock rather than inheriting a timer from a stage that has passed.
+   */
+  const stage = flow?.stage ?? null;
+  const [retiredStage, setRetiredStage] = useState<FlowStage | null>(null);
+  useEffect(() => {
+    if (stage === null) return undefined;
+    // Not a list of stages: a question about one. See `homeState.receiptPersists`.
+    if (receiptPersists(stage)) return undefined;
+    const timer = setTimeout(() => {
+      setRetiredStage(stage);
+    }, RECEIPT_LINGER_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [stage]);
+  /**
+   * True while the ladder is taking room, whatever stage it is telling.
+   *
+   * **The floor holds one object.** The receipt, the options panel and the loop
+   * scrubber all open into the space the halo gives up, and that space is one
+   * halo wide — measured, at CAM's window, the ladder is 148 px and the video
+   * options are 201 px and the composition is 537 px including a header, a nav
+   * row and a footer. Two of them at once does not fit and never could.
+   *
+   * So the receipt yields, because of the three it is the only one that is
+   * *narration*: the options panel and the scrubber are things the user is
+   * doing, and the ladder is the app talking about something it already did.
+   * Pressing the chip is moving on. Nothing is lost by it — the status line
+   * under the halo carries the live state ("Keeping a copy of dunes.mp4"), the
+   * Library carries the progress bar and the retry, and if the story is still
+   * running when the panel closes the ladder is still there to come back to.
+   */
+  const receiptUp = stage !== null && retiredStage !== stage && !openOps && !loopOpen;
+
+  /**
    * The halo yields the floor when something opens in its place.
    *
    * Round 2 measured the options panel overflowing the CAM window by 426–888 px
@@ -477,8 +576,16 @@ export function HomeView({
    * down to a corner thumb (still the live display page, still ticking) and the
    * vacated ~180 px is what the panel opens into. Closing restores it, on the
    * same spring, both ways.
+   *
+   * Round 4's F1: the mechanism was written for the two objects that were
+   * photographed opening in the halo's place, and the RECEIPT is a third — the
+   * same size, in the same slot, produced by the primary action itself. It
+   * overflowed CAM's window by 179–189 px on the flagship path and by 11 px more
+   * in the error state, for the whole four seconds it was up, because the rule
+   * listed its callers rather than asking what was on the screen. Anything that
+   * takes the floor gets the floor.
    */
-  const compact = openOps || loopOpen;
+  const compact = openOps || loopOpen || receiptUp;
 
   return (
     <section
@@ -633,7 +740,7 @@ export function HomeView({
         </div>
       )}
 
-      {flow !== null && <DownloadFlow flow={flow} url={videoCfg.url} />}
+      {flow !== null && <DownloadFlow flow={flow} url={videoCfg.url} gone={!receiptUp} />}
 
       <div className="kh-mods" role="group" aria-label="What's on the screen">
         {modules.map((m) => {
@@ -1012,36 +1119,27 @@ function OpsStrip({
  * that is configured RIGHT NOW. The mirror is a ring nobody prunes, so a job
  * from a link three pastes ago is not this link's story.
  */
-function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
+function DownloadFlow({ flow, url, gone }: { flow: FlowState; url: string; gone: boolean }) {
   const { stage, entry } = flow;
   const pct = entry === null ? null : progressPct(entry);
   // Everything except an in-flight download is finished business: the video is
   // on the panel, whatever happened to the copy.
   const settled = stage !== 'downloading';
 
-  /**
-   * The receipt's own retirement.
+  /*
+   * `gone` is decided by `HomeView` (round 4, F1).
    *
-   * Keyed on `stage` so a story that moves on — downloading → stored — restarts
-   * the clock rather than inheriting a timer from a stage that has passed. The
-   * node stays in the DOM once collapsed and simply stops taking space: the
-   * stage is still readable to anything that asks, and hiding is a thing CSS can
-   * cross-fade, where an unmount is a hard cut.
+   * The retirement timer used to live here, which hid the one fact the
+   * composition needed: whether this card is taking 180 px of a 537 px window
+   * right now. The halo yields the floor to it, so the screen has to know. The
+   * node still stays in the DOM once collapsed and simply stops taking space —
+   * the stage is readable to anything that asks, and hiding is a thing CSS can
+   * cross-fade where an unmount is a hard cut.
    */
-  const [retired, setRetired] = useState<FlowState['stage'] | null>(null);
-  const gone = retired === stage;
-  useEffect(() => {
-    // Not a list of stages: a question about one. See `homeState.receiptPersists`
-    // — the flagship YouTube receipt was excluded from round 2's hard-coded set
-    // and therefore never left the screen (F4).
-    if (receiptPersists(stage)) return undefined;
-    const timer = setTimeout(() => {
-      setRetired(stage);
-    }, RECEIPT_LINGER_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [stage]);
+  const subLine = receiptSubLine(
+    detectedHeadline(entry?.sourceUrl ?? url),
+    entry?.name ?? sourceLabel(url),
+  );
 
   return (
     <ol
@@ -1057,7 +1155,16 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
         </span>
         <span className="kh-step__text">
           <b>{detectedHeadline(entry?.sourceUrl ?? url)}</b>
-          <small>{entry?.name ?? sourceLabel(url)}</small>
+          {/*
+            The sub-line is dropped when it merely restates the headline
+            (round 4, minors).
+
+            "YouTube video detected" over "a YouTube video" is one fact set
+            twice, in two type sizes, on the app's most common path — and the
+            second line is 18 px of a 537 px window. It earns its place when it
+            names something the headline does not: a filename, a host.
+          */}
+          {subLine !== null && <small>{subLine}</small>}
         </span>
       </li>
 

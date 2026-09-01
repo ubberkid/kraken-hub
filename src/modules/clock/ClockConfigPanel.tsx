@@ -25,6 +25,7 @@
  * this file's good behaviour.
  */
 
+import { FLAT_COLOURS_WHY } from '../../config/vocabulary';
 import { GroupField, ModuleOptions, Segmented, Switch } from '../../ui';
 
 import { CLOCK_THEMES, validateClock, type ClockTheme } from './schema';
@@ -63,11 +64,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         </GroupField>
       }
       advanced={
-        <GroupField
-          label="Colour"
-          id="clock-theme"
-          description="Flat colours only. A gradient repaints every pixel of the face every second, and CAM charges for that in the frame rate you actually get."
-        >
+        <GroupField label="Colour" id="clock-theme" description={FLAT_COLOURS_WHY}>
           <Segmented
             id="clock-theme"
             wrap

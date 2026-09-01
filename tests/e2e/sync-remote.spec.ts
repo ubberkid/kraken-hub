@@ -114,12 +114,12 @@ test('a later visit to plain #/remote reconnects from storage', async ({ context
 });
 
 /**
- * "Forget this Kraken" has to clear all three places a room hides — the
+ * Unpair has to clear all three places a room hides — the
  * remembered key, the state document and the code still sitting in this page's
  * own address bar from the link that opened it. Missing any one of them shows up
  * as a remote that re-pairs itself on the next render.
  */
-test('Forget this Kraken clears the pairing and disconnects', async ({ context }) => {
+test('Unpair clears the pairing and disconnects', async ({ context }) => {
   const remote = await context.newPage();
   await remote.goto(scannedLink('WXYZ4567'));
   await expect(remote.getByTestId('paired-summary')).toBeVisible();
@@ -774,6 +774,12 @@ test('the pairing QR is dark-on-light, quiet-zoned, big enough, and holds the li
   await remote.setViewportSize({ width: 1000, height: 900 });
   await remote.goto(scannedLink('MNPQ2345'));
   await expect(remote.getByTestId('paired-summary')).toBeVisible();
+
+  // Round 4 folded the square into "Pairing options": on a card that is already
+  // paired the QR is a way to pair a SECOND device, and at 176 px plus its
+  // caption it was the loudest object on the screen, pushing the one line the
+  // card exists to say below the fold.
+  await remote.getByTestId('pairing-options').locator('summary').first().click();
 
   const qr = remote.getByTestId('pair-qr').locator('svg.kh-qr');
   await expect(qr).toBeVisible();

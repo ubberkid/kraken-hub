@@ -237,3 +237,55 @@ export function tileDetail(tile: LibraryTile): string {
   if (tile.animated) parts.push('animated');
   return parts.join(' · ');
 }
+
+// ---------------------------------------------------------------------------
+// The identity hue (round 4, F5)
+// ---------------------------------------------------------------------------
+
+/**
+ * The treated card's base colour, in degrees.
+ *
+ * `.kh-tile__thumb--treated` paints `linear-gradient(160deg, #24334a, #141a24)`
+ * and then rotates it. `#24334a` sits at ~216° — a deep blue — and the rotation
+ * below is measured against that, which is the only reason a *rotation* can be
+ * reasoned about as a *band* at all.
+ */
+export const TILE_BASE_HUE_DEG = 216;
+
+/**
+ * The cool band the identity hue is allowed to land in, as an absolute hue.
+ *
+ * Round 4's F5: the hue was `hash % 360`, a full turn, so six of twenty sample
+ * filenames landed in red or amber — and red and amber are not decoration in
+ * this product, they are the failure colours. A tile that had merely been
+ * *named* something looked like a tile that had gone wrong, next to a tile that
+ * genuinely had. Identity and status cannot share a channel.
+ *
+ * So identity gets the cool half of the wheel — blue through teal to violet —
+ * and warmth is reserved for the one thing warmth means. 176° is a green-teal
+ * and 286° is a violet; nothing in between reads as an alarm.
+ */
+export const TILE_HUE_MIN_DEG = 176;
+export const TILE_HUE_MAX_DEG = 286;
+
+/** Small odd multiplier: cheap, stable, and no collisions that matter. */
+const HUE_MIX = 31;
+
+/**
+ * A stable hue ROTATION for a name, guaranteed inside the cool band.
+ *
+ * The return value is what `--kh-tile-hue` takes: degrees to rotate the base
+ * gradient by, so `TILE_BASE_HUE_DEG + tileHue(name)` is always within
+ * `[TILE_HUE_MIN_DEG, TILE_HUE_MAX_DEG]`. `libraryItems.test.ts` asserts that
+ * for a large corpus of names rather than for the ones somebody thought of.
+ *
+ * A failed tile does not use this at all: it is given the warm treatment by
+ * `data-tile-state`, in the stylesheet, so the two channels cannot be confused
+ * by a hash that happens to land somewhere unlucky.
+ */
+export function tileHue(name: string): number {
+  const span = TILE_HUE_MAX_DEG - TILE_HUE_MIN_DEG + 1;
+  let hash = 0;
+  for (const ch of name.trim()) hash = (hash * HUE_MIX + (ch.codePointAt(0) ?? 0)) % span;
+  return TILE_HUE_MIN_DEG + hash - TILE_BASE_HUE_DEG;
+}

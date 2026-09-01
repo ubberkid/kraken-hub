@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 
-import { buildInfo } from '../../../buildInfo';
 import { Panel } from '../../../ui';
 import { useSync } from '../useSync';
 
@@ -54,7 +53,6 @@ const CLOCK_MS = 1000;
 
 export function AboutView({ runtime }: { runtime: ConfigRuntime }) {
   const sync = useSync(runtime);
-  const info = buildInfo();
 
   /** Sampled OUTSIDE render: `Date.now()` during render is not idempotent. */
   const [now, setNow] = useState(0);
@@ -91,8 +89,17 @@ export function AboutView({ runtime }: { runtime: ConfigRuntime }) {
           one again.
         */}
         <CamSetupCard runtime={runtime} variant="quiet" />
+        {/*
+          The version is printed ONCE on this page (round 4, minors).
+
+          It was printed twice: here, and in the footer eight rows below —
+          which is the line a reader pressed to get here in the first place, and
+          the exact string a bug report asks them to quote. Two copies of one
+          build id on one screen is the reader wondering which is authoritative.
+          What is left is the fact the footer does not carry.
+        */}
         <p className="kh-hint kh-about__build" data-testid="about-build">
-          Version {info.version} · {info.gitSha} · MIT licensed
+          MIT licensed
         </p>
       </Panel>
 

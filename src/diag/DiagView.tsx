@@ -20,7 +20,7 @@ import type { SyncHandle } from '../app/config/useSync';
  * somebody opens it (`ReportSection` gates it on state, because `<details>`
  * does not).
  *
- * Three things are in it, in the order somebody debugging needs them:
+ * TWO sections are in it, in the order somebody debugging needs them:
  *
  *  1. **This browser** — the probes, already run by `ReportSection` and handed
  *     in as `report`, so the drawer never re-measures what the Copy button
@@ -29,7 +29,12 @@ import type { SyncHandle } from '../app/config/useSync';
  *     same-machine hand-off through CAM's shared storage, and the cross-network
  *     pull over the paired room, which is the only way to get measurements off
  *     a machine you are not sitting at.
- *  3. **What the network can reach** — opt-in, and nothing here contacts it.
+ *
+ * The third — *Network reachability* — is not a section any more. It was a
+ * bulleted inventory of transports under a heading, describing measurements
+ * nothing on this page takes; what survives it is the one sentence at the foot
+ * that says nothing here contacts the network, which is the only part of it a
+ * reader has to know before they open an issue.
  *
  * The visible copy names no H-ids. They are still in the JSON and still in
  * `docs/hardware-checklist.md`, which is one link away; a heading that reads
@@ -144,7 +149,7 @@ export function DiagView({
       <Row>
         <Chip tone={kraken === null ? 'warn' : stale ? 'warn' : 'ok'} testId="diag-display-chip">
           {kraken === null
-            ? 'no report yet'
+            ? 'no report'
             : `${stale ? 'stale — ' : ''}captured ${new Date(kraken.capturedAt).toLocaleTimeString()}`}
         </Chip>
         <Button
@@ -227,13 +232,19 @@ export function DiagView({
 
       {/*
         The network story, as a sentence rather than a bulleted inventory of
-        transports. Nothing on this page probes them, which is the only thing
-        about them a reader has to know before they open an issue.
+        transports — and only the half that is about the reader (round 4,
+        minors).
+
+        The second clause used to report that whether CAM's webview can reach
+        those hosts "is still unmeasured", which is a note about this project's
+        own progress, printed inside a drawer somebody opened to debug their
+        cooler. Where the project has got to belongs in the hardware checklist
+        that clause was pointing at, and the reader's question — does opening
+        this drawer phone home? — is answered by the first clause alone.
       */}
       <p className="kh-hint">
-        Nothing here contacts the network. Whether CAM&rsquo;s webview can reach{' '}
-        {NETWORK_TARGETS.map((t) => t.label).join(' or ')} at all is still unmeasured — the hardware
-        checklist above is where that gets written down.
+        Nothing here contacts the network, including{' '}
+        {NETWORK_TARGETS.map((t) => t.label).join(' and ')}.
       </p>
     </>
   );

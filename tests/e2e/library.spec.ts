@@ -2,6 +2,8 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { NOTHING_KEPT } from '../../src/config/vocabulary';
+
 /**
  * The Library page, after it stopped being four pages stacked on top of each
  * other.
@@ -100,7 +102,10 @@ test.describe('the library shows your library, and nothing else', () => {
   }) => {
     await page.goto('/#/library');
     await expect(page.getByTestId('library')).toBeVisible();
-    await expect(page.getByTestId('library-empty')).toContainText('Nothing saved yet');
+    // One verb for what a shelf does, from `config/vocabulary.ts` (round 4, F4):
+    // the header said "Kept", this card said "saved" and the meter said
+    // "stored", about one act, on one screen.
+    await expect(page.getByTestId('library-empty')).toContainText(NOTHING_KEPT);
     await expect(page.getByTestId('library-add')).toBeVisible();
 
     /*

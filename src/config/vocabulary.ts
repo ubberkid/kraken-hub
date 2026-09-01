@@ -49,6 +49,41 @@ export const KEEPING_A_COPY_NOW = `${KEEPING_A_COPY} ${COPY_HOME}…`;
 export const KEPT_A_COPY = `kept ${COPY_HOME}`;
 
 // ---------------------------------------------------------------------------
+// The library's one verb
+// ---------------------------------------------------------------------------
+
+/**
+ * What the shelf does to a thing — round 4's F4.
+ *
+ * The Library page used three verbs for one act, on one screen, within 200 px
+ * of each other: the header said things were **Kept** here, the empty state said
+ * nothing was **saved**, and the quota meter said nothing was **stored**. Three
+ * words for one concept is the same failure `KEEPING_A_COPY` was written to end,
+ * one surface over — so the verb is a constant and the three surfaces compose
+ * their sentences out of it.
+ */
+export const KEPT_VERB = 'kept';
+
+/** The shelf's resting sentence when it holds nothing. Present tense, no apology. */
+export const NOTHING_KEPT = `Nothing ${KEPT_VERB} here`;
+
+// ---------------------------------------------------------------------------
+// The frame-rate economics, said once
+// ---------------------------------------------------------------------------
+
+/**
+ * Why the colour choices are flat — round 4's F4.
+ *
+ * `ClockConfigPanel` and `StatsConfigPanel` each carried a hand-written
+ * 26-word sentence about CAM charging for repaints in the frame rate you
+ * actually get. Two sentences, one fact, free to drift apart — and 26 words of
+ * economics under a five-swatch colour picker in a 537 px window.
+ *
+ * One string, eight words, imported by both.
+ */
+export const FLAT_COLOURS_WHY = 'Flat fills only: kinder to CAM’s frame rate.';
+
+// ---------------------------------------------------------------------------
 // The dead spellings
 // ---------------------------------------------------------------------------
 
@@ -64,4 +99,10 @@ export const RETIRED_PHRASES: readonly string[] = [
   'Saved locally',
   'to this PC',
   'kept in your library',
+  // Round 4, F4 — the library's other two verbs for the one thing it does.
+  'Nothing saved',
+  'Nothing stored',
+  // Round 4, F4 — the twin frame-rate-economics sentences.
+  'repaints the whole tile',
+  'repaints every pixel',
 ];

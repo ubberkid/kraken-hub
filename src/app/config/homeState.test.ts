@@ -14,8 +14,11 @@ import {
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
+  receiptPersists,
+  receiptSubLine,
   resolverHealthyFromTele,
   sourceName,
+  FLOW_STAGES,
 } from './homeState';
 
 import type { DownloadEntry } from '../../modules/video/local/downloadManager';
@@ -397,5 +400,55 @@ describe('describeVideoStatus', () => {
     });
     expect(s.verb).toBe('Streaming');
     expect(s.live).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round 4
+// ---------------------------------------------------------------------------
+
+/**
+ * The stage list and the stage type are one thing (F1).
+ *
+ * `receiptPersists` is exhaustive over the union at compile time, which is what
+ * kept the retirement rule honest — and said nothing about the SUITE, which
+ * could only visit the stages somebody remembered. Enumerating the union is what
+ * lets `home-composition.spec.ts` measure every one of them at CAM's window.
+ */
+describe('the flow stages are enumerable', () => {
+  it('lists every stage the receipt can be in', () => {
+    expect([...FLOW_STAGES].sort()).toEqual(
+      ['accepted', 'downloading', 'stored', 'streaming', 'unsaved', 'youtube-embed'].sort(),
+    );
+  });
+
+  it('answers the retirement question for every one of them', () => {
+    // Not an assertion about the answers — an assertion that the list and the
+    // rule cannot drift apart without one of them throwing.
+    for (const stage of FLOW_STAGES) expect(typeof receiptPersists(stage)).toBe('boolean');
+    expect(FLOW_STAGES.filter(receiptPersists)).toEqual(['downloading', 'unsaved']);
+  });
+});
+
+/**
+ * A receipt's second line earns its 18 px, or it is not drawn (round 4, minors).
+ *
+ * "YouTube video detected" over "a YouTube video" is one fact set twice on the
+ * app's most common path.
+ */
+describe('the receipt sub-line', () => {
+  it('is dropped when it only restates the headline', () => {
+    expect(receiptSubLine('YouTube video detected', 'a YouTube video')).toBeNull();
+    expect(receiptSubLine('Vimeo video detected', 'a Vimeo video')).toBeNull();
+    expect(receiptSubLine('Video link detected', 'a video link')).toBeNull();
+    expect(receiptSubLine('Video link detected', '')).toBeNull();
+  });
+
+  it('is kept when it names something the headline does not', () => {
+    expect(receiptSubLine('Video link detected', 'dunes.mp4')).toBe('dunes.mp4');
+    expect(receiptSubLine('Video link detected', 'example.test')).toBe('example.test');
+    expect(receiptSubLine('YouTube video detected', 'Sunset over the dunes')).toBe(
+      'Sunset over the dunes',
+    );
   });
 });

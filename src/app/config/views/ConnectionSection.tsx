@@ -39,8 +39,11 @@ import type { SyncHandle } from '../useSync';
  *
  *  - **Route** — a segmented row, one word per option (R8).
  *  - **Use my own broker**, and the two endpoint fields it reveals.
- *  - **Remember remote changes** and **Report back to this page**, as the house
- *    `Switch`. There is no native checkbox anywhere in this product now.
+ *  - **Your Kraken remembers remote changes** and **Your Kraken reports back to
+ *    this page**, as the house `Switch`. Both are named for the object rather
+ *    than for the system, which is why they read as sentences about a cooler
+ *    and not as two more toggles. There is no native checkbox anywhere in this
+ *    product now.
  *
  * The plumbing readout and the honest privacy note are both still here and both
  * still true — behind one disclosure each, which is where a thing that is
@@ -178,7 +181,7 @@ export function ConnectionSection({
           )}
           <Chip tone={sync.lastTele === null ? 'neutral' : 'ok'}>
             {sync.lastTele === null
-              ? 'nothing heard yet'
+              ? 'nothing heard'
               : `heard ${String(Math.max(0, Math.round((now - sync.lastTele.at) / 1000)))}s ago`}
           </Chip>
           {sync.topicId !== null && <Chip tone="neutral">topic {sync.topicId}</Chip>}

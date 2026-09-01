@@ -110,7 +110,207 @@ for (const abs of files(srcDir)) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The cascade collision check (round 4, F7)
+// ---------------------------------------------------------------------------
+
+/**
+ * The bug shape this catches, which has now shipped twice.
+ *
+ * `ui.css` compresses the home screen's rhythm inside `@media (max-height:
+ * 640px)` and its phone layout inside `@media (max-width: 700px)`, and both
+ * blocks sit ABOVE the base declarations for the same selectors. A media query
+ * adds nothing to specificity, so `.kh-status` inside a media block and
+ * `.kh-status` two thousand lines later are both (0,1,0) and the LATER one
+ * wins — the media block is silently dead, and the file reads as though it is
+ * not.
+ *
+ * Round 2 found the whole short-viewport block dead this way (the missing 35 px
+ * of R11) and fixed it by qualifying every selector with `.kh-home`, and wrote a
+ * comment saying so. Round 4 found `.kh-mods { gap: 10px 12px }` inside the
+ * phone block, unqualified and dead, **twenty-five lines below that comment**.
+ * A rule enforced by a comment is a rule enforced by whoever last read it.
+ *
+ * ## What counts as a collision
+ *
+ * The same selector text, at the same specificity, declared inside an at-rule
+ * block and AGAIN later in source order outside it, where the two rules declare
+ * at least one property in common. That is precisely the shape that is always a
+ * mistake: the author wrote a conditional override and the unconditional rule
+ * underneath it took the property back.
+ *
+ * Ordering matters, so a base rule followed by a media override is fine — that
+ * is how a stylesheet is supposed to be written. Different properties are fine.
+ * Different specificity is fine, which is what the `.kh-home` fix produces.
+ *
+ * ## The escape hatch
+ *
+ * A collision that is genuinely deliberate is marked with
+ *
+ *     a CSS comment containing `cascade-collision-ok: <why the later rule wins>`
+ *
+ * on the line above the LATER rule's selector.
+ */
+const CASCADE_MARKER = 'cascade-collision-ok';
+
+/** `.a .b:hover` → `0,2,0`-ish. Ids, then classes/attributes/pseudo-classes, then elements. */
+function specificity(selector) {
+  const cleaned = selector.replace(/::[\w-]+/g, ' ');
+  const ids = (cleaned.match(/#[\w-]+/g) ?? []).length;
+  const classes = (cleaned.match(/\.[\w-]+|\[[^\]]*\]|:[\w-]+(\([^)]*\))?/g) ?? []).length;
+  const elements = (cleaned.replace(/[.#[:][^\s>+~,]*/g, ' ').match(/\b[a-zA-Z][\w-]*/g) ?? [])
+    .length;
+  return `${ids},${classes},${elements}`;
+}
+
+/** Normalised so `.a , .b` and `.a,.b` are the same selector. */
+function normaliseSelector(selector) {
+  return selector
+    .split(',')
+    .map((part) => part.trim().replace(/\s+/g, ' '))
+    .filter((part) => part !== '')
+    .sort()
+    .join(',');
+}
+
+/** The property names a rule body declares, ignoring values. */
+function declaredProps(body) {
+  const props = new Set();
+  for (const decl of body.split(';')) {
+    const at = decl.indexOf(':');
+    if (at === -1) continue;
+    const name = decl.slice(0, at).trim().toLowerCase();
+    if (name !== '' && /^[-a-z]+$/.test(name)) props.add(name);
+  }
+  return props;
+}
+
+/**
+ * Every style rule in a stylesheet, in source order, with its at-rule context.
+ *
+ * A hand-rolled brace scanner rather than a parser dependency: this file is a
+ * build gate and it must not grow a `node_modules` edge to do its job. Comments
+ * are blanked first (preserving newlines) so a `{` in prose cannot desynchronise
+ * the depth counter.
+ */
+function parseRules(css) {
+  const rules = [];
+  const stack = [];
+  let buf = '';
+  let index = 0;
+  let line = 1;
+  for (let i = 0; i < css.length; i += 1) {
+    const ch = css[i];
+    if (ch === '\n') {
+      line += 1;
+      buf += ' ';
+      continue;
+    }
+    if (ch === '{') {
+      const prelude = buf.trim();
+      buf = '';
+      if (prelude.startsWith('@')) {
+        stack.push(prelude);
+        continue;
+      }
+      // A style rule: consume to its matching brace.
+      let depth = 1;
+      let body = '';
+      let j = i + 1;
+      for (; j < css.length; j += 1) {
+        const c = css[j];
+        if (c === '{') depth += 1;
+        else if (c === '}') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+        if (c === '\n') line += 1;
+        body += c;
+      }
+      index += 1;
+      rules.push({
+        selector: normaliseSelector(prelude),
+        raw: prelude.replace(/\s+/g, ' '),
+        specificity: specificity(prelude),
+        props: declaredProps(body),
+        at: stack.length === 0 ? null : stack.join(' && '),
+        index,
+        line,
+      });
+      i = j;
+      continue;
+    }
+    if (ch === '}') {
+      stack.pop();
+      buf = '';
+      continue;
+    }
+    if (ch === ';' && buf.trim().startsWith('@')) {
+      // A statement at-rule (`@import`, `@charset`) — not a block.
+      buf = '';
+      continue;
+    }
+    buf += ch;
+  }
+  return rules;
+}
+
+const cssFiles = files(srcDir).filter((p) => p.endsWith('.css'));
+const collisions = [];
+let cssRuleCount = 0;
+
+for (const abs of cssFiles) {
+  const rel = relative(root, abs).replace(/\\/g, '/');
+  const raw = readFileSync(abs, 'utf8');
+  const rawLines = raw.split('\n');
+  const rules = parseRules(stripComments(raw));
+  cssRuleCount += rules.length;
+
+  for (const later of rules) {
+    if (later.at !== null) continue;
+    for (const earlier of rules) {
+      if (earlier.at === null) continue;
+      if (earlier.index >= later.index) continue;
+      if (earlier.selector !== later.selector) continue;
+      if (earlier.specificity !== later.specificity) continue;
+      const shared = [...earlier.props].filter((p) => later.props.has(p));
+      if (shared.length === 0) continue;
+      const above = rawLines[later.line - 2] ?? '';
+      const here = rawLines[later.line - 1] ?? '';
+      if (above.includes(CASCADE_MARKER) || here.includes(CASCADE_MARKER)) continue;
+      collisions.push(
+        `${rel}:${String(later.line)}  ${later.raw} { ${shared.join(', ')} }  ` +
+          `overrides the same declaration${shared.length === 1 ? '' : 's'} inside ` +
+          `${earlier.at} at line ${String(earlier.line)}`,
+      );
+    }
+  }
+}
+
 console.log('');
+if (collisions.length > 0) {
+  console.error(
+    `[invariants] Dead media-query rules: ${String(collisions.length)} equal-specificity collision(s).\n`,
+  );
+  for (const c of collisions) console.error(`  ${c}`);
+  console.error(
+    [
+      '',
+      'A media query adds NOTHING to specificity. A rule inside one, followed later',
+      'in the file by the same selector at the same specificity, is dead — the later',
+      'declaration wins wherever it sits.',
+      '',
+      'Qualify the conditional rule with an ancestor (`.kh-home .kh-mods`), or move it',
+      'below the base rule. If the later rule really should win, say why:',
+      '',
+      `    /* ${CASCADE_MARKER}: <why> */`,
+      '',
+      'See ui.css "Every selector below is qualified by `.kh-home`" and round 4, F7.',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
 if (violations.length > 0) {
   console.error(
     `[invariants] Invariant 5 (no hardcoded device sizes): ${violations.length} unexplained literal(s).\n`,
@@ -135,5 +335,9 @@ if (violations.length > 0) {
 console.log(
   `[invariants] ok  Invariant 5 (no hardcoded device sizes) — ${String(scanned)} files scanned, ` +
     `${String(marked)} documented exception(s), 0 violations.`,
+);
+console.log(
+  `[invariants] ok  Dead media-query rules — ${String(cssFiles.length)} stylesheet(s), ` +
+    `${String(cssRuleCount)} rules, 0 equal-specificity collisions.`,
 );
 console.log('');

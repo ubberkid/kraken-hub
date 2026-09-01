@@ -50,8 +50,26 @@ export function Panel({
  * Fixing the three panels would have been round 3 fixing three symptoms. The
  * class is *a panel whose entire content is a door*, and it is unrepresentable
  * here: this component is how every module builds its options, and when
- * `primary` is empty it does not draw a panel around a disclosure — it promotes
- * the advanced controls to the panel itself. One tap, the controls.
+ * `primary` is empty the door is **already open** on arrival. One tap, the
+ * controls.
+ *
+ * ## Round 4's F2: depth is a property of the CONTROL, not of the moment
+ *
+ * Round 3 implemented that rule by *relocating* the advanced controls — with no
+ * primary, the panel rendered `advanced` directly and the Advanced door was not
+ * drawn at all. Which meant Stats' **Colour** row moved between two levels of
+ * the hierarchy depending on the Layout segment: on One it sat behind Advanced,
+ * on Two or All it sat at the top of the panel. Toggling Layout — a control on
+ * the ops strip, about something else entirely — silently restructured the
+ * panel underneath it. A user who learned where Colour lives learned something
+ * that was not true.
+ *
+ * Depth is a property of the control. Colour is an advanced control on Clock and
+ * on Stats, in every layout, forever. What the empty-room rule may change is
+ * whether the door is OPEN, which is a statement about this moment rather than
+ * about the hierarchy: nothing above it means there is nothing to choose between
+ * looking at, so it opens showing what there is. The control does not move, its
+ * heading does not move, and the summary row stays exactly where it was.
  *
  * `primary` is a render-time value rather than a static flag on the module
  * definition on purpose: Stats' one primary control exists only for the
@@ -68,19 +86,19 @@ export function ModuleOptions({
 }: {
   /** The controls worth the panel. `null` when this config has none. */
   primary: ReactNode;
-  /** Everything behind the one Advanced door — or, with no primary, the panel. */
+  /** Everything behind the one Advanced door. Always behind it. */
   advanced: ReactNode;
   advancedTestId?: string;
 }) {
-  if (primary === null || primary === false || primary === undefined) {
-    return <Panel>{advanced}</Panel>;
-  }
+  const noRoom = primary === null || primary === false || primary === undefined;
   return (
     <>
-      <Panel>{primary}</Panel>
-      {/* ONE door, one level — the same rule for every module. */}
+      {/* No empty panel above an open door — but the door itself never moves. */}
+      {!noRoom && <Panel>{primary}</Panel>}
+      {/* ONE door, one level — the same rule, and the same level, for every module. */}
       <Disclosure
         summary="Advanced"
+        defaultOpen={noRoom}
         {...(advancedTestId === undefined ? {} : { testId: advancedTestId })}
       >
         {advanced}

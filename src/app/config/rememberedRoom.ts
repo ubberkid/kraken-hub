@@ -17,7 +17,7 @@
  * paired with" survives a state document being cleared, migrated, or replaced by
  * a retained frame from a room this device is no longer in.
  *
- * It is also the thing "Forget this Kraken" clears. A user pressing that must
+ * It is also the thing Unpair clears. A user pressing that must
  * end up genuinely unpaired, not repaired on the next reload by a value hiding
  * in another layer.
  *
@@ -62,7 +62,7 @@ export function rememberRoom(code: string): void {
   writeRaw(REMEMBERED_ROOM_SUFFIX, normalized);
 }
 
-/** "Forget this Kraken". */
+/** What Unpair clears. */
 export function forgetRoom(): void {
   removeRaw(REMEMBERED_ROOM_SUFFIX);
 }

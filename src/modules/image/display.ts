@@ -64,8 +64,8 @@ function inConfigMirror(): boolean {
 /** The one line an empty picture module shows, addressed to whoever is reading it. */
 function emptyMessage(): string {
   return inConfigMirror()
-    ? 'No picture yet.\nPaste a picture link below.'
-    : `No picture yet.\n${CAM_PATH_CONFIGURE}`;
+    ? 'No picture.\nPaste a picture link below.'
+    : `No picture.\n${CAM_PATH_CONFIGURE}`;
 }
 
 const MS_PER_SEC = 1000;
@@ -310,7 +310,10 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
       img.addEventListener(
         'error',
         () => {
-          setMessage('That image could not be loaded.\nCAM → Kraken → Configure');
+          // The constant, never a sixth spelling of it (round 4, F6): this file
+          // already imports `CAM_PATH_CONFIGURE` for the empty state twelve
+          // lines up, and shipped a retired path in the error state below it.
+          setMessage(`That image could not be loaded.\n${CAM_PATH_CONFIGURE}`);
           if (img !== null) img.hidden = true;
         },
         { signal: ctx.signal },

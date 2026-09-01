@@ -29,6 +29,95 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **The design audit's fourth round: every mechanism reaches every state it
+  governs.** (Design audit round 4 — findings F1–F7 and the minors.) The audit's
+  meta-finding was that each previous round installed a real mechanism and then
+  applied it only to the states that had been photographed. So this round carried
+  each one to its whole domain, using the exhaustive-union and DOM-enumeration
+  patterns the codebase already had.
+
+  - **The receipt overflowed CAM's window on the flagship path (F1).** The halo
+    yields the floor when something opens in its place — a rule written as
+    `compact = openOps || loopOpen`, which is a list of the two callers somebody
+    had photographed. The paste receipt is a third: ~180 px, in the same slot,
+    produced by the app's own primary action. The page ran **179–189 px** past
+    the fold for the whole four seconds it was up, and 11 px worse in the error
+    state. The rule now asks what is on the screen rather than who opened it, and
+    the receipt's retirement moved up from `DownloadFlow` into `HomeView` so the
+    composition can see it. Where the receipt and the options panel would compete
+    — measured, 148 px and 201 px inside a 537 px composition — the receipt
+    yields, because of the two it is the only one that is narration.
+    **The class fix:** `FlowStage` is an enumerated list (`flowStages.ts`) rather
+    than a bare union, and the page-fit suite iterates it, so every stage the
+    receipt can ever be in is a measured state at 866×537, closed and with the
+    options open. That immediately found the _other_ unphotographed state: a
+    YouTube link makes the video options 84 px taller (the ads notice and the
+    bias helper), and the round-3 fit assertion had only ever opened the options
+    on the default empty config. The panel's rhythm compresses to hold it.
+  - **Control depth moved under the user (F2).** `ModuleOptions` answered "this
+    panel has no primary controls" by _relocating_ the advanced ones to the top
+    level — so Stats' **Colour** hopped between two levels of the hierarchy
+    depending on the Layout segment, a control on the ops strip about something
+    else entirely. Depth is a property of the CONTROL: Colour is advanced on
+    Clock and on Stats, in every layout. What the empty-room rule changes now is
+    whether the door is **open**, which is a statement about this moment rather
+    than about the hierarchy. One tap still lands on a control.
+  - **There was no reachable exit (F3).** With Advanced open the page is a
+    deliberate 1,343 px flow in a 537 px window, and at the bottom of it the
+    panel's × was 557 px above the fold — inside CAM's Configuration Browser,
+    which has no back button, no address bar and no tab strip. **Escape** now
+    closes the options panel and the loop scrubber from anywhere on the page, and
+    the panel head — the module's name and its × — is sticky while
+    `data-advanced` is true, so an exit is on screen at every scroll position.
+  - **Concepts written twice (F4).** The Clock and Stats panels each carried a
+    hand-written 26-word sentence about CAM charging for repaints in the frame
+    rate you actually get; the Library used **Kept**, **saved** and **stored**
+    for one act within 200 px of each other. Both families are constants in
+    `config/vocabulary.ts` now (`FLAT_COLOURS_WHY`, eight words; `KEPT_VERB` and
+    `NOTHING_KEPT`), and `vocabulary.test.ts`'s grep covers them — a second
+    literal copy is a failing test rather than an audit finding.
+  - **The identity hue could land on the failure colour (F5).** A library tile
+    with no thumbnail is drawn as a treated card whose hue was `hash % 360` — a
+    full turn — so six of twenty sample filenames put an ordinary clip in red or
+    amber, which this product uses for one thing. `libraryItems.tileHue` clamps
+    the hash into a cool band (blue → teal → violet), unit-tested over a corpus
+    rather than over six names, and the warm treatment is applied from
+    `data-tile-state` in the stylesheet, so it is a fact about the download and
+    never about the filename.
+  - **A retired CAM path was still shipping on the LCD (F6).** `image/display.ts`
+    printed `CAM → Kraken → Configure` in its image-error message while importing
+    `CAM_PATH_CONFIGURE` twelve lines above it. Fixed — and the rule is no longer
+    "the constants agree with each other": `camPaths.test.ts` greps the whole
+    source tree for anything shaped like a CAM menu route and fails on any file
+    but `camPaths.ts`.
+  - **The cascade bug recurred twenty-five lines below its own warning (F7).**
+    `.kh-mods { gap: 10px 12px }` inside `@media (max-width: 700px)` was dead,
+    redeclared at equal specificity further down the file — the exact failure
+    round 2 root-caused, fixed and wrote a comment about, immediately above it.
+    Separately, `.kh-subhead` was two components under one name: a long-dead
+    in-panel heading whose declarations were silently styling the sub-page
+    breadcrumb 1,500 lines away. Both fixed. **The class fix:**
+    `scripts/check-invariants.mjs` now parses every stylesheet and fails the
+    build on any selector declared inside an at-rule block and again later at the
+    same specificity with a property in common, with a documented
+    `cascade-collision-ok` escape hatch.
+  - **Minors.** The receipt's sub-line is dropped when it only restates the
+    headline ("YouTube video detected" over "a YouTube video"); the remote's one
+    link is labelled **About**, which is the page it opens, rather than
+    "Connection & diagnostics", which names a page that has not existed since
+    round 1; the paired remote's 176 px QR folds into **Pairing options**, since
+    on a card that is already paired it is a way to pair a _second_ device and
+    was the loudest object on the screen; the ten "…yet" apology strings are
+    resting copy that describes what IS ("Auto", "Nothing kept here", "no
+    report", "Linked — waiting for your Kraken"); the About page's technical
+    drawer no longer reports this project's own measurement backlog; About prints
+    the build id once, in the footer that got you there; Video's Advanced door
+    gets two subheads (**Framing** / **Delivery**) without gaining a level; and
+    four stale comment clusters were corrected against the code they describe
+    (`router.ts`'s redirect count, `ConnectionSection`'s switch labels,
+    `DiagView`'s section list, and "Forget this Kraken", which has been **Unpair**
+    since round 2).
+
 - **The design audit's third round: every fix installs the assertion that makes
   its whole class unrepresentable.** (Design audit round 3 — findings F1–F8, plus
   the minors and the collateral.) The audit's core criticism was not that rounds

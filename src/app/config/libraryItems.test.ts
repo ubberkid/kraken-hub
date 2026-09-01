@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildLibraryTiles, formatBytes, formatDuration, tileDetail } from './libraryItems';
+import {
+  buildLibraryTiles,
+  formatBytes,
+  formatDuration,
+  tileDetail,
+  tileHue,
+  TILE_BASE_HUE_DEG,
+  TILE_HUE_MAX_DEG,
+  TILE_HUE_MIN_DEG,
+} from './libraryItems';
 
 import type { ImageRecord } from '../../modules/image/imageStore';
 import type { ClipRecord } from '../../modules/video/local/clipStore';
@@ -243,5 +252,59 @@ describe('formatting', () => {
     expect(formatDuration(5400)).toBe('1:30:00');
     expect(formatDuration(3599)).toBe('59:59');
     expect(formatDuration(36_000)).toBe('10:00:00');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The identity hue (round 4, F5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Identity and status may not share a channel.
+ *
+ * The treated card's hue used to be `hash % 360` — a full turn of the wheel —
+ * so an ordinary clip could be dealt red or amber purely because of what its
+ * owner called the file. Red and amber are this product's failure colours and
+ * nothing else, and a tile that looked broken next to a tile that WAS broken is
+ * a status readout the app never wrote.
+ *
+ * A test that checked six names would prove nothing: the failure was a hash, so
+ * the assertion is over a corpus large enough that the band is a property of the
+ * function rather than of the examples.
+ */
+describe('the treated tile hue stays in the cool band', () => {
+  /** Every absolute hue a name can produce, for a lot of names. */
+  function absoluteHues(): number[] {
+    const names: string[] = [];
+    for (let i = 0; i < 500; i += 1) {
+      names.push(`clip-${String(i)}.mp4`, `Holiday ${String(i)}`, String.fromCodePoint(0x4e00 + i));
+    }
+    names.push('', ' ', '🎬 sunset', 'zzzzzzzzzzzzzzzz', 'A', 'red.mp4', 'amber warning.mp4');
+    return names.map((n) => TILE_BASE_HUE_DEG + tileHue(n));
+  }
+
+  it('never lands outside blue → teal → violet', () => {
+    for (const hue of absoluteHues()) {
+      expect(hue).toBeGreaterThanOrEqual(TILE_HUE_MIN_DEG);
+      expect(hue).toBeLessThanOrEqual(TILE_HUE_MAX_DEG);
+    }
+  });
+
+  /**
+   * The band is the point, so it is pinned: red is roughly 340°–20° and amber
+   * roughly 25°–55°, and neither may be reachable however the constants move.
+   */
+  it('excludes the failure colours by construction', () => {
+    expect(TILE_HUE_MIN_DEG).toBeGreaterThan(60);
+    expect(TILE_HUE_MAX_DEG).toBeLessThan(320);
+    expect(TILE_HUE_MAX_DEG).toBeGreaterThan(TILE_HUE_MIN_DEG);
+  });
+
+  it('is stable for a name and still tells names apart', () => {
+    expect(tileHue('sunset.mp4')).toBe(tileHue('sunset.mp4'));
+    // Leading and trailing space is not identity.
+    expect(tileHue('  sunset.mp4  ')).toBe(tileHue('sunset.mp4'));
+    const distinct = new Set(absoluteHues());
+    expect(distinct.size).toBeGreaterThan(50);
   });
 });

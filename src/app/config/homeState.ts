@@ -29,6 +29,7 @@ import { LOCAL_CLIP_RE } from '../../modules/video/routing/patterns';
 import { readTeleMirror } from '../../modules/video/telemetry/videoTelemetry';
 import { DEVICE_PRESETS, type DevicePresetId } from '../../platform/devicePresets';
 
+import type { FlowStage } from './flowStages';
 import type { DownloadEntry } from '../../modules/video/local/downloadManager';
 
 /** Panel facts as the DISPLAY reported them. Never inferred from this window. */
@@ -113,38 +114,13 @@ export function formatSeconds(sec: number | null | undefined): string {
 // The download story
 // ---------------------------------------------------------------------------
 
-/**
- * What the step-cards under the paste box are allowed to say.
- *
- * The names are outcomes, not failures, because **a download is an enhancement
- * layered on playback and its failure is never a failure of playback**. Three of
- * the five are terminal-and-fine:
- *
- *  - `streaming` — the server sent no `Access-Control-Allow-Origin`, so `fetch`
- *    cannot READ bytes that a plain `<video src>` plays without complaint. Most
- *    of the web is like this. The video is on the panel; only the local copy is
- *    missing.
- *  - `youtube-embed` — no companion, so the geometry engine is playing the
- *    video, exactly as designed (§6.4: *"users never see a hard error for a
- *    resolver miss"*). The card is an invitation, not a diagnosis.
- *  - `unsaved` — something else went wrong while keeping the copy (a 500, no
- *    room on disk). Still not an error card: the display's own fallback chain
- *    has already put something on the panel or shown its own card.
- *  - `accepted` — the link is recognised and configured, and nothing has told us
- *    anything else yet. This is the state a pasted `.mp4` was in for the whole
- *    of the design audit, and it said NOTHING: the same gesture that produced
- *    three cards for a YouTube link produced a blank page for a direct file
- *    (F4). Silence after the primary action is the app's single worst moment,
- *    so the acknowledgement is unconditional now and the *contents* of the
- *    second card are what vary by source.
- *
- * The regression this type exists to prevent: the redesign rendered a browser
- * `TypeError` ("Failed to fetch") as the second step's copy for `streaming`, for
- * the FIRST entry in a mirror nobody prunes — so one CORS-less link left every
- * later paste, YouTube included, looking broken.
+/*
+ * `FlowStage` and its enumeration live in `./flowStages` — see that file for
+ * why each stage is an outcome rather than a failure, and why round 4 turned
+ * the union into a list. Re-exported here because every consumer of the paste
+ * story already imports this module.
  */
-export type FlowStage =
-  'downloading' | 'stored' | 'streaming' | 'unsaved' | 'youtube-embed' | 'accepted';
+export { FLOW_STAGES, type FlowStage } from './flowStages';
 
 export interface FlowState {
   stage: FlowStage;
@@ -196,6 +172,33 @@ export function receiptPersists(stage: FlowStage): boolean {
       return never;
     }
   }
+}
+
+/**
+ * A receipt's second line, or `null` when it would only say the headline again.
+ *
+ * Round 4's minors. The first step-card names what was detected — *"YouTube
+ * video detected"* — and printed `sourceName()` underneath it, which for a
+ * YouTube link is *"a YouTube video"*. One fact, twice, in two type sizes, 18 px
+ * apart, on the path the app is most often used for. It is real information for
+ * a direct file (`dunes.mp4`) or an unrecognised host, and noise for every
+ * provider the headline can name.
+ *
+ * The test is containment rather than equality, in both directions and with the
+ * article dropped, because the two strings are written for different jobs and
+ * will never be character-identical.
+ */
+export function receiptSubLine(headline: string, sub: string): string | null {
+  const bare = (text: string): string =>
+    text
+      .toLowerCase()
+      .replace(/^(?:a|an|the)\s+/, '')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  const h = bare(headline);
+  const s = bare(sub);
+  if (s === '') return null;
+  return h.includes(s) || s.includes(h) ? null : sub;
 }
 
 /**
