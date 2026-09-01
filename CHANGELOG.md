@@ -801,6 +801,92 @@ companion/resolver/dist/cli.js` — is the documented fallback for macOS, Linux
 
 ### Fixed
 
+- **The module switch still reverted to Video, the quality picker blinked, and
+  the whole remote repainted — every two seconds.** Reported live, a second
+  time, after the `local` precedence layer below had shipped without a
+  reproduction and had not fixed it. This time the reproduction came first:
+  `src/sync/roomConvergence.dom.test.ts` fails on the previous build, on all
+  four of its scenarios, before a line of source was changed.
+
+  **Why the first fix missed.** It was verified against `FakeTransport`, which
+  delivers its retained snapshot in the same microtask as `connect()` — so in
+  every test the bootstrap landed _before_ the user could act. A real broker
+  finishes the subscribe handshake a few hundred milliseconds later, and a
+  finger is faster than that. The new harness models what the fake lacked: a
+  retained snapshot from an earlier session arriving after the page is usable,
+  full fan-out with no coalescing, and continuous telemetry from a display.
+
+  Four defects, one user-visible fault:
+
+  - **`persistRemote` wrote the raw remote body over the resolved state.** Every
+    inbound frame ran `resolveState`, correctly answered "clock" — and then, two
+    lines later, `store.commit(s => ({ ...s, ...syncBodyToPatch(body) }))` put
+    the peer's `video` straight back, because a `commit()` replaces the snapshot
+    outright. The `local` layer, the `url` layer and the retained/live
+    distinction were all defeated by the write that was supposed to merely save
+    the answer. It now persists **the resolved state**, which is the identical
+    write on a cold display and the correct one everywhere else.
+  - **That write then poisoned the layer meant to prevent it.** The commit fired
+    `Store.onCommit`, which folds a _deliberate local edit_ into the `local`
+    layer — so the value that had just overwritten the user's click became the
+    thing defending it, and the revert went from momentary to permanent.
+    `Store.commit` now carries a `CommitOrigin`, and a `'sync'` commit is not a
+    decision this page took.
+  - **A document arriving from storage discarded every precedence layer.** The
+    other CAM browser writes to the shared document, and the display writes to
+    it about twice a second; the store simply adopted whatever it read, and the
+    config page's `store.subscribe` then republished that raw document as its
+    own desire — laundering a stale value back onto the wire and repainting the
+    entire screen on the packet rate. `Store.setResolve` lets the sync layer
+    re-resolve those documents through the layers. It is deliberately not
+    applied to `commit()`, where `local` still holds the previous value of the
+    very key being changed.
+  - **The persist throttle dropped the last write of a burst.** Leading-edge
+    only, so two frames a fifth of a second apart left the stored document
+    holding the _first_ one for the next two seconds. It has a trailing edge
+    now, like every other throttled writer in the app.
+
+  Two smaller repairs came out of the same trace. `noteSeenRev` had shipped
+  exported and **never called**, so the Lamport counter was not a Lamport
+  counter; it is now fed on every inbound frame. And a **retained** replay whose
+  `rev` is not strictly newer than what this page has decided or saved is
+  discarded rather than merely out-ranked — a live frame is deliberately exempt,
+  which the e2e proved the hard way: guarding live frames too made a display
+  that had committed anything of its own deaf to the remote's next seek.
+
+- **The quality picker appeared and disappeared about once a second, and the
+  whole remote screen flashed with it.** Same report, and it turned out to be
+  one cause with three faces. The `tele` channel is **shared**: the video module
+  publishes `videoStats` every 2 s, the replica feed publishes `monitor` every
+  2.5 s, and the clip index, thumbnails and chunked diagnostics ride it too.
+  `useSync` exposed `lastTele` — "the most recent packet of any kind" — and the
+  remote read `provider`, `quality` and `levels` off it. A `monitor` packet
+  therefore answered "nothing known", `qualityControlFor(null)` answered `none`,
+  and `RemoteQuality` renders a paragraph rather than a `<Select>` for that — so
+  the control was **torn out of the DOM** and rebuilt on the telemetry cadence,
+  in lockstep with `seen Xs ago` resetting to zero.
+
+  `SyncHandle` now carries `lastVideo`, latched by `carriesVideoTelemetry` and
+  sticky across the other packet kinds; `lastTele` is liveness only. The hook's
+  return is memoised, because a fresh object literal per render made
+  `React.memo` on every child silently useless — that is the "everything
+  repaints" half. `RemoteQuality` moved to its own file so the regression test
+  can mount it and assert on **DOM node identity**, which is the only assertion
+  that can tell a remount from a re-render.
+
+  Regression cover: `src/app/config/views/RemoteQuality.test.tsx` (the control
+  survives a real interleaved packet stream as the same node),
+  `src/app/config/teleKinds.test.ts` (the classifier), and
+  `tests/e2e/telemetry-glitch.spec.ts` (two real pages in one room, sampling
+  across seven seconds).
+
+- **A DEV-only state-layer trace.** `which layer won each contested key`, logged
+  only when the answer changes. Two reports of this bug were diagnosed by
+  reading four files and guessing, and the first fix was wrong because the guess
+  was wrong. Every call site is inside `import.meta.env.DEV`, so it is constant
+  folded and tree shaken out of a production build; `npm run size` keeps that
+  honest, and the display critical path is unchanged.
+
 - **A module switched in CAM reverted to Video a second later.** Reported live.
   The cause was precedence, not the module picker: inbound state is applied as
   the `remote` layer, which outranks anything this page saves — and that layer is

@@ -6,23 +6,10 @@ import { toJson } from '../../../diag/report';
 import { diagPhase, diagReportFreshness, DIAG_REQUEST_TIMEOUT_MS } from '../../../diag/wire';
 import { clamp } from '../../../lib/clamp';
 import { listModules } from '../../../modules/registry';
-import {
-  YT_BIAS_HELPER,
-  describeQuality,
-  qualityControlFor,
-  qualityFromOption,
-  qualityOptionValue,
-  qualityOptions,
-  type QualityConfig,
-} from '../../../modules/video/quality';
 import { detect } from '../../../modules/video/routing/detect';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
 import { validateUrl, primaryIssue } from '../../../modules/video/routing/validate';
-import {
-  validateVideoConfig,
-  type ProviderId,
-  type VideoModuleConfig,
-} from '../../../modules/video/types';
+import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { withModuleConfig } from '../../../state/selectors';
 import { DEFAULT_MQTT_URL, DEFAULT_NTFY_BASE } from '../../../sync/endpoints';
 import { anchorPosition, type WirePosition } from '../../../sync/position';
@@ -47,6 +34,7 @@ import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom'
 import { currentHash, hashQuery, subscribeRoute } from '../router';
 import { useSync } from '../useSync';
 
+import { RemoteQuality } from './RemoteQuality';
 import { RemoteRing } from './RemoteRing';
 
 import type { AppState } from '../../../state/schema';
@@ -282,7 +270,17 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   // Telemetry readout
   // -------------------------------------------------------------------------
 
-  const tele = sync.lastTele?.body ?? null;
+  /*
+   * The VIDEO packet, not "whatever landed last".
+   *
+   * `sync.lastTele` is the most recent packet of any kind, and the channel is
+   * shared with the replica feed's `monitor`, the clip `library` and the
+   * chunked diagnostics report. Reading `provider` / `quality` / `levels` off
+   * it meant every non-video packet answered "nothing known", which is how the
+   * quality picker came and went roughly once a second and took the panel's
+   * whole DOM subtree with it. `lastVideo` is sticky across the other kinds.
+   */
+  const tele = sync.lastVideo?.body ?? null;
   const playback = state.playback;
 
   /**
@@ -471,6 +469,24 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
     // component already re-renders on; the ref-held timers are what carry state
     // across renders, so the identity of this callback only has to be stable
     // within one snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [videoCfg],
+  );
+
+  /**
+   * Stable across renders, which is what makes `memo(RemoteQuality)` real.
+   *
+   * A fresh arrow in the JSX would change the prop's identity on every
+   * telemetry packet and re-render the panel anyway — memoising the component
+   * and then handing it a new function is the classic way to memoise nothing.
+   */
+  const setQuality = useCallback(
+    (quality: VideoModuleConfig['quality']): void => {
+      commit((s) => withModuleConfig(s, VIDEO_ID, 1, { ...videoCfg, quality }));
+    },
+    // `commit` closes over `runtime.store`, created once by the mount; the
+    // identity only has to be stable within one snapshot. Same reasoning as
+    // `publishLoop` above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [videoCfg],
   );
@@ -865,9 +881,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
             cfg={videoCfg}
             tele={tele}
             fallbackProvider={ytMatch.provider}
-            onChange={(quality) => {
-              setVideo({ quality });
-            }}
+            onChange={setQuality}
           />
         </Panel>
 
@@ -982,81 +996,6 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         <RoomSettings runtime={runtime} />
       </Disclosure>
     </div>
-  );
-}
-
-/**
- * The same quality control as the CAM panel, in a thumb-sized form.
- *
- * Identical rules and identical words — `src/modules/video/quality.ts` owns
- * both, so the two surfaces can never disagree about who controls the picture.
- * The difference is only where the truth comes from: the panel reads the
- * telemetry mirror over CAM's shared origin, and this reads the same packet off
- * the encrypted `tele` channel.
- *
- * A pin travels as ordinary module *config* — it is a setting, not a command —
- * so it reaches the display through the retained state snapshot and survives a
- * cold boot, exactly like the A-B loop.
- */
-function RemoteQuality({
-  cfg,
-  tele,
-  fallbackProvider,
-  onChange,
-}: {
-  cfg: VideoModuleConfig;
-  tele: Record<string, unknown> | null;
-  fallbackProvider: ProviderId | null;
-  onChange: (next: QualityConfig) => void;
-}) {
-  const reportedProvider = typeof tele?.['provider'] === 'string' ? tele['provider'] : null;
-  // The mounted adapter beats the URL's guess: a link that looks like a bare
-  // `.m3u8` may have ended up on the resolver, and the adapter that is actually
-  // running is the one whose control is real.
-  const control = qualityControlFor((reportedProvider as ProviderId | null) ?? fallbackProvider);
-  const rawLevels = tele?.['levels'];
-  const levels = Array.isArray(rawLevels)
-    ? (rawLevels as { h: number; l: string }[]).map((l) => ({ height: l.h, label: l.l }))
-    : [];
-  const rawQuality = tele?.['quality'];
-  const reported =
-    typeof rawQuality === 'object' && rawQuality !== null
-      ? (rawQuality as { height?: number | null; label?: string | null })
-      : null;
-  const reading = describeQuality(cfg.quality, {
-    reported,
-    local: cfg.url.startsWith(LOCAL_CLIP_SCHEME),
-  });
-
-  if (control === 'readonly' || control === 'none') {
-    return (
-      <p className="kh-hint" data-testid="remote-quality-readout">
-        {reading}
-        {control === 'readonly'
-          ? ' — a stored file has one resolution, so there is nothing to choose.'
-          : ' — nothing is playing yet.'}
-      </p>
-    );
-  }
-
-  return (
-    <>
-      <Field
-        label={control === 'bias' ? 'Bias' : 'Quality'}
-        htmlFor="remote-quality"
-        description={reading}
-      >
-        <Select
-          id="remote-quality"
-          value={qualityOptionValue(cfg.quality)}
-          options={qualityOptions(control, levels)}
-          onChange={(value) => {
-            onChange(qualityFromOption(value, cfg.quality));
-          }}
-        />
-      </Field>
-      {control === 'bias' && <p className="kh-hint">{YT_BIAS_HELPER}</p>}
-    </>
   );
 }
 

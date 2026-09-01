@@ -393,6 +393,16 @@ export default defineConfig(
       // that reproduces a worked example from the design docs is nothing BUT
       // those literals — asserting `translate(-248.889px, …)` is the point.
       'no-magic-numbers': 'off',
+      /*
+       * A revert is not something one `expect()` can catch.
+       *
+       * The bug this exists for held the right value for about a second and
+       * then flipped, so the only useful assertion SAMPLES a reading across a
+       * window — which means it lives in a helper, and the rule cannot see
+       * through a helper. Naming the helpers is what the rule is configured
+       * for; turning it off would lose the check everywhere else.
+       */
+      'vitest/expect-expect': ['error', { assertFunctionNames: ['expect', 'holdsFor'] }],
     },
   },
 

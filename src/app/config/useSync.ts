@@ -11,7 +11,7 @@
  * never opens the Remote tab never downloads it.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createDiagAssembler } from '../../diag/wire';
 import { createChunkAssembler } from '../../lib/chunkedTele';
@@ -81,10 +81,49 @@ export interface TeleSample {
   at: number;
 }
 
+/**
+ * Does this packet carry the video module's own view of the world?
+ *
+ * The `tele` channel is SHARED: the video module publishes `videoStats` every
+ * 2 s, the replica feed publishes `monitor` every 2.5 s, the clip index and the
+ * chunked diagnostics report and thumbnails all ride the same stream. Only the
+ * video packets carry `provider`, `quality` and `levels`.
+ *
+ * That mattered because the whole quality control was derived from
+ * `lastTele` — "the most recent packet of ANY kind" — so a `monitor` packet
+ * landing between two `videoStats` packets read as "no provider", which
+ * `qualityControlFor(null)` answers with `'none'`, which renders a paragraph
+ * where the `<Select>` was. The picker therefore vanished and came back roughly
+ * once a second, in lockstep with the telemetry cadence, and every consumer of
+ * the same object repainted with it. Latching the video packets separately is
+ * the fix: a `monitor` packet now says nothing about the video, because it
+ * never knew anything about the video.
+ */
+export function carriesVideoTelemetry(body: Record<string, unknown>): boolean {
+  const kind = body['kind'];
+  if (kind === 'videoStats' || kind === 'videoError') return true;
+  // Lenient on purpose: a peer on a different build (or a fork) may name its
+  // packets differently, and the fields are what the readers actually use.
+  return typeof body['provider'] === 'string' || typeof body['stats'] === 'object';
+}
+
 export interface SyncHandle {
   status: SyncStatus | null;
-  /** The most recent packet of any kind. */
+  /**
+   * The most recent packet of any kind.
+   *
+   * Liveness ONLY — "is there a Kraken on the other end, and how long ago did
+   * it say so". Never read a video field off this: see `lastVideo`.
+   */
   lastTele: TeleSample | null;
+  /**
+   * The most recent packet that carried VIDEO telemetry — provider, quality,
+   * levels, stats.
+   *
+   * Sticky across the other packet kinds on the shared channel, which is the
+   * entire point. See `carriesVideoTelemetry`.
+   */
+  lastVideo: TeleSample | null;
   /**
    * The most recent packet that actually carried `stats`.
    *
@@ -135,6 +174,7 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
   const syncRef = useRef<AppSync | null>(null);
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [lastTele, setLastTele] = useState<TeleSample | null>(null);
+  const [lastVideo, setLastVideo] = useState<TeleSample | null>(null);
   const [lastStats, setLastStats] = useState<TeleSample | null>(null);
   const [library, setLibrary] = useState<TeleSample | null>(null);
   const [lastError, setLastError] = useState<TeleSample | null>(null);
@@ -206,6 +246,7 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
             at: Date.now(),
           };
           setLastTele(sample);
+          if (carriesVideoTelemetry(sample.body)) setLastVideo(sample);
           if (typeof sample.body['stats'] === 'object' && sample.body['stats'] !== null) {
             setLastStats(sample);
           }
@@ -319,17 +360,49 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
    * a second render of state React can already compute from `room`.
    */
   const live = room !== null;
-  return {
-    status: live ? status : null,
-    lastTele: live ? lastTele : null,
-    lastStats: live ? lastStats : null,
-    library: live ? library : null,
-    lastError: live ? lastError : null,
-    diagReport: live ? diagReport : null,
-    monitor: live ? monitor : null,
-    ringThumb: live ? ringThumb : null,
-    topicId: live ? topicId : null,
-    sendCmd,
-    publishNow,
-  };
+  /*
+   * Memoised, and it is not micro-optimisation.
+   *
+   * A fresh object literal here is a NEW `SyncHandle` on every render, and a
+   * telemetry packet renders this hook's owner two or three times a second. Any
+   * child given the whole handle as a prop therefore re-rendered on every
+   * packet no matter how stable its own inputs were, and `React.memo` on those
+   * children was silently useless. That is the "everything repaints" half of
+   * the report: the identity changed, so the reconciler had to walk the tree.
+   *
+   * The dependency list is every field, so the identity still changes the
+   * instant any of them actually does — this makes the object honest about
+   * change, it does not make it stale.
+   */
+  return useMemo(
+    () => ({
+      status: live ? status : null,
+      lastTele: live ? lastTele : null,
+      lastVideo: live ? lastVideo : null,
+      lastStats: live ? lastStats : null,
+      library: live ? library : null,
+      lastError: live ? lastError : null,
+      diagReport: live ? diagReport : null,
+      monitor: live ? monitor : null,
+      ringThumb: live ? ringThumb : null,
+      topicId: live ? topicId : null,
+      sendCmd,
+      publishNow,
+    }),
+    [
+      live,
+      status,
+      lastTele,
+      lastVideo,
+      lastStats,
+      library,
+      lastError,
+      diagReport,
+      monitor,
+      ringThumb,
+      topicId,
+      sendCmd,
+      publishNow,
+    ],
+  );
 }

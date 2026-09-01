@@ -16,6 +16,7 @@
 
 import { createLogger } from '../lib/log';
 import { resolveState } from '../state/precedence';
+import { noteSeenRev } from '../state/storage';
 
 import { createSyncService, type SyncService, type SyncServiceOptions } from './SyncService';
 
@@ -53,6 +54,59 @@ export function syncBodyToPatch(b: SyncStateBody): DeepPartial<AppState> {
     playback: b.playback,
     render: b.render,
   };
+}
+
+/**
+ * ── The DEV-only layer trace ─────────────────────────────────────────────────
+ *
+ * "Which layer won this key, and when did that change?" is the one question
+ * this whole class of bug turns on, and until now the only way to answer it was
+ * to read four files and guess. Two reports of "it flips back to Video" were
+ * diagnosed that way; the first fix was wrong because the guess was wrong.
+ *
+ * It ships dark. Every call site is inside `if (import.meta.env.DEV)`, which
+ * Vite replaces with `false` in a production build, so the constant folder
+ * removes the branch and the tree shaker removes everything only it referenced.
+ * `npm run size` is what keeps that honest.
+ *
+ * Logged ONLY on change: the state channel is chatty and a line per frame is
+ * noise nobody reads. A line appears when the winning layer for a contested key
+ * actually moves, which is exactly the moment worth seeing.
+ */
+const TRACE_LAYERS = ['url', 'local', 'remote', 'persisted'] as const;
+
+function leafPaths(patch: unknown, prefix: string, out: Set<string>): void {
+  if (patch === undefined) return;
+  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
+    if (prefix.length > 0) out.add(prefix);
+    return;
+  }
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    leafPaths(value, prefix.length > 0 ? `${prefix}.${key}` : key, out);
+  }
+}
+
+function leafAt(patch: unknown, path: string): unknown {
+  let cursor: unknown = patch;
+  for (const part of path.split('.')) {
+    if (typeof cursor !== 'object' || cursor === null) return undefined;
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return cursor;
+}
+
+/** `activeModuleId←local` for every key more than one layer has an opinion about. */
+function describeLayers(layers: Record<(typeof TRACE_LAYERS)[number], unknown>): string {
+  const paths = new Set<string>();
+  for (const name of TRACE_LAYERS) leafPaths(layers[name], '', paths);
+  const contested: string[] = [];
+  for (const path of [...paths].sort()) {
+    const holders = TRACE_LAYERS.filter((name) => leafAt(layers[name], path) !== undefined);
+    if (holders.length < 2) continue;
+    contested.push(`${path}←${holders[0] ?? '?'}`);
+  }
+  return contested.join(' ');
 }
 
 export interface AppSyncOptions {
@@ -105,6 +159,64 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
 
   let remote: DeepPartial<AppState> = {};
   let lastPersistAt = 0;
+  /** The last layer summary printed, so DEV logs only the transitions. */
+  let lastTrace: string | null = null;
+
+  /*
+   * ── Persisting remote state: throttled with a TRAILING edge ────────────────
+   *
+   * Leading-edge alone DROPS the last write of a burst, and the last write of a
+   * burst is the only one that matters — it is the value that is still true.
+   * Measured, not feared: two frames a fifth of a second apart left the stored
+   * document holding the FIRST one for the next two seconds, so the config page
+   * read a superseded module out of storage and republished it, and a display
+   * reloading inside that window cold-booted into a state nobody had asked for.
+   */
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingPersist: AppState | null = null;
+
+  function persistNow(next: AppState): void {
+    lastPersistAt = Date.now();
+    try {
+      /*
+       * The RESOLVED state, never the raw remote body.
+       *
+       * This was the bug. `commit()` overwrites the snapshot outright, so
+       * writing `{...s, ...syncBodyToPatch(body)}` here threw away the answer
+       * `resolveState` had produced three lines above and put the peer's value
+       * straight back on screen — defeating `local` and `url` both, about two
+       * seconds after every click. Persisting what we actually resolved is the
+       * SAME write in the cold-boot case (a page with nothing local resolves to
+       * exactly the remote body) and the correct one in every other.
+       *
+       * `origin: 'sync'` keeps it out of the `local` layer: this is the page
+       * writing down what a peer said, not the page deciding anything.
+       *
+       * Writes only to localStorage. It reaches the CAM Configuration Browser
+       * through the shared origin, so no peer ever echoes state back onto the
+       * network — which is what stops a feedback loop between three surfaces.
+       */
+      o.store.commit((s) => ({ ...s, ...stateToSyncBody(next) }), { origin: 'sync' });
+    } catch (err) {
+      log.warn('could not persist remote state', err);
+    }
+  }
+
+  function schedulePersist(next: AppState): void {
+    const elapsed = Date.now() - lastPersistAt;
+    if (elapsed >= PERSIST_REMOTE_THROTTLE_MS) {
+      persistNow(next);
+      return;
+    }
+    pendingPersist = next;
+    if (persistTimer !== null) return;
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      const value = pendingPersist;
+      pendingPersist = null;
+      if (value !== null) persistNow(value);
+    }, PERSIST_REMOTE_THROTTLE_MS - elapsed);
+  }
 
   /**
    * Edits this page made that no LIVE remote frame has superseded yet.
@@ -143,7 +255,37 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    */
   let local: DeepPartial<AppState> = {};
 
-  const stopFolding = o.store.onCommit((next) => {
+  /**
+   * The `rev` of the newest DELIBERATE local commit this page has made.
+   *
+   * Arrival provenance for the remote layer, and the reason a retained replay
+   * can be recognised as stale rather than merely out-ranked. `0` means "this
+   * page has decided nothing yet", which is the cold-boot case: a display that
+   * has never been touched must still take its whole world from the retained
+   * snapshot, so the guard below is inert until a human has acted.
+   */
+  let lastLocalRev = 0;
+
+  /*
+   * A document arriving from storage is re-resolved through the layers.
+   *
+   * The other CAM browser writes to this document, and so does the display
+   * every time `persistRemote` fires. Without this the store simply adopted
+   * whatever it read, which threw away `remote`, `local` and `url` — and on the
+   * config page the very next `store.subscribe` republished that raw document
+   * as this page's own desire. See `Store.setResolve`.
+   */
+  o.store.setResolve(
+    (persistedDoc) => resolveState({ persisted: persistedDoc, remote, local, url: o.url }).state,
+  );
+
+  const stopFolding = o.store.onCommit((next, origin) => {
+    // A `'sync'` commit is this page WRITING DOWN what a peer said (the
+    // `persistRemote` path below). Folding it in here would put the remote
+    // value into the layer that exists to defend the user's own edit from it —
+    // which is precisely how the revert became permanent instead of momentary.
+    if (origin !== 'local') return;
+    lastLocalRev = Math.max(lastLocalRev, next.rev);
     local = {
       ...local,
       ...syncBodyToPatch(next),
@@ -152,6 +294,69 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   });
 
   service.onState((body, meta) => {
+    const persisted = o.persisted();
+
+    /*
+     * The Lamport counter, finally closed.
+     *
+     * `rev` is only an ordering if a writer's next number exceeds everything it
+     * has OBSERVED, and nothing in the app was feeding observations back into
+     * the counter — `noteSeenRev` shipped exported and unreferenced. Without
+     * this line two peers' counters drift apart on their own storage and the
+     * comparison below is meaningless; with it, "newer" is a fact rather than a
+     * coincidence, and the phone's genuine change still outranks the display.
+     */
+    if (meta.rev !== null) noteSeenRev(meta.rev);
+
+    /*
+     * A replay older than what we already know is DISCARDED, not merely
+     * out-ranked.
+     *
+     * A retained frame is a broker reading back something a peer said once. It
+     * exists to bootstrap somebody who knows nothing — and it is the whole
+     * truth for exactly that reader. For anybody else it is a message from the
+     * past, and the remote layer it lands in is sticky and in-memory, so once
+     * `local` is next cleared by a genuine live frame the stale value wins for
+     * the life of the page. That is the second half of the revert: the user's
+     * `clock` sits in localStorage at a higher `rev` than the `video` the
+     * broker is replaying, and `video` beat it anyway because the layer order
+     * puts remote above persisted unconditionally.
+     *
+     * Ordering is the counter both sides now share (above), and the floor is
+     * the higher of what this page has decided and what it has saved. A LIVE
+     * frame is exempt: a peer speaking now is newer by definition, which is
+     * what keeps the phone remote working.
+     *
+     * `floor > 0` keeps a genuinely cold page untouched: with nothing decided
+     * and nothing saved, the retained snapshot is all there is.
+     */
+    const persistedRev = typeof persisted.rev === 'number' ? persisted.rev : 0;
+    const floor = Math.max(lastLocalRev, persistedRev);
+    if (meta.retained && meta.rev !== null && floor > 0 && meta.rev <= floor) {
+      if (import.meta.env.DEV) {
+        log.debug(
+          `dropped a retained replay at rev ${String(meta.rev)}; this page is at ${String(floor)}`,
+        );
+      }
+      return;
+    }
+
+    /*
+     * A LIVE frame is deliberately NOT rev-guarded, and that was measured.
+     *
+     * The obvious next move is to drop any frame older than this page's own
+     * last commit, live or not. It is wrong, and the e2e caught it: two peers
+     * on ONE origin write to ONE document, so a display that commits anything
+     * of its own between a remote's publish and its delivery ends up holding a
+     * higher `rev` than the frame in flight — and drops it. That turned "a seek
+     * on the remote moves the display" red, which is the whole product.
+     *
+     * A live frame is a peer speaking NOW. Last-writer-wins is the right answer
+     * for it, and the `local` layer above already stops it from silently
+     * undoing an edit this page has not yet published. Only replays need the
+     * ordering guard, because only a replay claims to be news while being old.
+     */
+
     // Merge rather than replace: a `partial` snapshot carries only the active
     // module, and the modules it omitted must keep the values we already have.
     remote = {
@@ -162,21 +367,18 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     // A peer speaking now supersedes what this page last chose. A replay does
     // not — see above.
     if (!meta.retained) local = {};
-    const resolved = resolveState({ persisted: o.persisted(), remote, local, url: o.url });
+    const resolved = resolveState({ persisted, remote, local, url: o.url });
+    if (import.meta.env.DEV) {
+      const trace = describeLayers({ url: o.url, local, remote, persisted });
+      if (trace !== lastTrace) {
+        lastTrace = trace;
+        log.debug(`layers: ${trace.length === 0 ? '(uncontested)' : trace}`);
+      }
+    }
     o.store.replace(resolved.state);
     o.onRemoteState?.(resolved.state, meta);
 
-    if (o.settings.persistRemote && Date.now() - lastPersistAt >= PERSIST_REMOTE_THROTTLE_MS) {
-      lastPersistAt = Date.now();
-      try {
-        // Writes only to localStorage. It reaches the CAM Configuration Browser
-        // through the shared origin, so no peer ever echoes state back onto the
-        // network — which is what stops a feedback loop between three surfaces.
-        o.store.commit((s) => ({ ...s, ...syncBodyToPatch(body) }) as AppState);
-      } catch (err) {
-        log.warn('could not persist remote state', err);
-      }
-    }
+    if (o.settings.persistRemote) schedulePersist(resolved.state);
   });
 
   if (o.onCmd !== undefined) service.onCmd(o.onCmd);
@@ -206,6 +408,10 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     stop: () =>
       (stopping ??= (async () => {
         stopFolding();
+        if (persistTimer !== null) clearTimeout(persistTimer);
+        persistTimer = null;
+        pendingPersist = null;
+        o.store.setResolve(null);
         await service.stop();
       })()),
   };
