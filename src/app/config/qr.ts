@@ -252,14 +252,16 @@ function placeFormatInfo(m: Matrix, mask: number): void {
   const bits = FORMAT_L[mask] ?? 0;
   for (let i = 0; i < 15; i += 1) {
     const bit: Cell = ((bits >>> i) & 1) === 1 ? 1 : 0;
-    // Copy 1: around the top-left finder.
-    if (i < 6) set(m, 8, i, bit);
-    else if (i < 8) set(m, 8, i + 1, bit);
-    else if (i === 8) set(m, 7, 8, bit);
-    else set(m, 14 - i, 8, bit);
-    // Copy 2: split between the other two finders.
-    if (i < 8) set(m, m.size - 1 - i, 8, bit);
-    else set(m, 8, m.size - 15 + i, bit);
+    // Column 8: bits 0–7 run DOWN beside the top-left finder (skipping the
+    // timing row at 6), bits 8–14 sit above the bottom-left finder.
+    if (i < 6) set(m, i, 8, bit);
+    else if (i < 8) set(m, i + 1, 8, bit);
+    else set(m, m.size - 15 + i, 8, bit);
+    // Row 8: bits 0–7 run LEFT from the right edge beside the top-right
+    // finder, bits 8–14 come back to the top-left corner.
+    if (i < 8) set(m, 8, m.size - 1 - i, bit);
+    else if (i === 8) set(m, 8, 7, bit);
+    else set(m, 8, 14 - i, bit);
   }
 }
 

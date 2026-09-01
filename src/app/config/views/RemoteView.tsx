@@ -909,20 +909,29 @@ function PairingCard({
   if (paired && roomCode !== null) {
     return (
       <section className="kh-roomcard" data-testid="pairing-card" data-paired="true">
-        <div className="kh-roomcard__head" data-testid="paired-summary">
-          {/*
-            The square is for the OTHER device.
+        {/*
+          The square is for the OTHER device.
 
-            A phone showing itself a code to scan is furniture, and this card is
-            what the audit's phone capture (F-ph-remote-room) is mostly made of.
-            So `ui.css` hides it below 700 px: on a desktop, where somebody is
-            pairing a phone against it, it is exactly what they came for.
-          */}
-          {qr !== null && (
-            <span className="kh-roomcard__qr">
-              <QrCode qr={qr} size="small" />
-            </span>
-          )}
+          A phone showing itself a code to scan is furniture, and this card is
+          what the audit's phone capture (F-ph-remote-room) is mostly made of.
+          So `ui.css` hides it below 700 px: on a desktop, where somebody is
+          pairing a phone against it, it is exactly what they came for.
+
+          Which is why it is no longer a 56 px thumbnail wedged into the summary
+          row beside the name and the button. At 56 px a version-4 code draws its
+          modules at roughly one and a half CSS pixels — under a phone camera
+          that is a grey square, not a code. It is a scan target, so it is sized
+          like one and given the row to itself.
+        */}
+        {qr !== null && remoteUrl !== null && (
+          <div className="kh-roomcard__qr" data-testid="pair-qr">
+            <QrCode qr={qr} payload={remoteUrl} />
+            <small className="kh-roomcard__caption">
+              Point your phone’s camera at this to pair it.
+            </small>
+          </div>
+        )}
+        <div className="kh-roomcard__head" data-testid="paired-summary">
           <div className="kh-roomcard__who">
             <b data-testid="paired-title">
               {connecting ? <span className="kh-shimmer">Connecting…</span> : 'Paired with your PC'}
@@ -994,18 +1003,39 @@ function PairingCard({
   );
 }
 
-/** The pairing QR, drawn inline — never fetched, because the URL is the secret. */
-function QrCode({ qr, size }: { qr: { d: string; side: number }; size: 'small' | 'large' }) {
-  const px = size === 'small' ? 56 : 168;
+/**
+ * The pairing QR, drawn inline — never fetched, because the URL is the secret.
+ *
+ * Three properties here are what a camera actually needs, and all three are
+ * pinned by tests because all three look like styling:
+ *
+ *  - DARK ON LIGHT, always. The white `rect` and the black `path` are literal
+ *    hex, not theme tokens: the app is dark, and a light-on-dark QR is an
+ *    inverted code that the QR spec does not describe and that iOS will not
+ *    even offer to open.
+ *  - THE QUIET ZONE, from `qrSvgPath`'s 4-module margin, which is inside the
+ *    `viewBox` — so the white `rect` spans it and it survives any scaling.
+ *  - SIZE. 176 px, not the 56 px thumbnail this used to be. A version-4 code is
+ *    33 modules plus 8 of quiet zone; 176 px puts a module at ~4.3 px, which a
+ *    phone camera resolves at arm's length.
+ */
+const QR_PX = 176;
+
+function QrCode({ qr, payload }: { qr: { d: string; side: number }; payload: string }) {
   return (
     <svg
       className="kh-qr"
       viewBox={`0 0 ${String(qr.side)} ${String(qr.side)}`}
-      width={px}
-      height={px}
+      width={QR_PX}
+      height={QR_PX}
       role="img"
       aria-label="Pairing QR code for the remote URL"
       shapeRendering="crispEdges"
+      // Not for the browser: the e2e assertion that what is drawn is the
+      // absolute https link, since the modules themselves are unreadable to a
+      // test. A camera that decodes anything else has decoded a bug.
+      data-qr-payload={payload}
+      data-qr-quiet="4"
     >
       <rect width={qr.side} height={qr.side} fill="#ffffff" />
       <path d={qr.d} fill="#000000" />

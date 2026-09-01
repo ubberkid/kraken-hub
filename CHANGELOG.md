@@ -238,6 +238,29 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Fixed
 
+- **The pairing QR was not a valid QR code, and no phone could scan it.** The
+  hand-rolled encoder wrote the 15 format-information bits — the ones that tell
+  a decoder the error-correction level and the mask, and the first thing it
+  reads after finding the finder patterns — in reverse bit order, and split them
+  8/7 between the two copies instead of 7/8, so the eighth bit landed on
+  (`size - 8`, 8) and overwrote the always-dark module. Nothing in the previous
+  test could see it: the matrix was square, the path was drawable, the picture
+  looked exactly like a QR code. Running one through a real decoder rejects it —
+  as an iPhone camera did, silently, by showing no tap banner at all. Placement
+  now follows ISO/IEC 18004 §8.9, and `src/app/config/qr.decode.test.ts` puts the
+  encoder's output back through `jsQR` (a devDependency; it never ships) at every
+  payload length from 1 to 271 bytes, which crosses all ten version boundaries
+  including version 10 and its two block groups. The three properties a camera
+  needs from the drawing — dark modules on a **white** tile regardless of the
+  app's dark theme, the mandatory 4-module quiet zone inside the `viewBox`, and
+  an absolute `https` payload — were already right and are now asserted against
+  the live DOM so a theme token or a tidy-up cannot quietly break one.
+- **The pairing QR was a 56 px thumbnail — decorative, not scannable.** At that
+  size a version-4 code drew each module at about one and a half CSS pixels,
+  which a phone camera resolves as a grey square. It is 176 px now, with the row
+  to itself and a caption saying what to do with it, on the desktop pairing card
+  that exists to be pointed at. Below 700 px it is still hidden, because there
+  the card is the phone's own remote.
 - **A second `SyncService` in one document was silently deaf and mute.** Every
   receiver dedupes on `(src, seq)`, and `src` is `clientId()` — deliberately one
   value for the whole page load — but the sequence counter lived on the service

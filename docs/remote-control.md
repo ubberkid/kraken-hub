@@ -32,6 +32,11 @@ an origin server, a CDN, a proxy, a `Referer` header or an analytics beacon. The
 QR is generated **on your own machine** (`src/app/config/qr.ts`), never fetched
 from a QR service, because the room code is the only secret in this design.
 
+It is drawn as dark modules on a white tile — the rest of the app is dark, and
+an inverted code is one a phone camera will not offer to open — and it appears
+only on windows wider than 700 px. On a phone the pairing card is already the
+remote, so a QR there would be the page offering you a scan of itself.
+
 If the camera route is not available — a desktop second browser, a locked-down
 phone — the same card has a **Type a code instead** disclosure holding a
 **Room code → Join** field. Typing is the fallback, so it sits behind a door

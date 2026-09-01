@@ -57,4 +57,27 @@ describe('qrMatrix', () => {
     expect(path.side).toBe(matrix.length + 8);
     expect(path.d.length).toBeGreaterThan(0);
   });
+
+  /**
+   * The quiet zone is not decoration: ISO/IEC 18004 requires four light modules
+   * on every side, and a camera that cannot find that border does not find the
+   * code at all. It lives inside the `viewBox`, so it scales with the drawing
+   * instead of depending on whatever padding the card happens to have.
+   */
+  it('leaves a four-module light border on all four sides', () => {
+    const matrix = qrMatrix(remoteLinkUrl(APP, ROOM));
+    const { d, side } = qrSvgPath(matrix);
+    const coords = [...d.matchAll(/M(\d+) (\d+)h/g)].map(([, x, y]) => ({
+      x: Number(x),
+      y: Number(y),
+    }));
+    expect(coords.length).toBeGreaterThan(0);
+    for (const { x, y } of coords) {
+      expect(x).toBeGreaterThanOrEqual(4);
+      expect(y).toBeGreaterThanOrEqual(4);
+      // Each module is 1 wide, so its far edge is at +1.
+      expect(x + 1).toBeLessThanOrEqual(side - 4);
+      expect(y + 1).toBeLessThanOrEqual(side - 4);
+    }
+  });
 });

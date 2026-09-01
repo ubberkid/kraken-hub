@@ -748,3 +748,85 @@ test('a cold display resumes from the position in the retained snapshot', async 
   // …and it reached the media element, not just the readout.
   await expect.poll(async () => maxJump(cold), { timeout: 15_000 }).toBeGreaterThan(2);
 });
+
+// ---------------------------------------------------------------------------
+// The QR as a thing a camera has to read
+// ---------------------------------------------------------------------------
+
+/**
+ * Everything about the pairing QR that a phone camera cares about.
+ *
+ * The bug this pins: the code rendered, screenshotted fine, and an iPhone
+ * camera would not see it at all. Four properties have to hold at once, and
+ * every one of them reads as cosmetics in a diff — so all four are asserted
+ * against the real DOM, on the desktop width where the code is actually shown
+ * (below 700 px it is hidden, because there it would be a phone offering to
+ * scan itself).
+ *
+ * The fifth property — that the modules decode to the payload — cannot be seen
+ * from here; `src/app/config/qr.decode.test.ts` runs the matrix through a real
+ * decoder for that.
+ */
+test('the pairing QR is dark-on-light, quiet-zoned, big enough, and holds the link', async ({
+  context,
+}) => {
+  const remote = await context.newPage();
+  await remote.setViewportSize({ width: 1000, height: 900 });
+  await remote.goto(scannedLink('MNPQ2345'));
+  await expect(remote.getByTestId('paired-summary')).toBeVisible();
+
+  const qr = remote.getByTestId('pair-qr').locator('svg.kh-qr');
+  await expect(qr).toBeVisible();
+
+  // 1. INVERTED CODES DO NOT SCAN. The app is dark; this tile is not. A light
+  //    module on a dark ground is not a QR code with the colours swapped, it is
+  //    a code iOS declines to recognise.
+  const tile = await qr.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return {
+      background: s.backgroundColor,
+      rect: el.querySelector('rect')?.getAttribute('fill'),
+      path: el.querySelector('path')?.getAttribute('fill'),
+    };
+  });
+  expect(tile.background).toBe('rgb(255, 255, 255)');
+  expect(tile.rect).toBe('#ffffff');
+  expect(tile.path).toBe('#000000');
+
+  // 2. THE QUIET ZONE — four light modules on every side, inside the viewBox so
+  //    it survives whatever the card does to the box.
+  const geometry = await qr.evaluate((el) => {
+    const box = el.getAttribute('viewBox')?.split(' ') ?? [];
+    return {
+      side: Number(box[2]),
+      d: el.querySelector('path')?.getAttribute('d') ?? '',
+    };
+  });
+  const modules = [...geometry.d.matchAll(/M(\d+) (\d+)h/g)].map(([, x, y]) => [
+    Number(x),
+    Number(y),
+  ]);
+  expect(modules.length).toBeGreaterThan(0);
+  for (const [x = 0, y = 0] of modules) {
+    expect(Math.min(x, y)).toBeGreaterThanOrEqual(4);
+    expect(Math.max(x, y) + 1).toBeLessThanOrEqual(geometry.side - 4);
+  }
+
+  // 3. SIZE. The 56 px thumbnail this replaced drew a module at ~1.5 CSS px —
+  //    decorative, not scannable. A scan target on the pairing card is ≥ 160.
+  const box = await boxOf(qr);
+  expect(box.width).toBeGreaterThanOrEqual(160);
+  expect(box.height).toBeGreaterThanOrEqual(160);
+
+  // 4. THE PAYLOAD is an ABSOLUTE URL with a scheme. A scheme-less or relative
+  //    payload decodes as plain text and a camera offers nothing to tap. (It is
+  //    `http` here only because the preview server is; in production the app is
+  //    served over https and the link inherits that, which is the point of
+  //    deriving it from `location` rather than writing a host down.)
+  const payload = `${new URL('./', remote.url()).href}#/remote?room=MNPQ2345`;
+  await expect(qr).toHaveAttribute('data-qr-payload', payload);
+  // …and that string really is an absolute URL carrying the room in the hash,
+  // rather than a path the camera would read as text.
+  expect(payload).toMatch(/^https?:\/\//);
+  expect(new URL(payload).hash).toBe('#/remote?room=MNPQ2345');
+});

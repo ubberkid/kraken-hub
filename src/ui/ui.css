@@ -703,11 +703,18 @@ html.kh-config-mode .kh-app {
 
 /* Pairing QR. Rendered as an inline <svg> from src/app/config/qr.ts — never
    fetched from a QR service, because the URL it encodes contains the room code
-   and the room code is the only secret in the sync design. */
+   and the room code is the only secret in the sync design.
+
+   The white is a LITERAL, not `var(--kh-panel)` or any other token, and it must
+   stay one: the surrounding UI is dark, and a QR drawn light-on-dark is an
+   inverted code. Desktop screenshots of one look fine and phone cameras — iOS
+   especially — simply never see it. The padding is extra light margin around
+   the 4-module quiet zone the SVG already carries inside its viewBox. */
 .kh-qr {
+  display: block;
   border-radius: 6px;
   background: #ffffff;
-  padding: 4px;
+  padding: 8px;
   flex: 0 0 auto;
 }
 
@@ -2975,7 +2982,18 @@ main > .kh-panel .kh-setup {
  * open on, taking a third of the card to offer a scan of itself (round 2, R4).
  * On a desktop, where somebody is pairing a phone against this window, it is
  * exactly what they came for — so it is a width question, not a delete.
+ *
+ * And where it is shown it gets the row to itself, centred, because it is the
+ * one thing on this card another device has to read from across a desk.
  */
+.kh-roomcard__qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+}
+
 @media (max-width: 700px) {
   .kh-roomcard__qr {
     display: none;
@@ -3003,13 +3021,8 @@ main > .kh-panel .kh-setup {
   color: var(--kh-accent-ink);
 }
 
-.kh-roomcard--open .kh-qr {
-  display: block;
-  margin: 0 auto 0.9rem;
-}
-
 .kh-roomcard__caption {
-  margin: -0.4rem 0 1rem;
+  margin: 0;
   text-align: center;
   color: var(--kh-muted-2);
   font-size: 0.78rem;
