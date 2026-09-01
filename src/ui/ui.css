@@ -1373,9 +1373,11 @@ html.kh-config-mode .kh-app {
 }
 
 /*
- * The mini-halo. A stylized surface, never an iframe — see the note at the top
- * of RemoteView.tsx: a phone is a different browser on a different machine, so
- * an iframe here would boot a SECOND display rather than mirror the first.
+ * The mini-halo. A state REPLICA, never an iframe — see the note at the top of
+ * RemoteView.tsx: a phone is a different browser on a different machine, so an
+ * iframe here would boot a SECOND display rather than mirror the first. What
+ * lives inside is the display's own module renderer, mounted by
+ * `app/config/replica.ts` and fed synced state.
  */
 .kh-minihalo {
   position: relative;
@@ -1389,6 +1391,66 @@ html.kh-config-mode .kh-app {
   box-shadow:
     0 0 0 1px #0a0e15,
     0 10px 30px -8px rgb(79 216 210 / 18%);
+}
+
+/*
+ * The scale trick.
+ *
+ * The replica host is sized to the PANEL's pixel box and shrunk with a
+ * transform, so the module lays itself out exactly as it does on the LCD and
+ * then the whole thing is scaled to fit the ring. `transform-origin: 0 0` is
+ * what makes the inline `scale()` land at the top-left corner rather than the
+ * middle; sizing the host to the ring instead would give a plausible-looking
+ * picture that is wrong, because every module scales its type off `geometry()`.
+ */
+.kh-minihalo__scale {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.kh-minihalo__still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kh-minihalo__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4a5768;
+}
+
+/*
+ * The position arc, drawn on top of whatever the ring is showing.
+ *
+ * It sits outside the replica's own DOM on purpose: it is a fact about
+ * PLAYBACK, re-anchored on this phone between telemetry packets, not something
+ * the display rendered — so it must not be inside a surface that claims to be
+ * a copy of the panel.
+ */
+.kh-minihalo__arc {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.kh-minihalo__arc path {
+  stroke: #4fd8d2;
+}
+
+.kh-minihalo__arc[data-held='true'] path {
+  stroke: #6b7a8d;
 }
 
 .kh-remote__title {

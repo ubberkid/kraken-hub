@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { issueUrl } from '../../../buildInfo';
-import { camInstallUrl } from '../../../config/knownHosts';
+import { camInstallUrl, ytPosterUrls } from '../../../config/knownHosts';
 import { toJson } from '../../../diag/report';
 import { diagPhase, diagReportFreshness, DIAG_REQUEST_TIMEOUT_MS } from '../../../diag/wire';
 import { clamp } from '../../../lib/clamp';
 import { listModules } from '../../../modules/registry';
+import {
+  YT_BIAS_HELPER,
+  describeQuality,
+  qualityControlFor,
+  qualityFromOption,
+  qualityOptionValue,
+  qualityOptions,
+  type QualityConfig,
+} from '../../../modules/video/quality';
+import { detect } from '../../../modules/video/routing/detect';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
 import { validateUrl, primaryIssue } from '../../../modules/video/routing/validate';
-import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
+import {
+  validateVideoConfig,
+  type ProviderId,
+  type VideoModuleConfig,
+} from '../../../modules/video/types';
 import { withModuleConfig } from '../../../state/selectors';
 import { DEFAULT_MQTT_URL, DEFAULT_NTFY_BASE } from '../../../sync/endpoints';
 import { anchorPosition, type WirePosition } from '../../../sync/position';
@@ -33,6 +47,8 @@ import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom'
 import { currentHash, hashQuery, subscribeRoute } from '../router';
 import { useSync } from '../useSync';
 
+import { RemoteRing } from './RemoteRing';
+
 import type { AppState } from '../../../state/schema';
 import type { ConfigRuntime } from '../runtime';
 import type { SyncHandle } from '../useSync';
@@ -51,12 +67,14 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
  *
  * Two things are worth knowing before editing:
  *
- *  - **The mini-halo is a stylized surface, never an iframe.** The home screen
- *    can run the real display page in its halo because it shares CAM's origin
- *    and storage; a phone is a different browser on a different machine, so an
+ *  - **The mini-halo is a state REPLICA, never an iframe.** The home screen can
+ *    run the real display page in its halo because it shares CAM's origin and
+ *    storage; a phone is a different browser on a different machine, so an
  *    iframe here would boot a SECOND display — a second decoder and a second
- *    download, on a battery, showing what this phone thinks rather than what the
- *    cooler shows. The truth comes from telemetry, in the line underneath.
+ *    download, on a battery. Instead `RemoteRing` mounts the display's own
+ *    module renderer and feeds it synced state, so the clock ring IS the clock
+ *    module and the stats ring IS the stats module. Pixels are the one thing
+ *    that never crosses the wire; see `../replica.ts`.
  *  - **The A-B handles write config, not commands.** A loop is a setting, so it
  *    travels as `state` through the ordinary store → `SyncService` path and its
  *    5 Hz coalescing. A seek is imperative and travels as `cmd`, with the same
@@ -85,14 +103,19 @@ const DISPLAY_ONLINE_MS = 12_000;
 const PCT = 100;
 
 /**
- * "1080p local" — the sub-line's badge.
+ * "1080p local" — the sub-line's badge, and only the badge.
+ *
+ * Deliberately terser than `describeQuality` in `modules/video/quality.ts`,
+ * which is the full sentence the Quality control shows. This one sits inside a
+ * line that already says "Playing on your Kraken ·", so a second "Auto —" in it
+ * would be noise.
  *
  * Both halves are claims about the DISPLAY, not about this phone: the height is
  * whatever quality the display negotiated and reported, and "local" means it is
  * playing a stored clip rather than a stream. Nothing here is inferred from the
  * URL except the local-clip scheme, which is unambiguous.
  */
-function describeQuality(
+function describeBadge(
   quality: { height?: number | null; label?: string | null } | undefined,
   url: string,
 ): string {
@@ -261,7 +284,6 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
 
   const tele = sync.lastTele?.body ?? null;
   const playback = state.playback;
-  const durationSec = playback?.durationSec ?? null;
 
   /**
    * The scrubber's position — re-anchored, not frozen.
@@ -279,9 +301,24 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    * existed.
    */
   const statsBody = sync.lastStats?.body ?? null;
-  const stats = statsBody?.['stats'] as { currentTime?: number; held?: boolean } | undefined;
+  const stats = statsBody?.['stats'] as
+    { currentTime?: number; held?: boolean; durationSec?: number | null } | undefined;
   const statsTs =
     typeof statsBody?.['ts'] === 'number' ? statsBody['ts'] : (sync.lastStats?.at ?? null);
+
+  /*
+   * The duration, from the display rather than from `playback`.
+   *
+   * The display never publishes `state`, so `playback.durationSec` exists only
+   * once somebody has explicitly seeked — which means a freshly opened remote
+   * had no timeline at all and the scrubber fell back to a one-hour track. The
+   * continuous stats packet carries it now; `playback` stays the fallback for
+   * the moments before the first packet lands.
+   */
+  const durationSec =
+    typeof stats?.durationSec === 'number' && stats.durationSec > 0
+      ? stats.durationSec
+      : (playback?.durationSec ?? null);
 
   let wire: WirePosition | null = null;
   if (stats?.currentTime !== undefined && statsTs !== null) {
@@ -338,7 +375,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   // Not memoized: two property reads and a string join, off values this
   // component already re-renders on. A manual memo here is exactly the kind the
   // React compiler cannot preserve.
-  const badge = describeQuality(quality, videoCfg.url);
+  const badge = describeBadge(quality, videoCfg.url);
 
   // -------------------------------------------------------------------------
   // Writers
@@ -473,13 +510,55 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const errorPacket = sync.lastError?.body ?? null;
   const achievedFps = typeof tele?.['achievedFps'] === 'number' ? tele['achievedFps'] : null;
 
+  /*
+   * What the ring shows for a picture module.
+   *
+   * Two sources, in order of how directly the phone can reach them:
+   *
+   *  1. A **public poster**, for YouTube. `i.ytimg.com` is on the open web and
+   *     this phone has internet, so it fetches the still itself — asking the
+   *     display to grab a frame, re-encode it and chunk it over a radio for an
+   *     image that already has a URL would be silly.
+   *  2. The **shipped thumbnail** — a ≤6 KB WebP the display sent once over the
+   *     chunked telemetry channel, for exactly the cases the phone cannot
+   *     reach: a stored clip and a library image, both of which live in CAM's
+   *     browser profile.
+   */
+  const ytMatch = useMemo(() => detect(videoCfg.url), [videoCfg.url]);
+  const ytPoster =
+    ytMatch.provider === 'youtube-embed' && ytMatch.id !== null && ytMatch.id !== ''
+      ? (ytPosterUrls(ytMatch.id)[0] ?? null)
+      : null;
+  const posterUrl = ytPoster ?? sync.ringThumb?.dataUrl ?? null;
+
+  /**
+   * The ring's position arc: the same re-anchored position the scrubber uses.
+   *
+   * Driven by `now`, so it advances smoothly between the 0.5 Hz telemetry
+   * packets rather than stepping twice a second. `null` for a source with no
+   * known duration — a live stream has no "how far through" to draw.
+   */
+  const ringProgress =
+    durationSec === null || durationSec <= 0
+      ? null
+      : Math.max(0, Math.min(1, positionSec / durationSec));
+
   // -------------------------------------------------------------------------
 
   return (
     <div className="kh-remote" data-testid="remote">
-      <div className="kh-minihalo" data-testid="remote-mirror" aria-hidden="true">
-        <div className="kh-halo__surface" />
-      </div>
+      <RemoteRing
+        moduleId={state.activeModuleId}
+        config={state.modules[state.activeModuleId]?.cfg ?? null}
+        render={state.render}
+        display={sync.monitor?.display ?? null}
+        monitor={sync.monitor?.snapshot ?? null}
+        monitorAt={sync.monitor?.at ?? 0}
+        posterUrl={posterUrl}
+        sourceUrl={videoCfg.url}
+        progress={ringProgress}
+        held={held}
+      />
 
       <h2 className="kh-remote__title" data-testid="remote-title">
         {title}
@@ -778,6 +857,20 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
           )}
         </Panel>
 
+        <Panel
+          title="Quality"
+          hint="What your Kraken is getting, and — where the source allows it — what to ask for."
+        >
+          <RemoteQuality
+            cfg={videoCfg}
+            tele={tele}
+            fallbackProvider={ytMatch.provider}
+            onChange={(quality) => {
+              setVideo({ quality });
+            }}
+          />
+        </Panel>
+
         <Panel title="What's on the screen" hint="Your Kraken shows exactly one thing at a time.">
           <Field label="Active module" htmlFor="remote-module">
             <Select
@@ -889,6 +982,81 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         <RoomSettings runtime={runtime} />
       </Disclosure>
     </div>
+  );
+}
+
+/**
+ * The same quality control as the CAM panel, in a thumb-sized form.
+ *
+ * Identical rules and identical words — `src/modules/video/quality.ts` owns
+ * both, so the two surfaces can never disagree about who controls the picture.
+ * The difference is only where the truth comes from: the panel reads the
+ * telemetry mirror over CAM's shared origin, and this reads the same packet off
+ * the encrypted `tele` channel.
+ *
+ * A pin travels as ordinary module *config* — it is a setting, not a command —
+ * so it reaches the display through the retained state snapshot and survives a
+ * cold boot, exactly like the A-B loop.
+ */
+function RemoteQuality({
+  cfg,
+  tele,
+  fallbackProvider,
+  onChange,
+}: {
+  cfg: VideoModuleConfig;
+  tele: Record<string, unknown> | null;
+  fallbackProvider: ProviderId | null;
+  onChange: (next: QualityConfig) => void;
+}) {
+  const reportedProvider = typeof tele?.['provider'] === 'string' ? tele['provider'] : null;
+  // The mounted adapter beats the URL's guess: a link that looks like a bare
+  // `.m3u8` may have ended up on the resolver, and the adapter that is actually
+  // running is the one whose control is real.
+  const control = qualityControlFor((reportedProvider as ProviderId | null) ?? fallbackProvider);
+  const rawLevels = tele?.['levels'];
+  const levels = Array.isArray(rawLevels)
+    ? (rawLevels as { h: number; l: string }[]).map((l) => ({ height: l.h, label: l.l }))
+    : [];
+  const rawQuality = tele?.['quality'];
+  const reported =
+    typeof rawQuality === 'object' && rawQuality !== null
+      ? (rawQuality as { height?: number | null; label?: string | null })
+      : null;
+  const reading = describeQuality(cfg.quality, {
+    reported,
+    local: cfg.url.startsWith(LOCAL_CLIP_SCHEME),
+  });
+
+  if (control === 'readonly' || control === 'none') {
+    return (
+      <p className="kh-hint" data-testid="remote-quality-readout">
+        {reading}
+        {control === 'readonly'
+          ? ' — a stored file has one resolution, so there is nothing to choose.'
+          : ' — nothing is playing yet.'}
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <Field
+        label={control === 'bias' ? 'Bias' : 'Quality'}
+        htmlFor="remote-quality"
+        description={reading}
+      >
+        <Select
+          id="remote-quality"
+          value={qualityOptionValue(cfg.quality)}
+          options={qualityOptions(control, levels)}
+          onChange={(value) => {
+            onChange(qualityFromOption(value, cfg.quality));
+          }}
+        />
+      </Field>
+      {control === 'bias' && <p className="kh-hint">{YT_BIAS_HELPER}</p>}
+    </>
   );
 }
 

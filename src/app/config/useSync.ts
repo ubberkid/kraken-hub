@@ -14,14 +14,59 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { createDiagAssembler } from '../../diag/wire';
+import { createChunkAssembler } from '../../lib/chunkedTele';
 import { clientId } from '../../platform/env';
 import { stateToSyncBody } from '../../sync/appSync';
+import { decodeMonitorSnapshot } from '../../sync/monitorSnapshot';
 
+import type { ReplicaDisplayInfo } from './replica';
 import type { ConfigRuntime } from './runtime';
 import type { DiagReport } from '../../diag/report';
 import type { AppState } from '../../state/schema';
 import type { AppSync } from '../../sync/appSync';
+import type { MonitorSnapshot } from '../../sync/monitorSnapshot';
 import type { CmdOp, RecvMeta, SyncStatus } from '../../sync/types';
+
+/**
+ * The display's 0.5 Hz "here is what I am" packet, decoded.
+ *
+ * Everything the remote's live ring needs that it cannot work out for itself:
+ * which module is on screen, what shape and size the panel is, and the five
+ * monitoring readings. Local time is deliberately absent — the phone has a
+ * clock, and a clock replica is correct by definition.
+ */
+export interface MonitorSample {
+  module: string | null;
+  display: ReplicaDisplayInfo | null;
+  snapshot: MonitorSnapshot | null;
+  /** The DISPLAY's clock at the sample, which is what the replica anchors on. */
+  at: number;
+}
+
+/** A reassembled ring thumbnail, cached by content hash so it is sent once. */
+export interface RingThumb {
+  id: string | null;
+  dataUrl: string;
+}
+
+/**
+ * Telemetry arrives as `unknown` and is written by a peer that may be a
+ * different version of this app, or a fork. A geometry that is not four usable
+ * numbers is dropped rather than half-read: laying a module out against a
+ * partly-parsed panel size is worse than laying it out against the default.
+ */
+function isDisplayInfo(raw: unknown): raw is ReplicaDisplayInfo {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const o = raw as Record<string, unknown>;
+  return (
+    typeof o['w'] === 'number' &&
+    typeof o['h'] === 'number' &&
+    typeof o['shape'] === 'string' &&
+    typeof o['targetFps'] === 'number' &&
+    o['w'] > 0 &&
+    o['h'] > 0
+  );
+}
 
 /**
  * A tele packet plus when we saw it.
@@ -63,6 +108,17 @@ export interface SyncHandle {
    * reply would make a dead display look healthy.
    */
   diagReport: { report: DiagReport; at: number } | null;
+  /** The live ring's feed: active module, panel geometry, monitoring readings. */
+  monitor: MonitorSample | null;
+  /**
+   * The picture the display last shipped, reassembled from its chunks.
+   *
+   * Held across reconnects on purpose: the display sends a thumbnail ONCE per
+   * distinct image (it caches by hash and never re-sends an unchanged one), so
+   * dropping it on a transport blip would leave the ring blank until the source
+   * happened to change.
+   */
+  ringThumb: RingThumb | null;
   topicId: string | null;
   sendCmd: (op: CmdOp, arg?: unknown) => void;
   /** Publish a snapshot immediately, bypassing the 5 Hz coalescing window. */
@@ -84,6 +140,8 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
   const [lastError, setLastError] = useState<TeleSample | null>(null);
   const [topicId, setTopicId] = useState<string | null>(null);
   const [diagReport, setDiagReport] = useState<{ report: DiagReport; at: number } | null>(null);
+  const [monitor, setMonitor] = useState<MonitorSample | null>(null);
+  const [ringThumb, setRingThumb] = useState<RingThumb | null>(null);
 
   /**
    * One assembler for the life of the hook, not one per connection.
@@ -93,6 +151,11 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
    * buffer belongs to the conversation, not to the socket carrying it.
    */
   const diagAssembler = useRef(createDiagAssembler());
+  /**
+   * The ring thumbnail's assembler, for the same reason: a 6 KB WebP is one or
+   * two chunks, and a failover between them must not lose the first one.
+   */
+  const thumbAssembler = useRef(createChunkAssembler('thumb'));
 
   useEffect(() => {
     // No room means nothing to start; the cleanup of the previous run has
@@ -109,26 +172,27 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
       const { readState } = await import('../../state/storage');
       const current = runtime.store.getSnapshot();
       /*
-       * The persisted layer, read NOW rather than at boot.
+       * The persisted layer, re-read on EVERY re-resolve.
        *
        * `appSync` re-resolves `persisted < remote < url` on every remote state
-       * frame and `replace()`s the snapshot with the result, so whatever it is
-       * handed here is the floor under this whole session. `runtime.persisted`
+       * frame and `replace()`s the snapshot with the result, so whatever it
+       * reads here is the floor under this whole session. `runtime.persisted`
        * is the document as it looked when the page booted, which silently
-       * discards anything committed since — and `sync.*` is exactly the family
-       * of settings that never travels on the wire, so nothing puts it back.
+       * discards anything committed since.
        *
        * Measured, not feared: the phone remote auto-joins from the pairing link
        * by committing `sync.roomCode`, and the first state frame the display
        * sent re-resolved against a boot-time document with no room in it,
-       * unpairing the phone about a second after it connected.
+       * unpairing the phone about a second after it connected. Passing a
+       * *function* rather than one snapshot is what stops the same trap from
+       * being re-armed for every other key — a boot-time read would fix the
+       * room and leave the next setting to be discovered the same way.
        */
-      const persisted = readState().state;
       const handle = await startAppSync({
         role: runtime.role,
         clientId: clientId(),
         store: runtime.store,
-        persisted,
+        persisted: () => readState().state,
         url: runtime.url,
         settings: { ...current.sync, roomCode: room, transport, mqttUrl, ntfyBase },
         onStatus: (s) => {
@@ -151,6 +215,22 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
           // is a no-op for every other packet on the channel.
           const report = diagAssembler.current.accept(sample.body);
           if (report !== null) setDiagReport({ report, at: sample.at });
+
+          if (sample.body['kind'] === 'monitor') {
+            const display = sample.body['display'];
+            setMonitor({
+              module: typeof sample.body['module'] === 'string' ? sample.body['module'] : null,
+              display: isDisplayInfo(display) ? display : null,
+              // `null` when the packet carried no readings, which is a real
+              // state: the stats replica then shows its own "waiting" card.
+              snapshot: decodeMonitorSnapshot(sample.body['mon']),
+              at: typeof sample.body['ts'] === 'number' ? sample.body['ts'] : sample.at,
+            });
+          }
+
+          // Returns non-null only on the part that completes a thumbnail.
+          const thumb = thumbAssembler.current.accept(sample.body);
+          if (thumb !== null) setRingThumb({ id: thumb.id, dataUrl: thumb.payload });
         },
       });
       if (isDisposed()) {
@@ -246,6 +326,8 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
     library: live ? library : null,
     lastError: live ? lastError : null,
     diagReport: live ? diagReport : null,
+    monitor: live ? monitor : null,
+    ringThumb: live ? ringThumb : null,
     topicId: live ? topicId : null,
     sendCmd,
     publishNow,

@@ -73,9 +73,72 @@ any browser, without touching that machine.
 The remote's surface is a **media remote**, not a settings mirror: a mini-halo, a
 title, the scrubber with its two loop handles, three transport buttons and one
 pairing card. Everything in the list above that is not transport — the source
-field, the module picker, framing, the clip list, the room settings — is intact
-one level down, under **More controls**, with the plumbing under **Diagnostics**
-beside the hardware-report pull.
+field, the quality control, the module picker, framing, the clip list, the room
+settings — is intact one level down, under **More controls**, with the plumbing
+under **Diagnostics** beside the hardware-report pull.
+
+### The ring is a live replica, not a picture of one
+
+The mini-halo at the top runs the display's **actual module renderer** — the same
+code the LCD runs — driven by synced state. The clock ring is the clock module.
+The stats ring is the stats module, showing your real CPU and GPU temperatures.
+
+It is **not** an iframe and **not** a video stream, and that is a deliberate
+design decision rather than a shortcut. The CAM configuration window can put the
+real display page in its halo because it shares CAM's origin and storage; a phone
+is a different browser on a different machine, so an iframe there would boot a
+_second_ display — a second decoder, a second download, on a battery — showing
+what the phone thinks rather than what the cooler shows.
+
+So the display volunteers only the two things a replica cannot work out for
+itself:
+
+| What                     | Why it has to travel                                                                             | Cost                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------ | ----------------------- |
+| Five monitoring readings | CPU / GPU temperature and load and the liquid temperature exist only on the machine running CAM. | ~60 bytes, every 2.5 s  |
+| A ≤6 KB WebP thumbnail   | A stored clip or a library image lives in CAM's browser profile, which the phone can never read. | Sent **once** per image |
+
+Everything else is computed on the phone. Local time is the clearest example: a
+clock replica is correct by definition, because the phone has its own clock.
+
+Three consequences worth knowing:
+
+- **The thumbnail is sent once.** It is keyed by content hash and cached on the
+  phone, so an unchanged picture never crosses the wire again. It travels in
+  numbered chunks over the same telemetry channel the hardware report uses.
+- **YouTube's still is fetched by the phone.** The poster is a public
+  `i.ytimg.com` URL, so asking the display to grab, re-encode and transmit a
+  frame it already has a link for would be silly.
+- **The ring runs at 1 Hz and stops completely when the page is hidden.** No
+  timer, no repaint, no packets acted on. A remote left open in a background tab
+  costs a phone nothing.
+
+The video ring is the one that cannot be a replica — pixels are the thing this
+design refuses to stream — so it shows the still plus a **position arc**, drawn
+from the same re-anchored telemetry as the scrubber. The arc advances smoothly
+between packets rather than stepping twice a second, because the position is
+extrapolated locally from `posSec + posAtTs`.
+
+### Quality
+
+**More controls → Quality.** The same control as the CAM panel, with the same
+words, because it is the same code (`src/modules/video/quality.ts`). It always
+shows what the display is actually getting; whether it offers a _choice_ depends
+entirely on the provider, and it says which case you are in:
+
+- a **picker** of the exact renditions the display reported, for HLS, DASH,
+  Twitch and the resolver companion;
+- a **bias** (Auto / 720 / 1080 / 1440) for YouTube, with one honest line —
+  _"YouTube chooses; kraken-hub nudges it by resizing the hidden player"_ —
+  because there is no cross-origin quality API and the measured player width is
+  the only lever that exists;
+- a **read-only reading** for a stored clip or a direct file, which have exactly
+  one resolution.
+
+A quality choice is a **setting**, not a command: it travels as ordinary module
+config in the retained state snapshot, so it survives a display reboot the same
+way an A–B loop does. The full per-provider table is in
+[providers.md](providers.md#what-the-quality-control-does-per-provider).
 
 **Cannot:**
 
@@ -276,7 +339,20 @@ Playback position and duration, achieved and target frame rate, panel geometry
 and DPR, error codes and messages, the names / durations / sizes of stored clips
 (capped at 40 entries, no thumbnails), download progress, and a **hash** of the
 source URL — the first eight hex characters of SHA-256, never the URL itself.
-Telemetry can be switched off entirely in **Room settings**.
+
+The live ring adds two things to that list, and both are worth naming
+explicitly because they are new kinds of data rather than more of the same:
+
+- **Five monitoring readings** — CPU and GPU temperature and load, and the
+  liquid temperature. These are facts about your hardware. They are the same
+  numbers the stats module puts on the LCD.
+- **A ≤6 KB thumbnail of the current image or clip**, sent once per distinct
+  picture. This is the only telemetry that contains _content_ rather than
+  metadata, and it is encrypted under the room key like everything else.
+
+Telemetry — including both of those — can be switched off entirely in **Room
+settings**, and turning it off is exactly what "your Kraken reports back to this
+page" means.
 
 One payload is not part of that stream: a hardware report, sent only in answer
 to **Request hardware report** and therefore unaffected by the toggle. It is the

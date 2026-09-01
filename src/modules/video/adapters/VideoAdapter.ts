@@ -18,6 +18,7 @@
  * destroy any third-party player it created.
  */
 
+import type { QualityLevel } from '../quality';
 import type { ProviderMatch } from '../routing/detect';
 import type { ProviderCapabilities, ProviderId, SourceRect, VideoModuleConfig } from '../types';
 
@@ -114,8 +115,33 @@ export interface DisplayInfo {
   dpr: number;
 }
 
+/**
+ * The height hint that means "give the provider its adaptive logic back".
+ *
+ * A sentinel rather than a second method because every `setQuality` caller — the
+ * host, the loop, the twitch READY handler — already has a number in hand, and
+ * an `auto` that is a different code path is an `auto` somebody forgets to wire
+ * up. Negative is unambiguous: no rendition has a negative height.
+ */
+export const AUTO_QUALITY_HINT = -1;
+
+export function isAutoQualityHint(heightHint: number): boolean {
+  return !Number.isFinite(heightHint) || heightHint <= 0;
+}
+
 export type AdapterEvent =
   | { type: 'ready'; duration: number; caps: ProviderCapabilities }
+  /**
+   * What this source can actually be switched to, published the moment the
+   * provider knows — a parsed HLS manifest, an initialised DASH stream,
+   * Twitch's `getQualities()`, or the resolver's reported source height.
+   *
+   * Emitted only where the list is KNOWABLE. A cross-origin YouTube iframe and
+   * a plain `<video src>` never emit it, and the UI shows a bias control or a
+   * read-only resolution respectively rather than a picker full of options
+   * nothing would honour.
+   */
+  | { type: 'levels'; levels: QualityLevel[] }
   | { type: 'playing' }
   | { type: 'buffering' }
   | { type: 'held' }

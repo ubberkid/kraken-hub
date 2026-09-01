@@ -1,5 +1,5 @@
 /**
- * Config precedence: `defaults < persisted < remote < url`.
+ * Config precedence: `defaults < persisted < remote < local < url`.
  *
  * The plan is authoritative here and it puts URL parameters on top: they are
  * per-key, non-persistent overrides that always win, so a link can drive a
@@ -24,6 +24,26 @@ export interface Layers {
   persisted?: DeepPartial<AppState>;
   /** In-memory only: dropped on reload, recovered from the retained snapshot. */
   remote?: DeepPartial<AppState>;
+  /**
+   * Edits this page made itself that are **newer than every remote frame seen
+   * so far**. In-memory only, and normally empty.
+   *
+   * It exists because the remote layer is sticky: once a peer has said "the
+   * active module is video", that entry outranks everything this page saves,
+   * for the life of the page. So switching to Clock in CAM wrote `clock` to
+   * storage, showed it — and reverted the moment any state frame arrived and
+   * this function ran again with a remote layer that still said `video`. A
+   * retained snapshot redelivered on a reconnect is enough, which is why it
+   * looks intermittent rather than broken.
+   *
+   * The ordering rule is the Lamport `rev` the envelope already carries, so
+   * this is not "local always wins" — that would break the phone remote. It is
+   * "a remote frame that is not strictly newer than this page's last commit
+   * cannot overwrite it". A genuine change from a phone carries a higher `rev`,
+   * clears this layer and wins, exactly as before. `src/sync/appSync.ts` owns
+   * that comparison; this file only owns the order.
+   */
+  local?: DeepPartial<AppState>;
   url?: DeepPartial<AppState>;
 }
 
@@ -57,14 +77,21 @@ function collectPaths(patch: unknown, prefix: string, out: Set<string>): void {
   }
 }
 
-/** Resolve the effective state from the four layers. Never throws. */
+/** Resolve the effective state from the five layers. Never throws. */
 export function resolveState(layers: Layers): ResolveResult {
-  const order = [layers.defaults ?? defaultAppState(), layers.persisted, layers.remote, layers.url];
+  const order = [
+    layers.defaults ?? defaultAppState(),
+    layers.persisted,
+    layers.remote,
+    layers.local,
+    layers.url,
+  ];
   let merged: unknown = {};
   for (const layer of order) merged = mergeLeaf(merged, layer);
 
   const overridden = new Set<string>();
   collectPaths(layers.remote, '', overridden);
+  collectPaths(layers.local, '', overridden);
   collectPaths(layers.url, '', overridden);
 
   const { state, notes } = validateAppState(merged);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMemo } from 'react';
 
 import { DEVICE_PRESETS } from '../../platform/devicePresets';
@@ -18,7 +18,16 @@ import {
   Toggle,
 } from '../../ui';
 
+import {
+  YT_BIAS_HELPER,
+  describeQuality,
+  qualityControlFor,
+  qualityFromOption,
+  qualityOptionValue,
+  qualityOptions,
+} from './quality';
 import { ResolverConnectPanel } from './resolver/ResolverConnectPanel';
+import { LOCAL_CLIP_SCHEME } from './routing/patterns';
 import { primaryIssue, validateUrl } from './routing/validate';
 import {
   PAN_LIMIT,
@@ -33,6 +42,7 @@ import {
   resolveSourceAspect,
   sourceAspectKey,
   validateVideoConfig,
+  type ProviderId,
   type VideoModuleConfig,
 } from './types';
 import { isFpsAdvisoryDismissed, setFpsAdvisoryDismissed } from './ui/FpsAdvisory';
@@ -40,6 +50,7 @@ import { computeGeometry } from './youtube/geometry';
 
 import type { ModuleConfigProps } from '../types';
 import type { HealthState } from './resolver/resolverClient';
+import type { TelePacket } from './telemetry/videoTelemetry';
 
 /**
  * The video module's config panel. Config-only code: invariant I8 keeps this
@@ -206,6 +217,8 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             }}
           />
         </Field>
+
+        <QualityRow cfg={cfg} set={set} provider={validation.match.provider} />
 
         <Disclosure summary="Advanced" testId="video-advanced">
           <Field
@@ -393,6 +406,103 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           </Field>
         </Disclosure>
       </Panel>
+    </>
+  );
+}
+
+/**
+ * The Quality row — on the PRIMARY surface, never under Advanced.
+ *
+ * "Show what you're getting everywhere; offer control only where it's real."
+ * The first half is unconditional: whatever is playing, this row says what
+ * resolution is on the panel, in the same words on every provider. The second
+ * half is where the honesty lives, and it is four different controls:
+ *
+ *  - a **picker** built from the levels the display actually reported (hls,
+ *    dash, twitch, and the resolver companion's ladder);
+ *  - a **bias** picker for YouTube, with one helper line naming who is really
+ *    choosing — because there is no cross-origin quality API left and pretending
+ *    otherwise would be a lie the user could catch;
+ *  - a **read-only** reading for a local clip or a direct file, which have
+ *    exactly one resolution;
+ *  - and nothing at all when nothing is known yet.
+ *
+ * The live half comes off the telemetry mirror in localStorage, which the CAM
+ * configuration window shares with the display for free — the same zero-network
+ * path the diagnostics log uses.
+ */
+function QualityRow({
+  cfg,
+  set,
+  provider,
+}: {
+  cfg: VideoModuleConfig;
+  set: (patch: Partial<VideoModuleConfig>) => void;
+  provider: ProviderId | null;
+}) {
+  const [tele, setTele] = useState<TelePacket | null>(null);
+  const stop = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    // A mutable cell rather than a `let`, for the same reason as the downloader
+    // card below: TypeScript's control flow narrows a plain boolean to `true`
+    // across the await and the guard would be dead code.
+    const alive = { current: true };
+    void (async () => {
+      const mod = await import('./telemetry/videoTelemetry');
+      if (!alive.current) return;
+      setTele(mod.readTeleMirror());
+      // Assigning through the closure rather than returning the unsubscribe is
+      // what lets the effect stay synchronous while the import is not.
+      stop.current = mod.subscribeTeleMirror(setTele);
+    })();
+    return () => {
+      alive.current = false;
+      stop.current?.();
+      stop.current = null;
+    };
+  }, []);
+
+  // The display's word beats the URL's guess: a link that *looks* like a bare
+  // `.m3u8` may have ended up on the resolver, and the mounted adapter is the
+  // one whose control is real.
+  const live = typeof tele?.provider === 'string' ? (tele.provider as ProviderId) : provider;
+  const control = qualityControlFor(live);
+  const levels = (tele?.levels ?? []).map((l) => ({ height: l.h, label: l.l }));
+  const reading = describeQuality(cfg.quality, {
+    reported: tele?.quality ?? null,
+    local: cfg.url.startsWith(LOCAL_CLIP_SCHEME),
+  });
+
+  if (control === 'readonly' || control === 'none') {
+    return (
+      <Field label="Quality" htmlFor="video-quality">
+        <p className="kh-hint" id="video-quality" data-testid="quality-readout">
+          {reading}
+          {control === 'readonly'
+            ? ' — a stored file has one resolution, so there is nothing to choose.'
+            : ' — nothing is playing yet.'}
+        </p>
+      </Field>
+    );
+  }
+
+  return (
+    <>
+      <Field
+        label={control === 'bias' ? 'Quality bias' : 'Quality'}
+        htmlFor="video-quality"
+        description={reading}
+      >
+        <Select
+          id="video-quality"
+          value={qualityOptionValue(cfg.quality)}
+          options={qualityOptions(control, levels)}
+          onChange={(value) => {
+            set({ quality: qualityFromOption(value, cfg.quality) });
+          }}
+        />
+      </Field>
+      {control === 'bias' && <p className="kh-hint">{YT_BIAS_HELPER}</p>}
     </>
   );
 }

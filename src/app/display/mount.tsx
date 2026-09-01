@@ -92,7 +92,10 @@ export function mountDisplay(container: HTMLElement): void {
         m.startDisplaySync({
           runtime,
           state: resolved.state,
-          persisted: persisted.state,
+          // A getter, not the boot-time document: the display persists remote
+          // state to localStorage and the CAM window writes the same document,
+          // so a frozen layer would let a stale echo roll back either of them.
+          persisted: () => readState().state,
           url: params.patch,
         }),
       )

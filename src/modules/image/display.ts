@@ -25,6 +25,7 @@
 
 import { createLogger } from '../../lib/log';
 import { computeFit, toTransformCss } from '../../render/fit';
+import { setReplicaThumb } from '../replicaThumb';
 
 import { downloadImage } from './download';
 import { getImageBlob, listImages, touchImage, type ImageRecord } from './imageStore';
@@ -52,6 +53,14 @@ interface Source {
   /** Set when `href` is an object URL we own and must revoke. */
   objectUrl: string | null;
   label: string;
+  /**
+   * The bytes, when we have them locally.
+   *
+   * Only used to offer the remote's ring a thumbnail (`../replicaThumb.ts`) —
+   * the `<img>` itself renders from `src`. Absent for a streamed URL, which the
+   * phone can fetch by itself anyway.
+   */
+  blob?: Blob;
 }
 
 function isQuarterTurn(rotate: number): boolean {
@@ -130,6 +139,16 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
     img.hidden = false;
     img.alt = next.label;
     img.src = next.src;
+    /*
+     * Hand the picture to the replica seam (`src/modules/replicaThumb.ts`).
+     *
+     * `null` for a streamed URL is not a gap: the phone can load a public URL
+     * by itself, and re-encoding bytes we do not have in order to send them to
+     * a device that could have fetched them directly would be silly. It is only
+     * the LOCAL cases — a library image, a freshly downloaded one — that the
+     * phone genuinely cannot reach, because they live in CAM's browser profile.
+     */
+    setReplicaThumb(next.blob ?? null);
   };
 
   /** Step 1 and 2 of the resolution order: anything already in the library. */
@@ -138,7 +157,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
     if (blob === null) return null;
     void touchImage(id);
     const objectUrl = URL.createObjectURL(blob);
-    return { src: objectUrl, objectUrl, label: 'Stored image' };
+    return { src: objectUrl, objectUrl, label: 'Stored image', blob };
   };
 
   const resolve = async (mine: number): Promise<void> => {
@@ -204,7 +223,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
       if (stale()) return;
       if (result.ok) {
         const objectUrl = URL.createObjectURL(result.blob);
-        show({ src: objectUrl, objectUrl, label: result.record.name });
+        show({ src: objectUrl, objectUrl, label: result.record.name, blob: result.blob });
         return;
       }
       // Step 4: a refusal is not an error. Stream it.
@@ -323,6 +342,9 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
       timer = null;
       session += 1;
       releaseSource();
+      // The panel is about to show something else; the replica must not keep
+      // rendering a picture that is no longer on the LCD.
+      setReplicaThumb(null);
       if (img !== null) img.removeAttribute('src');
       root?.remove();
       root = null;

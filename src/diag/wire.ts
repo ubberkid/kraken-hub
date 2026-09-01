@@ -29,49 +29,35 @@
  * wrong.
  */
 
-import { DIAG_SCHEMA_VERSION, type DiagReport } from './report';
+import {
+  CHUNK_CHARS,
+  CHUNK_SPACING_MS,
+  createChunkAssembler,
+  isTeleChunk,
+  toTeleChunks,
+  type TeleChunk,
+} from '../lib/chunkedTele';
 
-/**
- * `MAX_ENVELOPE_BYTES`, copied rather than imported.
- *
- * `src/sync/types.ts` is claimed by the `sync-core` chunk, and importing a
- * runtime value from it here would make this leaf file — which the DISPLAY
- * fetches lazily and the config page imports statically — a member of that
- * chunk's graph in both directions. `wire.test.ts` asserts the two constants are
- * equal, so the copy cannot drift; the type-only imports elsewhere in `src/diag`
- * cost nothing and stay imports.
- */
-const ENVELOPE_CAP_BYTES = 8192;
+import { DIAG_SCHEMA_VERSION, type DiagReport } from './report';
 
 /** The `TeleBody.kind` a diagnostics chunk carries. */
 export const DIAG_TELE_KIND = 'diagReport';
 
 /**
- * Room reserved for the envelope's own keys and the chunk's `ts`/`part`/`of`.
- * ~120 bytes are actually used; the rest is slack for a long `src` id.
- */
-const DIAG_ENVELOPE_HEADROOM = 1024;
-
-/**
- * Payload characters per part.
+ * The chunking mechanics moved to `src/lib/chunkedTele.ts` when the remote's
+ * live ring needed to ship thumbnails the same way.
  *
- * Derived from the cap rather than guessed, and halved on purpose: the payload
- * is a JSON string nested inside another JSON document, so every `"` in it
- * becomes `\"` and a pathological chunk very nearly doubles on the way into the
- * envelope. Two bytes per character is that worst case. `wire.test.ts` encodes a
- * real envelope and asserts the cap rather than trusting this arithmetic.
- */
-export const DIAG_CHUNK_CHARS = Math.floor((ENVELOPE_CAP_BYTES - DIAG_ENVELOPE_HEADROOM) / 2);
-
-/**
- * Spacing between parts.
+ * Everything that was subtle here — the shared `ts` per capture, the `.fill()`
+ * on the parts buffer, the uniform `part 1 of 1` shape, the two-bytes-per-
+ * character budget for JSON-in-JSON escaping — moved with it, comments and all.
+ * What stays here is the part that is genuinely about diagnostics: the compact
+ * report serialisation, and the schema check on reassembly.
  *
- * `SyncService.publishTele()` throttles to `PUBLISH_THROTTLE_MS` (200 ms) and
- * DROPS what arrives inside the window rather than queueing it — publishing
- * three parts in a loop would silently send one. Anything above the throttle
- * works; 250 ms keeps a four-part report under a second.
+ * These three constants are re-exported under their original names because the
+ * display's sync layer and the remote both import them by those names.
  */
-export const DIAG_CHUNK_SPACING_MS = 250;
+export const DIAG_CHUNK_CHARS = CHUNK_CHARS;
+export const DIAG_CHUNK_SPACING_MS = CHUNK_SPACING_MS;
 
 /**
  * How long the remote waits before it says the display never answered.
@@ -82,15 +68,7 @@ export const DIAG_CHUNK_SPACING_MS = 250;
  */
 export const DIAG_REQUEST_TIMEOUT_MS = 20_000;
 
-export interface DiagChunk {
-  /** The capture's timestamp. Identical across every part of one report. */
-  ts: number;
-  kind: typeof DIAG_TELE_KIND;
-  /** 1-based. */
-  part: number;
-  of: number;
-  payload: string;
-}
+export type DiagChunk = TeleChunk & { kind: typeof DIAG_TELE_KIND };
 
 /** Drops null-valued keys; `undefined` is simply omitted by `JSON.stringify`. */
 function withoutNulls(_key: string, value: unknown): unknown {
@@ -102,7 +80,8 @@ function withoutNulls(_key: string, value: unknown): unknown {
  *
  * A dropped key and an explicit `null` mean the same thing in every consumer of
  * a `DiagReport` — "not measured" — so this loses no information, and the
- * reassembled document is still a valid report.
+ * reassembled document is still a valid report. It is worth roughly a third of
+ * the bytes and often the difference between one part and two.
  */
 export function compactReport(report: DiagReport): string {
   return JSON.stringify(report, withoutNulls);
@@ -110,34 +89,16 @@ export function compactReport(report: DiagReport): string {
 
 /** Split a report into publishable parts. Always at least one. */
 export function toDiagChunks(report: DiagReport): DiagChunk[] {
-  const payload = compactReport(report);
-  const of = Math.max(1, Math.ceil(payload.length / DIAG_CHUNK_CHARS));
-  const parts: DiagChunk[] = [];
-  for (let i = 0; i < of; i += 1) {
-    parts.push({
-      ts: report.capturedAt,
-      kind: DIAG_TELE_KIND,
-      part: i + 1,
-      of,
-      payload: payload.slice(i * DIAG_CHUNK_CHARS, (i + 1) * DIAG_CHUNK_CHARS),
-    });
-  }
-  return parts;
+  return toTeleChunks({
+    kind: DIAG_TELE_KIND,
+    ts: report.capturedAt,
+    payload: compactReport(report),
+  }) as DiagChunk[];
 }
 
 /** True for a `tele` body that is one part of a diagnostics report. */
 export function isDiagChunk(body: unknown): body is DiagChunk {
-  if (typeof body !== 'object' || body === null) return false;
-  const o = body as Record<string, unknown>;
-  return (
-    o['kind'] === DIAG_TELE_KIND &&
-    typeof o['ts'] === 'number' &&
-    typeof o['part'] === 'number' &&
-    typeof o['of'] === 'number' &&
-    typeof o['payload'] === 'string' &&
-    o['part'] >= 1 &&
-    o['part'] <= o['of']
-  );
+  return isTeleChunk(body, DIAG_TELE_KIND);
 }
 
 export interface DiagAssembler {
@@ -159,32 +120,17 @@ export interface DiagAssembler {
  * completed by parts of a different one.
  */
 export function createDiagAssembler(): DiagAssembler {
-  let capturedAt = -1;
-  let parts: (string | undefined)[] = [];
-
+  const chunks = createChunkAssembler(DIAG_TELE_KIND);
   return {
     accept(body) {
-      if (!isDiagChunk(body)) return null;
-      if (body.ts !== capturedAt) {
-        capturedAt = body.ts;
-        // `.fill()` is not decorative: `new Array(n)` is SPARSE, and
-        // `Array.prototype.some` skips holes — so the completeness check below
-        // would pass on the very first part and reassemble a truncated report.
-        parts = new Array<string | undefined>(body.of).fill(undefined);
-      }
-      if (parts.length !== body.of) return null;
-      parts[body.part - 1] = body.payload;
-      if (parts.some((p) => p === undefined)) return null;
-
-      const raw = parts.join('');
-      // The buffer is spent either way: a payload that does not parse will not
-      // start parsing because the same broken part is redelivered.
-      capturedAt = -1;
-      parts = [];
+      const done = chunks.accept(body);
+      if (done === null) return null;
       try {
-        const parsed: unknown = JSON.parse(raw);
+        const parsed: unknown = JSON.parse(done.payload);
         if (typeof parsed !== 'object' || parsed === null) return null;
         const report = parsed as DiagReport;
+        // A report from a build with a different report schema is not a report
+        // we can render; dropping it is better than half-filling the table.
         return report.schemaVersion === DIAG_SCHEMA_VERSION ? report : null;
       } catch {
         return null;

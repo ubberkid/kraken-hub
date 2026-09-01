@@ -27,10 +27,11 @@
  * companion answers with `kind: 'hls'`.
  */
 
+import { qualityLabel, type QualityLevel } from '../quality';
 import { publish } from '../telemetry/videoTelemetry';
 
 import { createHtmlVideoAdapter, type HtmlVideoAdapter } from './HtmlVideoAdapterBase';
-import { videoError } from './VideoAdapter';
+import { isAutoQualityHint, videoError } from './VideoAdapter';
 
 import type { MountContext } from './VideoAdapter';
 import type { ProviderCapabilities, ProviderId } from '../types';
@@ -68,6 +69,19 @@ export function pickLevel(levels: readonly { height: number }[], wanted: number)
     if (level.height < (levels[lowest]?.height ?? Number.POSITIVE_INFINITY)) lowest = i;
   }
   return lowest;
+}
+
+/**
+ * A level list, de-duplicated by height and sorted low to high.
+ *
+ * A real manifest routinely carries several bitrate variants at one height, and
+ * a picker offering "1080p, 1080p, 1080p" is worse than useless — the user
+ * cannot tell them apart and neither can we, because `currentLevel` is chosen
+ * from the height anyway (`pickLevel` above takes the highest that fits).
+ */
+export function describeLevels(levels: readonly { height: number }[]): QualityLevel[] {
+  const heights = [...new Set(levels.map((l) => l.height).filter((h) => h > 0))];
+  return heights.sort((a, b) => a - b).map((h) => ({ height: h, label: qualityLabel(h) }));
 }
 
 export interface HlsHandle {
@@ -134,6 +148,10 @@ export async function attachHls(opts: AttachHlsOptions): Promise<HlsHandle | nul
   instance.on(HlsCtor.Events.MANIFEST_PARSED, () => {
     levels = instance.levels;
     caps.canSetQuality = levels.length > 1;
+    // The one moment this source's ladder becomes knowable. Published rather
+    // than merely stored, so the config panel and the phone remote can offer
+    // exactly the renditions that exist instead of a guessed list.
+    ctx.emit({ type: 'levels', levels: describeLevels(levels) });
   });
 
   instance.on(HlsCtor.Events.LEVEL_LOADED, (_e: unknown, data: LevelLoadedData) => {
@@ -180,6 +198,14 @@ export async function attachHls(opts: AttachHlsOptions): Promise<HlsHandle | nul
       levels = [];
     },
     setQuality: (heightHint: number) => {
+      if (isAutoQualityHint(heightHint)) {
+        // `-1` is hls.js's own "ABR decides" value, on both the current and the
+        // next level: setting only `currentLevel` leaves a pinned `nextLevel`
+        // in place and the ladder never moves again.
+        instance.currentLevel = AUTO_LEVEL;
+        instance.nextLevel = AUTO_LEVEL;
+        return true;
+      }
       if (levels.length === 0) return false;
       instance.currentLevel = pickLevel(levels, heightHint);
       return true;

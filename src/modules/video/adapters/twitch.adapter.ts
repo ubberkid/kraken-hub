@@ -26,9 +26,10 @@ import { publish } from '../telemetry/videoTelemetry';
 import { ASPECT_16_9 } from '../types';
 
 import { applyEmbedSize, embedGeometry, embedSourceRect, loadEmbedScript } from './embedSurface';
-import { fail, videoError } from './VideoAdapter';
+import { fail, isAutoQualityHint, videoError } from './VideoAdapter';
 
 import type { AdapterEvent, MountContext, SeekOptions, VideoAdapter } from './VideoAdapter';
+import type { QualityLevel } from '../quality';
 import type { ProviderCapabilities, SourceRect } from '../types';
 
 const SDK_TIMEOUT_MS = 10_000;
@@ -105,6 +106,29 @@ export function twitchQualityHeight(label: string): number | null {
 /** `chunked` is Twitch's name for the un-transcoded source; treat it as 1080p+. */
 const SOURCE_LABEL = 'chunked';
 const SOURCE_HEIGHT = 1080;
+/** Twitch's own "player decides" rendition, which it lists alongside the rest. */
+export const TWITCH_AUTO_LABEL = 'auto';
+
+/**
+ * Twitch's label list → the app's level list.
+ *
+ * `auto` is dropped: it is not a rendition, and the picker already has its own
+ * Auto entry. Everything else keeps Twitch's own label ("1080p60", "chunked")
+ * because that is what the user will see if they ever open the real player.
+ */
+export function describeTwitchLevels(available: readonly string[]): QualityLevel[] {
+  const out = new Map<number, string>();
+  for (const label of available) {
+    if (label === TWITCH_AUTO_LABEL) continue;
+    const height = twitchQualityHeight(label);
+    if (height === null) continue;
+    // First label at a height wins, so `1080p60` beats a later `chunked` alias.
+    if (!out.has(height)) out.set(height, label);
+  }
+  return [...out.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([height, label]) => ({ height, label }));
+}
 
 export function createAdapter(): VideoAdapter {
   const capabilities: ProviderCapabilities = { ...TWITCH_CAPS };
@@ -235,8 +259,18 @@ export function createAdapter(): VideoAdapter {
         duration = isLive ? Number.NaN : instance.getDuration();
         // §1.2 — Twitch's quality control is real, so use it: ABR has no idea
         // the picture ends up on a 640 px panel.
-        const wanted = Math.ceil(rect?.safe.h ?? 0);
-        const quality = pickTwitchQuality(instance.getQualities(), wanted);
+        const available = instance.getQualities();
+        emit({ type: 'levels', levels: describeTwitchLevels(available) });
+        capabilities.canSetQuality = available.length > 1;
+        // A user who has pinned a height gets it; otherwise fall back to the
+        // rendition that matches the crop, because ABR has no idea the picture
+        // ends up on a panel it cannot see.
+        const pinned = next.config.quality;
+        const wanted =
+          pinned.mode === 'fixed' && pinned.height !== null
+            ? pinned.height
+            : Math.ceil(rect?.safe.h ?? 0);
+        const quality = pickTwitchQuality(available, wanted);
         if (quality !== null) instance.setQuality(quality);
         emit({ type: 'durationchange', duration });
         emit({ type: 'ready', duration, caps: capabilities });
@@ -318,6 +352,12 @@ export function createAdapter(): VideoAdapter {
     async setQuality(heightHint: number) {
       const p = player;
       if (p === null) return Promise.resolve(false);
+      if (isAutoQualityHint(heightHint)) {
+        // Twitch's own label for "let the player choose". Unlike hls.js it is a
+        // string in the same namespace as the renditions, so nothing special.
+        p.setQuality(TWITCH_AUTO_LABEL);
+        return Promise.resolve(true);
+      }
       const quality = pickTwitchQuality(p.getQualities(), heightHint);
       if (quality === null) return Promise.resolve(false);
       p.setQuality(quality);

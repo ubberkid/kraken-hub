@@ -35,6 +35,7 @@
 import { ytEmbedPath, ytPosterUrls } from '../../../config/knownHosts';
 import { clamp } from '../../../lib/clamp';
 import { IMPLICIT_LOOP_START_SEC } from '../loop/LoopEngine';
+import { ytLadderFloorFor } from '../quality';
 import { publish } from '../telemetry/videoTelemetry';
 import {
   LOOP_DEFAULTS,
@@ -250,10 +251,21 @@ export function createAdapter(): VideoAdapter {
     if (c === null) throw new Error('kraken-hub/video: geometry before mount');
     const yt = c.config.youtube;
     const zoomMax = c.perf === 'performance' ? ZOOM_MAX_PERFORMANCE : ZOOM_MAX;
+    /*
+     * The user's quality BIAS, expressed the only way YouTube listens to.
+     *
+     * There is no working `setPlaybackQuality` across origins any more; the one
+     * signal YouTube reads is how wide it measures the player. So "ask for
+     * 1080" becomes "floor the element ladder at 1920" and the honest helper
+     * line in the UI says exactly that. `null` (Auto) leaves the configured
+     * floor and the watchdog alone.
+     */
+    const bias = ytLadderFloorFor(
+      c.config.quality.mode === 'fixed' ? c.config.quality.height : null,
+    );
+    const configured = bias ?? yt.qualityFloorPx;
     const floor =
-      c.perf === 'performance'
-        ? Math.min(yt.qualityFloorPx, QUALITY_FLOOR_PX_PERFORMANCE)
-        : yt.qualityFloorPx;
+      c.perf === 'performance' ? Math.min(configured, QUALITY_FLOOR_PX_PERFORMANCE) : configured;
     return computeGeometry({
       displayW: c.display.width,
       displayH: c.display.height,

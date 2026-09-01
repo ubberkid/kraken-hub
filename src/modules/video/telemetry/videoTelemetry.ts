@@ -97,6 +97,11 @@ export interface TelePacket {
   ts: number;
   code?: string;
   severity?: TelemetryEvent['severity'];
+  /**
+   * On an error packet, the provider that failed. On a stats packet, the
+   * adapter that is mounted — which is what decides picker vs bias vs read-only
+   * on the phone remote's quality control.
+   */
   provider?: string | null;
   urlHash?: string | null;
   message?: string;
@@ -104,11 +109,35 @@ export interface TelePacket {
   display?: { w: number; h: number; shape: string; targetFps: number };
   achievedFps?: number;
   quality?: { height: number | null; label: string | null };
+  /**
+   * What this source can be switched to, so a remote can offer a picker of
+   * options that actually exist. Serialised as `{h,l}` pairs rather than
+   * `{height,label}` because a twelve-rung HLS ladder is otherwise ~250 bytes
+   * of key names on an 8 KB budget (invariant I6).
+   */
+  levels?: { h: number; l: string }[];
+  /**
+   * The 0.5 Hz monitoring snapshot the remote's replica renders
+   * (`src/sync/monitorSnapshot.ts`). Present only while the display is
+   * publishing telemetry at all.
+   */
+  mon?: Record<string, number>;
   geometry?: { N: number; crop: number; scale: number };
   resolver?: { configured: boolean; healthy: boolean };
   /** Continuous stats (§7.5, second half). */
   stats?: {
     currentTime: number;
+    /**
+     * The source's duration, or `null` when it is unknown (a live stream, or a
+     * `<video>` that has not loaded metadata yet).
+     *
+     * On the wire because the display is the only peer that knows it: the
+     * display never publishes `state`, so a remote that has not seen an
+     * explicit seek has no `playback.durationSec` to read. Without this the
+     * scrubber falls back to a one-hour track and the ring's position arc
+     * cannot be drawn at all.
+     */
+    durationSec: number | null;
     bufferedEnd: number;
     held: boolean;
     loopCrossings: number;
@@ -167,6 +196,11 @@ export interface TelemetryContext {
   display: { w: number; h: number; shape: string; targetFps: number };
   achievedFps: number;
   quality: { height: number | null; label: string | null };
+  /** Set by the `levels` adapter event; empty until a provider reports one. */
+  levels: { h: number; l: string }[];
+  provider: string | null;
+  /** Set by the display runtime from the 1 Hz CAM feed, encoded for the wire. */
+  mon: Record<string, number> | null;
   geometry: { N: number; crop: number; scale: number } | null;
   resolver: { configured: boolean; healthy: boolean };
   retryCount: number;
@@ -176,6 +210,9 @@ const DEFAULT_CONTEXT: TelemetryContext = {
   display: { w: 0, h: 0, shape: 'circle', targetFps: 0 },
   achievedFps: 0,
   quality: { height: null, label: null },
+  levels: [],
+  provider: null,
+  mon: null,
   geometry: null,
   resolver: { configured: false, healthy: false },
   retryCount: 0,
@@ -269,6 +306,9 @@ export function publishStats(stats: NonNullable<TelePacket['stats']>): void {
       display: context.display,
       achievedFps: context.achievedFps,
       quality: context.quality,
+      provider: context.provider,
+      ...(context.levels.length === 0 ? {} : { levels: context.levels }),
+      ...(context.mon === null ? {} : { mon: context.mon }),
       ...(context.geometry === null ? {} : { geometry: context.geometry }),
       resolver: context.resolver,
       stats,
@@ -293,6 +333,35 @@ export function subscribeTelemetry(cb: (events: TelemetryEvent[]) => void): () =
     if (now === last) return;
     last = now;
     cb(readRing());
+  };
+  const onStorage = (): void => {
+    fire();
+  };
+  window.addEventListener('storage', onStorage);
+  const timer = setInterval(fire, TELEMETRY_POLL_MS);
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    clearInterval(timer);
+  };
+}
+
+/**
+ * The same trick for the single-packet mirror, so the CAM configuration window
+ * can watch what the display is reporting *right now*.
+ *
+ * The Quality row needs this: "Auto — 720p right now" is a live claim about the
+ * picture, and a panel that only read the mirror once at mount would keep
+ * showing the first packet forever. `storage` fires cross-window on the shared
+ * origin, and the 1 s poll is the mandated fallback for CAM's Electron build
+ * (§7.5, hardware checklist H16).
+ */
+export function subscribeTeleMirror(cb: (packet: TelePacket | null) => void): () => void {
+  let last = readRaw(TELE_SUFFIX);
+  const fire = (): void => {
+    const now = readRaw(TELE_SUFFIX);
+    if (now === last) return;
+    last = now;
+    cb(readTeleMirror());
   };
   const onStorage = (): void => {
     fire();

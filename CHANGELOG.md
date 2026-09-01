@@ -29,6 +29,91 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Added
 
+- **Quality: show what you're getting everywhere; offer control only where it's
+  real.** (`src/modules/video/quality.ts`.) Every provider in this app has a
+  different answer to "what resolution is on the panel, and can I change it?" —
+  from _exact_ (hls.js hands us a level list with heights) to _nothing at all_
+  (a cross-origin YouTube iframe will not tell us and will not be told). The new
+  **Quality** row on the video panel's primary surface, and the same control in
+  the remote's **More controls**, is built so the UI never has to guess which
+  case it is in.
+  - **The reading is unconditional.** "1080p · local", "Auto — 720p right now",
+    "1080p (asked)" when a pin has not been confirmed yet. It never invents a
+    number: a height we requested and a height the provider reported are
+    different claims and read differently.
+  - **The control is one of four**, chosen by what the mounted adapter can
+    actually do: a **picker** built from the levels the display reported (HLS
+    `currentLevel`, DASH representations, Twitch `getQualities()`, the
+    resolver's source-height ladder); a **bias** for YouTube — Auto / 720 / 1080
+    / 1440 mapped onto the 1280 / 1920 / 2560 px geometry rungs, with one honest
+    helper line naming who is really choosing; a **read-only reading** for a
+    stored clip or direct file; and nothing at all before anything has mounted.
+  - **Adapters now report their ladder.** A new `{ type: 'levels' }` adapter
+    event fires the moment the list becomes knowable — a parsed HLS manifest, an
+    initialised DASH stream, Twitch's READY — and rides the existing 0.5 Hz
+    telemetry packet as compact `{h,l}` pairs, so the picker offers renditions
+    that exist rather than a guessed ladder.
+  - **`Auto` genuinely hands control back**: `currentLevel = -1` and
+    `nextLevel = -1` on HLS (setting only the first leaves a pinned next level
+    and the ladder never moves again), `autoSwitchBitrate` back on for DASH
+    (pinning a representation turns ABR off and it does not come back by
+    itself), `auto` on Twitch.
+  - **On the resolver path a quality change re-downloads**, because there is no
+    in-stream ladder to move. The old clip keeps playing until the new one
+    lands, then they swap; both stay in the library, so switching back is
+    instant. A pinned height becomes part of the key a clip is remembered by —
+    without that, the library lookup would keep finding the old file forever and
+    the setting would appear to do nothing after one reload.
+  - Video config gains `quality: { mode, height }`, defaulting to
+    `{ mode: 'auto', height: null }` — which is exactly what every existing
+    installation was already doing, so nobody's picture changes on upgrade.
+    Module `configVersion` 1 → 2 and state `schema` 4 → 5 all the same: the
+    version is what turns "a v4 build silently drops your pinned resolution on
+    the next write" into "a v4 build says the document came from a newer one".
+
+- **The remote's ring is a live replica of the real module, not a stylized
+  surface.** (`src/app/config/replica.ts`, `src/app/config/views/RemoteRing.tsx`,
+  `src/app/display/replicaFeed.ts`.) The mini-halo now runs the display's
+  **actual renderer** — the clock ring is the clock module, the stats ring is
+  the stats module showing your real temperatures — driven by synced state.
+  - **No pixels cross the wire.** An iframe on a phone would boot a _second_
+    display, with a second decoder and a second download, on a battery. So the
+    display volunteers only the two things a replica cannot compute for itself:
+    five monitoring readings (~60 bytes, on the telemetry cadence) and a ≤6 KB
+    WebP thumbnail of the current picture, sent **once** per image and cached by
+    content hash. Local time is not on that list, and that is the point — a
+    clock replica is correct by definition.
+  - **The seam already existed.** `DisplayRenderer.mount()` has always taken
+    `geometry()`, `monitoring` and `render()` as injected accessors rather than
+    platform singletons, so _nothing in `clock/display.ts` or `stats/display.ts`
+    changed for this feature_. The renderers cannot tell they are on a phone,
+    which is the strongest available guarantee that the ring shows what the
+    panel shows. The replica feeds them a fixed `DisplayInfo` derived from the
+    paired device's reported geometry, so a dial tuned for a 240 px square is
+    not laid out as though it were a 640 px circle.
+  - Loading a module's display chunk from the config page is the **allowed**
+    direction: invariant I8 forbids display → config, and `npm run size` proves
+    the display graph is still clean on every build.
+  - **1 Hz maximum, and fully paused when `document.hidden`** — no timer, no
+    repaint. A remote left open in a background tab costs a phone nothing.
+  - The video ring cannot be a replica, so it is the still plus a **position
+    arc** re-anchored from telemetry, which advances smoothly between packets
+    instead of stepping twice a second. YouTube's still is the public
+    `i.ytimg.com` poster, fetched by the phone itself.
+
+- **A shared chunked-telemetry channel** (`src/lib/chunkedTele.ts`). The
+  diagnostics report's split-and-reassemble transfer, generalised so thumbnails
+  can ride it too. Every subtlety moved with it — the shared `ts` per capture
+  that lets a newer payload discard a half-arrived older one, the `.fill()` that
+  stops a sparse buffer completing on its first part, the uniform `part 1 of 1`
+  shape, and the two-bytes-per-character budget for JSON-in-JSON escaping.
+  `src/diag/wire.ts` keeps its exact public API and now delegates.
+
+- **The display's continuous stats packet carries the source duration.** The
+  display never publishes `state`, so a freshly opened remote had no timeline at
+  all and the scrubber fell back to a one-hour track. It is on the wire now,
+  which is also what makes the ring's position arc drawable.
+
 - **“Get the downloader” — the guided connect panel.**
   (`src/modules/video/resolver/ResolverConnectPanel.tsx`.) The resolver
   companion is optional and always will be, but _optional_ had become _hidden_:
@@ -666,6 +751,58 @@ companion/resolver/dist/cli.js` — is the documented fallback for macOS, Linux
   step verifies it.
 
 ### Fixed
+
+- **A module switched in CAM reverted to Video a second later.** Reported live.
+  The cause was precedence, not the module picker: inbound state is applied as
+  the `remote` layer, which outranks anything this page saves — and that layer is
+  **sticky**. Once any peer had said `activeModuleId: 'video'`, every later
+  re-resolve put it back, and a retained snapshot redelivered on a reconnect is
+  enough to cause a re-resolve. Which is why it looked intermittent: it needed a
+  reconnect, not a user action.
+
+  Two things were wrong and both are fixed at the layer, not at the symptom, so
+  **any** setting changed locally survives a stale echo — not just the active
+  module:
+
+  - **The persisted layer was frozen at start-up.** `resolveState` ran again on
+    every inbound frame against the document as it looked when the page booted,
+    so every local change made since then was invisible to it. This is the bug
+    class that was fixed once for `sync.*` (the phone unpaired itself a second
+    after connecting) by re-reading at that one call site, which left the same
+    trap armed for every other key. `AppSyncOptions.persisted` is now a
+    **getter**, re-read on each re-resolve, which disarms it for all of them.
+  - **A new `local` precedence layer**, between `remote` and `url`:
+    `defaults < persisted < remote < local < url`. A deliberate local commit goes
+    into it (via the new `Store.onCommit`, which fires for `commit()` and never
+    for a `replace()` or a document arriving from storage).
+
+  The clearing rule is the part worth reading, because it is what keeps the
+  remote working: a **live** frame clears the layer wholesale — a phone changing
+  the module while you watch is genuinely newer than your last click, and
+  last-writer-wins is right there — while a **retained** frame does not. A
+  retained frame is a _replay_ of something a peer said once, sent to bootstrap
+  a peer that has just arrived; it has no business correcting a page that has
+  been running and has just been told by a human to do something else.
+
+  Deliberately _not_ done with the Lamport `rev`: it only orders writers that
+  observe each other's counters, and the display and the phone keep separate
+  storage, so their revs can diverge arbitrarily. Comparing them would have
+  traded an intermittent revert for a silently dead remote.
+
+  Regression cover: `src/state/localLayer.test.ts` for the ordering and
+  `tests/e2e/state-precedence.spec.ts`, which asserts a module switch and a
+  module-config field both _hold_ for four seconds (a single assertion right
+  after the click passed on the broken build — the revert took about one) and
+  that the choice converges on the display.
+
+- **The remote's scrubber could receive no `videoStats` packets at all.**
+  `SyncService.publishTele` throttles to 200 ms and **drops** what lands inside
+  the window. Two publishers on the same period have a constant phase
+  difference, so when the new replica feed was added at the video module's own
+  2 s cadence and happened to start within 200 ms of it, one of them was
+  silently dropped for the entire life of the page — the scrubber sat at
+  0:00 / 60:00 forever. The replica feed now runs at 2.5 s so the phase drifts
+  and a collision costs one packet instead of all of them.
 
 - **YouTube failed outright on every machine without ffmpeg:
   `Requested format is not available`.** Reported from a Windows PC running the

@@ -23,6 +23,18 @@ export interface Store {
   commit: (mutate: (s: AppState) => AppState) => AppState;
   /** Replace the snapshot without persisting — used for the resolved URL/remote layers. */
   replace: (next: AppState) => void;
+  /**
+   * Fires ONLY for a `commit()` — a deliberate local write — and never for a
+   * `replace()` or a document arriving from storage.
+   *
+   * `subscribe()` cannot answer this: it fires for every snapshot change, and
+   * the difference between "this page decided something" and "this page was
+   * told something" is exactly what the sync layer needs to know. Without it, a
+   * local edit is indistinguishable from an echo of a remote one, and the
+   * precedence layers cannot tell which of the two is newer — which is how a
+   * stale remote snapshot silently rolls back a setting the user just changed.
+   */
+  onCommit: (listener: (next: AppState) => void) => () => void;
   dispose: () => void;
 }
 
@@ -74,6 +86,7 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
   const withOverlay = (next: AppState): AppState =>
     overlay === undefined ? next : resolveState({ persisted: next, url: overlay }).state;
   const listeners = new Set<() => void>();
+  const commitListeners = new Set<(next: AppState) => void>();
 
   const notify = (): void => {
     if (import.meta.env.DEV && isInFrame()) {
@@ -108,6 +121,16 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
           role,
         }),
       );
+      // Commit listeners run BEFORE the ordinary notification on purpose: the
+      // sync layer folds the new values into its remote layer here, and a React
+      // render that read a half-updated set of layers would flash the old value.
+      for (const l of commitListeners) {
+        try {
+          l(snapshot);
+        } catch (err) {
+          log.error('store commit listener threw', err);
+        }
+      }
       notify();
       return snapshot;
     },
@@ -116,9 +139,14 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
       snapshot = next;
       notify();
     },
+    onCommit(listener) {
+      commitListeners.add(listener);
+      return () => commitListeners.delete(listener);
+    },
     dispose() {
       stopWatching();
       listeners.clear();
+      commitListeners.clear();
     },
   };
 }

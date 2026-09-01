@@ -22,10 +22,11 @@
  * up empty (§1.5).
  */
 
+import { qualityLabel, type QualityLevel } from '../quality';
 import { publish } from '../telemetry/videoTelemetry';
 
 import { createHtmlVideoAdapter, type HtmlVideoAdapter } from './HtmlVideoAdapterBase';
-import { videoError } from './VideoAdapter';
+import { isAutoQualityHint, videoError } from './VideoAdapter';
 
 import type { MountContext } from './VideoAdapter';
 import type { ProviderCapabilities } from '../types';
@@ -72,11 +73,28 @@ function describeDashError(e: unknown): string {
   return typeof err.error === 'string' ? `DASH failed: ${err.error}` : 'DASH playback failed.';
 }
 
+/** De-duplicated by height, low to high — see `hls.adapter.ts`'s twin. */
+export function describeLevels(reps: readonly { height: number }[]): QualityLevel[] {
+  const heights = [...new Set(reps.map((r) => r.height).filter((h) => h > 0))];
+  return heights.sort((a, b) => a - b).map((h) => ({ height: h, label: qualityLabel(h) }));
+}
+
 export interface DashHandle {
   player: MediaPlayerClass;
   destroy(): void;
   setQuality(heightHint: number): boolean;
   getQuality(): { height: number | null; label: string | null };
+}
+
+/**
+ * The ABR toggle, built as a deep PARTIAL.
+ *
+ * dash.js accepts partial settings while its shipped `.d.ts` declares the whole
+ * settings object, so the shape is built separately and widened at the boundary
+ * — exactly as the buffer settings above do.
+ */
+function setAutoSwitch(on: boolean): Parameters<MediaPlayerClass['updateSettings']>[0] {
+  return { streaming: { abr: { autoSwitchBitrate: { video: on } } } };
 }
 
 export interface AttachDashOptions {
@@ -140,6 +158,15 @@ export async function attachDash(opts: AttachDashOptions): Promise<DashHandle | 
   });
 
   player.on(MediaPlayer.events.STREAM_INITIALIZED, () => {
+    // The manifest is parsed and the representations exist: this is the only
+    // moment the ladder is knowable, and the UI is waiting for it.
+    try {
+      const reps = player.getRepresentationsByType('video');
+      caps.canSetQuality = reps.length > 1;
+      ctx.emit({ type: 'levels', levels: describeLevels(reps) });
+    } catch {
+      /* a player torn down inside the event still must not throw here */
+    }
     if (player.isDynamic()) {
       // §3.2 — a dynamic (live) MPD has a sliding window; nothing to loop.
       caps.canSeek = false;
@@ -170,6 +197,14 @@ export async function attachDash(opts: AttachDashOptions): Promise<DashHandle | 
     },
     setQuality: (heightHint: number) => {
       try {
+        if (isAutoQualityHint(heightHint)) {
+          // dash.js 5: pinning a representation implicitly turns ABR off for
+          // that type, and it does NOT come back on by itself. Handing control
+          // back is a settings write, not a representation call — forgetting it
+          // is how "Auto" silently stays stuck on whatever was last pinned.
+          player.updateSettings(setAutoSwitch(true));
+          return true;
+        }
         const reps = player.getRepresentationsByType('video');
         if (reps.length === 0) return false;
         let best = -1;
@@ -181,6 +216,7 @@ export async function attachDash(opts: AttachDashOptions): Promise<DashHandle | 
             bestH = h;
           }
         }
+        player.updateSettings(setAutoSwitch(false));
         player.setRepresentationForTypeByIndex('video', best >= 0 ? best : 0);
         return true;
       } catch {

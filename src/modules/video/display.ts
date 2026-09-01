@@ -30,10 +30,16 @@
  */
 
 import { createLogger } from '../../lib/log';
+import { setReplicaThumb } from '../replicaThumb';
 
 import { loadAdapter } from './adapters/registry';
-import { toVideoError, type AdapterEvent, type VideoError } from './adapters/VideoAdapter';
-import { findClipBySourceUrl } from './local/clipStore';
+import {
+  AUTO_QUALITY_HINT,
+  toVideoError,
+  type AdapterEvent,
+  type VideoError,
+} from './adapters/VideoAdapter';
+import { findClipBySourceUrl, getClip } from './local/clipStore';
 import {
   CHECKPOINT_INTERVAL_MS,
   CHECKPOINT_MIN_SEC,
@@ -52,6 +58,7 @@ import {
   type AbLoop,
 } from './loop/LoopEngine';
 import { createPolledLoop, type PolledLoop } from './loop/PolledLoop';
+import { clipSourceKey, qualityControlFor } from './quality';
 import { createRenderController, type RenderController } from './render/RenderController';
 import { subscribeResolverPing } from './resolver/resolverPing';
 import { applyResolverPolicy, detect, type ProviderMatch } from './routing/detect';
@@ -491,13 +498,25 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     if (routed.provider !== 'resolver') return null;
 
     const geometry = ctx?.geometry();
+    /*
+     * A pinned height IS the `maxHeight`.
+     *
+     * On this path "change the quality" means asking the companion again for a
+     * different rendition and keeping the answer — there is no in-stream ladder
+     * to move. `deriveMaxHeight` remains the Auto behaviour: it derives a
+     * ceiling from the panel and the zoom, which is the right ask when nobody
+     * has expressed a preference.
+     */
+    const pinned = config.quality.mode === 'fixed' ? config.quality.height : null;
     const envelope = await client.resolveOrFallback(match.url, config.resolver, {
-      maxHeight: client.deriveMaxHeight({
-        displayW: geometry?.width ?? 0,
-        displayH: geometry?.height ?? 0,
-        dpr: geometry?.dpr ?? 1,
-        zoom: config.render.zoom,
-      }),
+      maxHeight:
+        pinned ??
+        client.deriveMaxHeight({
+          displayW: geometry?.width ?? 0,
+          displayH: geometry?.height ?? 0,
+          dpr: geometry?.dpr ?? 1,
+          zoom: config.render.zoom,
+        }),
       audio: config.audioEnabled,
       ...(abort === null ? {} : { signal: abort.signal }),
     });
@@ -518,7 +537,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
         ...(abort === null ? {} : { signal: abort.signal }),
         provider: 'resolver',
         ...(envelope.title === undefined ? {} : { name: envelope.title }),
-        sourceUrl: match.url,
+        sourceUrl: clipSourceKey(match.url, config.quality, 'set'),
       });
       if (session !== mine) return null;
       if (stored.ok) {
@@ -602,7 +621,12 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
 
     // Step 3: the local copy of this exact URL, if we already have one. Checked
     // BEFORE any network work so a cold boot with no network still plays.
-    const existing = await findClipBySourceUrl(match.url);
+    //
+    // Keyed by URL *and* pinned height where the height is a real choice: see
+    // `clipSourceKey`. Changing the quality of a downloaded source has to miss
+    // here, or the old file would keep winning forever.
+    const clipKey = clipSourceKey(match.url, config.quality, qualityControlFor(match.provider));
+    const existing = await findClipBySourceUrl(clipKey);
     if (existing !== null) {
       return { url: `${LOCAL_CLIP_SCHEME}${existing.id}`, local: true };
     }
@@ -657,6 +681,67 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     return { url: match.url, local: false };
   }
 
+  /**
+   * Push the configured quality onto an adapter that can actually take it.
+   *
+   * Deliberately fire-and-forget and deliberately silent: a provider that
+   * cannot honour a height returns `false` and the picture carries on. The two
+   * providers where a height means a *different source* — youtube-embed (the
+   * element ladder is chosen at mount) and resolver (a new `/resolve` call) —
+   * are not handled here at all; `update()` remounts for those, because there
+   * is no in-stream ladder to move.
+   */
+  function applyQuality(owner: VideoAdapter, config: VideoModuleConfig): void {
+    if (owner.setQuality === undefined) return;
+    const wanted =
+      config.quality.mode === 'fixed' && config.quality.height !== null
+        ? config.quality.height
+        : AUTO_QUALITY_HINT;
+    // Recorded BEFORE the call, and recorded whatever the answer is.
+    // "I asked for 1080 and the provider said no" is a diagnosis; "nothing
+    // happened" is not, and on a screen nobody can click the difference between
+    // those two is the whole support conversation.
+    publish({
+      code: 'quality-requested',
+      severity: 'info',
+      provider: owner.id,
+      message: wanted === AUTO_QUALITY_HINT ? 'auto' : String(wanted),
+    });
+    void owner.setQuality(wanted).then(
+      (ok) => {
+        if (!ok) return;
+        const now = owner.getQuality?.() ?? null;
+        if (now !== null) setTelemetryContext({ quality: now });
+      },
+      () => {
+        /* a provider that throws on a quality change still has a picture up */
+      },
+    );
+  }
+
+  /**
+   * Offer the remote's ring a still of what is playing.
+   *
+   * Only for a stored clip, and it costs nothing: `ingest.ts` already rendered
+   * a WebP thumbnail when the clip was downloaded, so this is one IndexedDB
+   * read and no encoding at all. Every other source is `null` on purpose —
+   * a YouTube link's poster is a public `i.ytimg.com` URL the phone fetches for
+   * itself, and grabbing a frame out of a live stream to re-encode and send
+   * twice a minute would spend the display's frame budget on a second screen.
+   */
+  async function publishReplicaThumb(url: string): Promise<void> {
+    if (!url.startsWith(LOCAL_CLIP_SCHEME)) {
+      setReplicaThumb(null);
+      return;
+    }
+    try {
+      const clip = await getClip(url.slice(LOCAL_CLIP_SCHEME.length));
+      setReplicaThumb(clip?.thumbBlob ?? null);
+    } catch {
+      setReplicaThumb(null);
+    }
+  }
+
   function onAdapterEvent(e: AdapterEvent): void {
     if (controller === null) return;
     switch (e.type) {
@@ -692,6 +777,11 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
         break;
       case 'quality':
         setTelemetryContext({ quality: { height: e.height, label: e.label } });
+        break;
+      case 'levels':
+        // Compact keys: an HLS ladder is a dozen rungs and the envelope cap is
+        // 8 KB shared with everything else on the packet (invariant I6).
+        setTelemetryContext({ levels: e.levels.map((l) => ({ h: l.height, l: l.label })) });
         break;
       case 'error':
         showError(e.err);
@@ -759,6 +849,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     try {
       const source = opts.source ?? (await resolveSource(config, mine));
       if (session !== mine) return;
+      void publishReplicaThumb(source.url);
 
       const validation = validateUrl(source.url, { context: 'display' });
       if (validation.blocking) {
@@ -802,6 +893,10 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       }
 
       adapter = next;
+      // A fresh source has a fresh (unknown) ladder: leaving the previous
+      // source's levels in the telemetry context would offer the remote a
+      // picker full of renditions this video does not have.
+      setTelemetryContext({ provider, levels: [], quality: { height: null, label: null } });
       controller.setCapabilities(next.capabilities);
       await next.mount({
         container: controller.stage,
@@ -824,6 +919,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
 
       controller.apply();
       next.setMuted(true);
+      applyQuality(next, config);
       await next.play();
       if (session !== mine) return;
 
@@ -949,8 +1045,10 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       // arming a second timer: one more interval on a panel that is short of
       // frame budget buys nothing.
       if (Date.now() - lastCheckpointAt >= CHECKPOINT_INTERVAL_MS) saveCheckpoint();
+      const known = isDurationKnown(duration);
       publishStats({
         currentTime: owner.getCurrentTime(),
+        durationSec: known ? duration : null,
         bufferedEnd: owner.getBufferedEnd(),
         held: owner.isHeld(),
         loopCrossings: loop?.crossings() ?? 0,
@@ -1049,6 +1147,28 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     update(config: VideoModuleConfig, reason: UpdateReason) {
       const previous = cfg;
       cfg = config;
+
+      /*
+       * A quality change is two completely different operations.
+       *
+       * For hls/dash/twitch it is one call on a player that is already running:
+       * the picture never blinks and the position is kept. For youtube-embed
+       * the answer is baked into the size of the iframe at mount, and for the
+       * resolver companion it is a different file entirely — both of those are
+       * a new source, so they take the remount below. Getting this backwards in
+       * either direction is visible: a needless remount restarts the video, and
+       * a missing one makes the control appear to do nothing.
+       */
+      const qualityChanged =
+        previous !== null &&
+        (previous.quality.mode !== config.quality.mode ||
+          previous.quality.height !== config.quality.height);
+      const qualityNeedsRemount =
+        qualityChanged && (adapter?.id === 'youtube-embed' || adapter?.id === 'resolver');
+      if (qualityChanged && !qualityNeedsRemount && adapter !== null) {
+        applyQuality(adapter, config);
+      }
+
       const sourceChanged =
         previous === null
           ? true
@@ -1064,7 +1184,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
             previous.resolver.policy !== config.resolver.policy ||
             previous.resolver.port !== config.resolver.port ||
             previous.resolver.token !== config.resolver.token;
-      if (sourceChanged || reason.changed.some((p) => p.startsWith('url'))) {
+      if (sourceChanged || qualityNeedsRemount || reason.changed.some((p) => p.startsWith('url'))) {
         // A deliberate source change is a fresh start: the retry ladder and the
         // previous-source fallback belong to the source that failed, not this one.
         clearRetry();
@@ -1161,6 +1281,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       clearRetry();
       if (onPagehide !== null) window.removeEventListener('pagehide', onPagehide);
       onPagehide = null;
+      setReplicaThumb(null);
       unsubscribeResolverPing?.();
       unsubscribeResolverPing = null;
       void stopSession();

@@ -17,6 +17,8 @@ import { clamp, isFiniteNumber, isPlainObject } from '../../lib/clamp';
 import { MAX_URL_LEN } from '../../lib/mediaUrl';
 import { PAN_LIMIT, ZOOM_MAX, ZOOM_MIN } from '../../render/types';
 
+import { DEFAULT_QUALITY, type QualityConfig } from './quality';
+
 import type { Rect } from '../../render/types';
 import type { RenderSettings } from '../../state/schema';
 
@@ -341,6 +343,16 @@ export interface VideoModuleConfig {
   youtube: YouTubeConfig;
   resolver: ResolverConfig;
   perf: PerfMode;
+  /**
+   * What resolution to ask for (`./quality.ts`).
+   *
+   * Distinct from `perf`, which is about how much *compositor* work the panel
+   * can afford, and from `youtube.qualityFloorPx`, which is the mechanism this
+   * setting drives on one provider. This is the user-facing "what am I getting,
+   * and can I change it" lever, and it means different things per provider on
+   * purpose — see `qualityControlFor()`.
+   */
+  quality: QualityConfig;
   /** The LCD is always muted; this only opts *audio-capable* paths in. */
   audioEnabled: boolean;
   /** Play the bundled low-entropy clip when `url` is empty (§ plan: demo mode). */
@@ -356,6 +368,7 @@ export const VIDEO_DEFAULTS: VideoModuleConfig = {
   youtube: DEFAULT_YOUTUBE,
   resolver: DEFAULT_RESOLVER,
   perf: 'auto',
+  quality: DEFAULT_QUALITY,
   audioEnabled: false,
   demoWhenEmpty: true,
 };
@@ -471,6 +484,29 @@ function validateYouTube(raw: unknown): YouTubeConfig {
   };
 }
 
+/**
+ * The pinned height is clamped to a sane video range rather than to the ladder:
+ * a provider may genuinely offer 900p or 4320p, and a value that came from a
+ * real level list must survive the round trip through storage.
+ */
+const MIN_QUALITY_HEIGHT = 144;
+const MAX_QUALITY_HEIGHT = 4320;
+
+function validateQuality(raw: unknown): QualityConfig {
+  const o = obj(raw);
+  const height = o['height'];
+  return {
+    mode: pickEnum(o['mode'], DEFAULT_QUALITY.mode, ['auto', 'fixed']),
+    // Anything that is not a usable number becomes "no pin", NOT the floor.
+    // Clamping a `"1080"` string up from the minimum would silently give
+    // somebody 144p and look like a bug in the picker rather than in the
+    // document that produced it.
+    height: isFiniteNumber(height)
+      ? Math.round(clamp(height, MIN_QUALITY_HEIGHT, MAX_QUALITY_HEIGHT))
+      : null,
+  };
+}
+
 function validateResolver(raw: unknown): ResolverConfig {
   const o = obj(raw);
   return {
@@ -501,6 +537,7 @@ export function validateVideoConfig(raw: unknown): VideoModuleConfig {
     youtube: validateYouTube(o['youtube']),
     resolver: validateResolver(o['resolver']),
     perf: pickEnum(o['perf'], VIDEO_DEFAULTS.perf, ['auto', 'quality', 'performance']),
+    quality: validateQuality(o['quality']),
     audioEnabled: pickBool(o['audioEnabled'], VIDEO_DEFAULTS.audioEnabled),
     demoWhenEmpty: pickBool(o['demoWhenEmpty'], VIDEO_DEFAULTS.demoWhenEmpty),
   };

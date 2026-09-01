@@ -21,6 +21,7 @@
  * stopped); handing the envelope over avoids asking the companion twice.
  */
 
+import { ladderUpTo } from '../quality';
 import { publish } from '../telemetry/videoTelemetry';
 
 import { createHtmlVideoAdapter, type HtmlVideoAdapter } from './HtmlVideoAdapterBase';
@@ -100,6 +101,16 @@ export function createAdapter(): HtmlVideoAdapter {
         });
         return;
       }
+
+      /*
+       * The resolver cannot enumerate renditions — yt-dlp already chose one —
+       * but it DOES report the source height, and that is a real ceiling. So
+       * the offer is the standard ladder capped there: every rung below the
+       * source is genuinely obtainable, by asking the companion again with a
+       * lower `maxHeight`. Nothing above it is offered, because nothing above
+       * it exists.
+       */
+      ctx.emit({ type: 'levels', levels: ladderUpTo(envelope.height ?? 0) });
 
       publish({
         code: 'resolver-stream',

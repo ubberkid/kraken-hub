@@ -25,24 +25,57 @@ us, and why dropping a failing audio track is free.
 
 ## Capability matrix
 
-| Provider                                          | Source               | Chrome-free           | Quality control       | Silent A‑B loop        | True pause | Notes                                                                   |
-| ------------------------------------------------- | -------------------- | --------------------- | --------------------- | ---------------------- | ---------- | ----------------------------------------------------------------------- |
-| **Local clip**                                    | IndexedDB blob       | ✅ none to hide       | n/a — it is your file | ✅                     | ✅         | The best path in the app. No CORS, no ads, works offline.               |
-| **Resolver companion**                            | `127.0.0.1`          | ✅ none to hide       | ✅ via `maxHeight`    | ✅                     | ✅         | Equal best. Optional; see [resolver-protocol.md](resolver-protocol.md). |
-| **Direct file** (`.mp4`, `.webm`, `.m4v`, `.ogv`) | `<video src>`        | ✅                    | ❌ (one rendition)    | ⚠️ once buffered       | ✅         | Downloaded into the clip library when the server allows it.             |
-| **HLS** (`.m3u8`)                                 | hls.js (light build) | ✅                    | ✅ per-level          | ⚠️ within the buffer   | ✅         | Needs CORS — it is MSE. Live playlists disable looping.                 |
-| **DASH** (`.mpd`)                                 | dash.js 5            | ✅                    | ✅ per-representation | ⚠️ within the buffer   | ✅         | Needs CORS. Dynamic (live) manifests disable looping.                   |
-| **Reddit** (`v.redd.it`)                          | probe → direct file  | ✅                    | ✅ by ladder rung     | ✅                     | ✅         | See below — usually never touches dash.js at all.                       |
-| **YouTube**                                       | geometry engine      | ✅ chrome, ❌ **ads** | ⚠️ indirect only      | ⚠️ measured at runtime | ❌         | See below.                                                              |
-| **Twitch**                                        | Embed JS API         | ✅                    | ✅ real `setQuality`  | ⚠️ VOD/clip only       | ✅         | Live channels cannot loop or seek.                                      |
-| **Vimeo**                                         | player.js            | ✅                    | ❌ for public videos  | ⚠️                     | ✅         | Quality control is gated on the _uploader's_ paid tier.                 |
-| **Streamable**                                    | oEmbed → iframe      | ✅                    | ❌                    | ❌                     | ❌         | No player API at all. Plays; nothing else.                              |
+| Provider                                          | Source               | Chrome-free           | Quality control                                         | Silent A‑B loop        | True pause | Notes                                                                   |
+| ------------------------------------------------- | -------------------- | --------------------- | ------------------------------------------------------- | ---------------------- | ---------- | ----------------------------------------------------------------------- |
+| **Local clip**                                    | IndexedDB blob       | ✅ none to hide       | n/a — it is your file                                   | ✅                     | ✅         | The best path in the app. No CORS, no ads, works offline.               |
+| **Resolver companion**                            | `127.0.0.1`          | ✅ none to hide       | ✅ via `maxHeight` (re-downloads)                       | ✅                     | ✅         | Equal best. Optional; see [resolver-protocol.md](resolver-protocol.md). |
+| **Direct file** (`.mp4`, `.webm`, `.m4v`, `.ogv`) | `<video src>`        | ✅                    | ❌ (one rendition)                                      | ⚠️ once buffered       | ✅         | Downloaded into the clip library when the server allows it.             |
+| **HLS** (`.m3u8`)                                 | hls.js (light build) | ✅                    | ✅ per-level                                            | ⚠️ within the buffer   | ✅         | Needs CORS — it is MSE. Live playlists disable looping.                 |
+| **DASH** (`.mpd`)                                 | dash.js 5            | ✅                    | ✅ per-representation                                   | ⚠️ within the buffer   | ✅         | Needs CORS. Dynamic (live) manifests disable looping.                   |
+| **Reddit** (`v.redd.it`)                          | probe → direct file  | ✅                    | ✅ by ladder rung                                       | ✅                     | ✅         | See below — usually never touches dash.js at all.                       |
+| **YouTube**                                       | geometry engine      | ✅ chrome, ❌ **ads** | ⚠️ bias only (720/1080/1440 → 1280/1920/2560 px player) | ⚠️ measured at runtime | ❌         | See below.                                                              |
+| **Twitch**                                        | Embed JS API         | ✅                    | ✅ real `setQuality`                                    | ⚠️ VOD/clip only       | ✅         | Live channels cannot loop or seek.                                      |
+| **Vimeo**                                         | player.js            | ✅                    | ❌ for public videos                                    | ⚠️                     | ✅         | Quality control is gated on the _uploader's_ paid tier.                 |
+| **Streamable**                                    | oEmbed → iframe      | ✅                    | ❌                                                      | ❌                     | ❌         | No player API at all. Plays; nothing else.                              |
 
 "Silent A‑B loop" means the loop seam does not show a spinner or a flash. For the
 `⚠️` rows kraken-hub _measures_ it: after three consecutive clean crossings the
 adapter promotes `canSeekSilently` to true and cuts the mask flash to 100 ms, and
 publishes the observed value as telemetry — so the config UI can tell you whether
 _your_ loop is seamless rather than guessing.
+
+### What the Quality control does, per provider
+
+The **Quality** row on the video panel (and in the remote's More controls) is not
+the same control everywhere, because "change the resolution" is not the same
+operation everywhere. It shows what you are getting in all four cases, and it
+offers control only where control is real:
+
+| Control shown       | Providers                       | What choosing a height actually does                                                                                                                            |
+| ------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Picker** (real)   | HLS, DASH, Twitch, resolver     | HLS pins `currentLevel`; DASH pins a representation and turns ABR off; Twitch calls `setQuality`; the resolver re-asks at a new `maxHeight` and downloads that. |
+| **Bias** (indirect) | YouTube                         | Resizes the hidden player to 1280 / 1920 / 2560 px wide. YouTube still chooses; the width is the only thing it listens to.                                      |
+| **Read-only**       | Local clip, direct file, Reddit | Nothing — the file has one resolution. The row shows it and stops.                                                                                              |
+| **Nothing yet**     | Anything not mounted            | Says so, rather than offering options nothing would honour.                                                                                                     |
+
+The picker's options are not a guessed ladder. Every provider that _can_
+enumerate its renditions publishes them the moment they become knowable — a
+parsed HLS manifest, an initialised DASH stream, Twitch's `getQualities()` — and
+those exact heights are what you see. The resolver is the one exception, and an
+honest one: yt-dlp has already chosen a stream, so there is no ladder to read,
+but the companion reports the **source height**, and every rung of the standard
+ladder below it is genuinely obtainable by asking again with a lower
+`maxHeight`. Nothing above it is offered, because nothing above it exists.
+
+Two consequences worth knowing:
+
+- **On the resolver path, changing the quality re-downloads.** The old clip keeps
+  playing until the new one lands, then they swap; both stay in the library, so
+  switching back is instant. That is why a pinned height becomes part of the key
+  a clip is remembered by.
+- **`Auto` means the provider's own adaptive logic**, not "whatever kraken-hub
+  last set". Switching back to Auto genuinely hands control back — `currentLevel
+= -1` on HLS, `autoSwitchBitrate` on for DASH, `auto` on Twitch.
 
 ---
 

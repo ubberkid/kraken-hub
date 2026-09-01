@@ -59,8 +59,19 @@ export interface AppSyncOptions {
   role: Role;
   clientId: string;
   store: Store;
-  /** The persisted layer as read at boot; re-resolved on every remote message. */
-  persisted: DeepPartial<AppState>;
+  /**
+   * The persisted layer, read **on every re-resolve** rather than captured once.
+   *
+   * A function, not a value, and that is the whole point. `resolveState` runs
+   * again on every inbound state frame, and a layer frozen at start-up means
+   * every local change made since then is invisible to it — so the first remote
+   * frame after an edit silently rolls that edit back. That bug was fixed once
+   * for `sync.*` (the phone unpaired itself a second after connecting, because
+   * the room it had just joined was not in the boot-time document) and it was
+   * fixed by re-reading at the call site, which left the same trap armed for
+   * every other key. Re-reading here disarms it for all of them.
+   */
+  persisted: () => DeepPartial<AppState>;
   /** The URL layer, which still outranks anything a remote peer sends. */
   url: DeepPartial<AppState>;
   settings: AppState['sync'];
@@ -75,6 +86,8 @@ export interface AppSync {
   service: SyncService;
   /** The accumulated remote layer, for diagnostics. */
   remoteLayer(): DeepPartial<AppState>;
+  /** Local edits no remote frame has superseded yet, for diagnostics. */
+  localLayer(): DeepPartial<AppState>;
   stop(): Promise<void>;
 }
 
@@ -93,6 +106,51 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   let remote: DeepPartial<AppState> = {};
   let lastPersistAt = 0;
 
+  /**
+   * Edits this page made that no LIVE remote frame has superseded yet.
+   *
+   * The remote layer is STICKY: once a peer has said "the active module is
+   * video", that entry outranks everything this page saves until the page is
+   * reloaded. So a user switching to Clock in CAM wrote `clock` to storage,
+   * watched it appear — and watched it revert the next time any state frame
+   * arrived and `resolveState` ran again against a remote layer that still said
+   * `video`.
+   *
+   * The frame that does this is almost always a **retained** one: a broker
+   * replaying its last-value on a reconnect, a 5-minute keepalive republish, a
+   * fresh subscriber's bootstrap. That is why the bug looks intermittent — it
+   * needs a reconnect, not a user action.
+   *
+   * And that is also the discriminator, because it is a real semantic
+   * difference rather than a heuristic:
+   *
+   *   a **retained** frame is a REPLAY of something a peer said once;
+   *   a **live** frame is a peer saying something NOW.
+   *
+   * A replay exists to bootstrap a peer that has just arrived and knows
+   * nothing. It has no business correcting a page that has been running, and
+   * has just been told by a human to do something else. A live frame does: a
+   * phone changing the module while you are watching is genuinely newer than
+   * your last click, and last-writer-wins is the right answer there — so a live
+   * frame clears this layer wholesale and the remote keeps working exactly as
+   * it did.
+   *
+   * Deliberately NOT done with the Lamport `rev`: it only orders writers that
+   * observe each other's counters, and the display and the phone keep separate
+   * storage, so their revs can diverge arbitrarily. Comparing them would make
+   * a phone's genuine change unapplyable on a display whose local counter had
+   * run ahead — trading an intermittent revert for a silent dead remote.
+   */
+  let local: DeepPartial<AppState> = {};
+
+  const stopFolding = o.store.onCommit((next) => {
+    local = {
+      ...local,
+      ...syncBodyToPatch(next),
+      modules: { ...local.modules, ...next.modules },
+    };
+  });
+
   service.onState((body, meta) => {
     // Merge rather than replace: a `partial` snapshot carries only the active
     // module, and the modules it omitted must keep the values we already have.
@@ -101,7 +159,10 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
       ...syncBodyToPatch(body),
       modules: { ...remote.modules, ...body.modules },
     };
-    const resolved = resolveState({ persisted: o.persisted, remote, url: o.url });
+    // A peer speaking now supersedes what this page last chose. A replay does
+    // not — see above.
+    if (!meta.retained) local = {};
+    const resolved = resolveState({ persisted: o.persisted(), remote, local, url: o.url });
     o.store.replace(resolved.state);
     o.onRemoteState?.(resolved.state, meta);
 
@@ -141,6 +202,11 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   return {
     service,
     remoteLayer: () => remote,
-    stop: () => (stopping ??= service.stop()),
+    localLayer: () => local,
+    stop: () =>
+      (stopping ??= (async () => {
+        stopFolding();
+        await service.stop();
+      })()),
   };
 }

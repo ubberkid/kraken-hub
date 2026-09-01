@@ -68,7 +68,15 @@ const DIAG_MIN_INTERVAL_MS = 2000;
 export interface DisplaySyncOptions {
   runtime: DisplayRuntime;
   state: AppState;
-  persisted: DeepPartial<AppState>;
+  /**
+   * The persisted layer, as a getter.
+   *
+   * Re-read on every re-resolve rather than captured at boot: the display
+   * persists remote state to localStorage, and the CAM configuration window
+   * writes to the same document, so a layer frozen at start-up would let a
+   * stale remote echo roll back anything either of them changed since.
+   */
+  persisted: () => DeepPartial<AppState>;
   url: DeepPartial<AppState>;
 }
 
@@ -119,6 +127,7 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
 
   let stopTele: (() => void) | null = null;
   let stopDownloads: (() => void) | null = null;
+  let stopReplica: (() => void) | null = null;
   let libraryTimer: ReturnType<typeof setInterval> | null = null;
   let debounce: ReturnType<typeof setTimeout> | null = null;
   let seekTimer: ReturnType<typeof setTimeout> | null = null;
@@ -245,7 +254,7 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
     role: 'display',
     clientId: clientId(),
     store: runtime.store,
-    persisted: o.persisted,
+    persisted: () => o.persisted(),
     url: o.url,
     settings: o.state.sync,
 
@@ -367,6 +376,42 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
     }
     libraryTimer = setInterval(publishLibrary, LIBRARY_REPUBLISH_MS);
     publishLibrary();
+
+    /*
+     * ── The remote's live ring ────────────────────────────────────────────
+     *
+     * The phone renders the REAL module — the actual clock renderer, the actual
+     * stats renderer — from synced state rather than from streamed pixels. Two
+     * facts a replica cannot compute for itself come from here: the 0.5 Hz
+     * monitoring snapshot, and a ≤6 KB WebP thumbnail of whatever picture is on
+     * the panel, chunked over the same channel the diagnostics report uses.
+     *
+     * Gated on `publishTelemetry` along with everything else in this block,
+     * because that toggle means "your Kraken reports back to this page" and
+     * this is precisely that.
+     */
+    try {
+      const replica = await import('./replicaFeed');
+      const thumbs = await import('../../modules/replicaThumb');
+      const feed = replica.startReplicaFeed({
+        runtime,
+        publish: (body) => {
+          service.publishTele(body);
+        },
+      });
+      // Whatever is already on the panel: the module mounted before sync did,
+      // so without this the ring stays empty until the next source change.
+      feed.publishThumb(thumbs.currentReplicaThumb());
+      const off = thumbs.subscribeReplicaThumb((blob) => {
+        feed.publishThumb(blob);
+      });
+      stopReplica = () => {
+        off();
+        feed.stop();
+      };
+    } catch (err) {
+      log.warn('could not start the replica feed', err);
+    }
   }
 
   writeReadout({
@@ -385,6 +430,7 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
       window.removeEventListener('pagehide', onPagehide);
       stopTele?.();
       stopDownloads?.();
+      stopReplica?.();
       if (libraryTimer !== null) clearInterval(libraryTimer);
       if (debounce !== null) clearTimeout(debounce);
       if (seekTimer !== null) clearTimeout(seekTimer);

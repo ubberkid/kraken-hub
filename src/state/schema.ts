@@ -6,7 +6,7 @@
  * is migrated forward; the key name itself never changes.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export type ModuleId = string;
 export type Role = 'display' | 'config' | 'remote';

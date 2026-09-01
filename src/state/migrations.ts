@@ -49,11 +49,20 @@ type Migration = (s: Record<string, unknown>) => Record<string, unknown>;
  * would have kept a second id alive in every picker, URL and synced snapshot
  * forever, to preserve a module that existed only because M0 needed something
  * to render.
+ *
+ * 4 → 5: the video module's `quality` setting. Additive and defaulted, so no
+ * document needs rewriting — the module's own `configVersion` (1 → 2) is what
+ * carries the change, and `validateVideoConfig` fills the key from
+ * `{ mode: 'auto', height: null }`, which is what every existing install was
+ * already doing. The state version moves for the same reason as 2 → 3: a v4
+ * build must stash a v5 document rather than write it back with the user's
+ * pinned resolution silently removed.
  */
 const MIGRATIONS: Readonly<Record<number, Migration>> = {
   1: (s) => ({ ...s, schema: 2 }),
   2: (s) => ({ ...s, schema: 3 }),
   3: (s) => renameClockLite({ ...s, schema: 4 }),
+  4: (s) => ({ ...s, schema: 5 }),
 };
 
 const LEGACY_CLOCK_ID = 'clock-lite';
