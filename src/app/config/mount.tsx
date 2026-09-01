@@ -43,7 +43,17 @@ export function mountConfig(container: HTMLElement): void {
   }
   const resolved = resolveState({ persisted: persisted.state, url: params.patch });
 
-  const camDetected = peekNzxt() !== null || /Electron/i.test(navigator.userAgent);
+  /*
+   * The one signal wave 1 hangs every bytes-owning control on.
+   *
+   * `?cam=1` / `?cam=0` overrides it, and that is a simulator seam rather than a
+   * feature: whether this page is CAM's own window is a property of the browser,
+   * so without the override neither side of the gate can be exercised by an
+   * automated run or by a contributor with no CAM installed. Same shape, and the
+   * same reason, as `?sim=` for the panel geometry.
+   */
+  const camDetected =
+    params.flags.cam ?? (peekNzxt() !== null || /Electron/i.test(navigator.userAgent));
   const role = camDetected ? 'config' : 'remote';
   const runtime: ConfigRuntime = {
     // `commitBase: 'snapshot'` — an edit here is applied to what the user is

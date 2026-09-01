@@ -259,8 +259,13 @@ test('the unpaired remote is a sentence and one button, then a code', async ({ c
  * status lines both saying it was waiting, and — somewhere under all of it —
  * the one button that would have made any of it work.
  *
- * The ceiling is four because that is what the screen honestly needs: create a
- * code, and the by-hand fallback's summary, field and Join.
+ * The ceiling is what the screen honestly needs: create a code, and the by-hand
+ * fallback's summary, field and Join — plus, at a DESKTOP width only, the two
+ * controls of the install card (wave 1, A6). Somebody sitting at a desktop
+ * browser with nothing paired is very often somebody who has not pointed CAM at
+ * this page yet, and until now the only door to that instruction was on a screen
+ * they could not reach from here. A phone never sees it: "point CAM at this
+ * address" is advice about a PC, and the phone is not the PC.
  */
 test('an unpaired remote mounts pairing and nothing else', async ({ context }) => {
   const remote = await context.newPage();
@@ -293,7 +298,10 @@ test('an unpaired remote mounts pairing and nothing else', async ({ context }) =
       (el) => (el as HTMLElement).offsetParent !== null,
     ).length;
   });
-  expect(controls).toBeLessThanOrEqual(4);
+  expect(controls).toBeLessThanOrEqual(6);
+  // The instrument is still not mounted — that is what the per-testid
+  // assertions above pin, and it is the half of this test that matters.
+  await expect(remote.getByTestId('setup-about')).toBeVisible();
 });
 
 test('a cold display restores from the retained snapshot ALONE', async ({ context }) => {

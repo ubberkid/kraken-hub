@@ -65,7 +65,11 @@ test.describe('sub-page navigation', () => {
         loads += 1;
       });
 
-      await page.goto(`/${hash}`);
+      // `?cam=1` — the CAM-window simulator (wave 1, A1). The Library is the
+      // owning surface's page as well as a remote's, and an unpaired browser
+      // that owns nothing has no shelf to route to at all, so the sub-page
+      // navigation this test is about is asserted where the page exists.
+      await page.goto(`/?cam=1${hash}`);
       const back = page.getByTestId('nav-back');
       await expect(back).toBeVisible();
       await expect(back).toHaveAttribute('href', '#/');
@@ -82,7 +86,7 @@ test.describe('sub-page navigation', () => {
 
   test('the back link is reachable and operable from the keyboard', async ({ page }) => {
     await page.setViewportSize(DESKTOP);
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     const back = page.getByTestId('nav-back');
     await back.focus();
     await expect(back).toBeFocused();
@@ -91,7 +95,7 @@ test.describe('sub-page navigation', () => {
   });
 
   test('the wordmark is still a way home too', async ({ page }) => {
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     await expect(page.getByTestId('wordmark')).toHaveAttribute('href', '#/');
   });
 });
@@ -100,7 +104,7 @@ test.describe('the library shows your library, and nothing else', () => {
   test('an empty library is a friendly card that stays true when the add panel opens', async ({
     page,
   }) => {
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     await expect(page.getByTestId('library')).toBeVisible();
     // One verb for what a shelf does, from `config/vocabulary.ts` (round 4, F4):
     // the header said "Kept", this card said "saved" and the meter said
@@ -138,7 +142,7 @@ test.describe('the library shows your library, and nothing else', () => {
   test('the + panel adds a file from this PC, and the tile carries the real metadata', async ({
     page,
   }) => {
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     await openAddPanel(page);
     await page.locator('[data-testid="clip-file-input"]').setInputFiles(FIXTURE_PATH);
 
@@ -192,7 +196,7 @@ test.describe('the library shows your library, and nothing else', () => {
       await route.continue();
     });
 
-    await config.goto('/#/library');
+    await config.goto('/?cam=1#/library');
     await openAddPanel(config);
     await config.fill('[data-testid="library-add-input"]', FIXTURE_URL);
     await config.click('[data-testid="library-add-submit"]');

@@ -110,6 +110,62 @@ export type CmdOp =
    * than the one running CAM.
    */
   | 'requestDiag'
+  /**
+   * "Tell me what is on the shelf, now."
+   *
+   * Additive in exactly the way `requestDiag` was, so `v` stays 1: a peer that
+   * has never heard of it forwards it to the active module's command handler,
+   * which drops what it does not recognise.
+   *
+   * It exists because `tele` publishes UNRETAINED and the library keepalive is
+   * five minutes apart, so a phone unlocked at the wrong moment stared at an
+   * empty shelf for most of five minutes with nothing on screen to say it was
+   * waiting. The answer is `kind: 'library'`, or `libraryPart` chunks when the
+   * shelf does not fit one envelope.
+   */
+  | 'requestLibrary'
+  /**
+   * Curation — "change this row of the shelf", from a window that can see the
+   * row but not reach the bytes.
+   *
+   * Play needed no op at all: it is a state commit, and state is a full retained
+   * snapshot both windows already share. Pin, rename and delete have nothing to
+   * commit — they change a database that lives in exactly one browser profile —
+   * so they are the first library ACTS on this channel.
+   *
+   * Three properties, all of them load-bearing, all of them enforced by the
+   * parsers in `src/lib/curation.ts`:
+   *
+   *  - **absolute, never a toggle** (`setPinned` carries the value it wants):
+   *    the `cmd` channel is redelivered by a replaying transport, and this is
+   *    the `seekBy` hazard;
+   *  - **batched by id**: `sendCmd` throttles PER OP at 200 ms and DROPS what
+   *    lands inside the window, so a five-item delete loop would send one;
+   *  - **idempotent by id**: `patchMedia` and `deleteMedia` are both no-ops on
+   *    an absent row, which is what makes it safe to have no ack protocol. The
+   *    remote removes the tile optimistically and reconciles against the next
+   *    library packet.
+   *
+   * Additive, exactly like `requestDiag` and `requestLibrary`, so `v` stays 1.
+   */
+  | 'setPinned'
+  | 'renameMedia'
+  | 'deleteMedia'
+  /**
+   * WebRTC signalling for a LAN file transfer — the one thing a phone genuinely
+   * could not do before, because the bytes have to land in the browser profile
+   * the LCD page can read and a phone shares nothing with it.
+   *
+   * There is no signalling server and there will not be one: the offer and the
+   * ICE candidates ride this channel, which means the broker only ever sees
+   * ciphertext and only a peer holding the room key can start a transfer. The
+   * answer comes back on `tele` as `kind: 'transferAnswer'`, and the candidates
+   * as `kind: 'transferIce'` — see `src/transfer/protocol.ts`, which also
+   * explains why every one of these messages is CUMULATIVE rather than a delta
+   * (both zero-network transports are a last-value slot, not a queue).
+   */
+  | 'transferOffer'
+  | 'transferIce'
   | 'identify'
   | 'ping';
 
@@ -130,6 +186,12 @@ export const CMD_OPS: readonly CmdOp[] = [
   'reload',
   'requestState',
   'requestDiag',
+  'requestLibrary',
+  'setPinned',
+  'renameMedia',
+  'deleteMedia',
+  'transferOffer',
+  'transferIce',
   'identify',
   'ping',
 ];

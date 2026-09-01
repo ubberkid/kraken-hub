@@ -358,6 +358,27 @@ export default defineConfig(
               from: './src/app/config',
               message: "I8: a module's display code must not import the configuration app.",
             },
+
+            /*
+             * The LAN file transfer is imported by BOTH pages — the sender by
+             * the remote, the receiver by the display, lazily, out of one chunk.
+             * So the same I8 rule that governs display code governs it: one
+             * import of the UI kit here would put the configuration UI on the
+             * LCD's network path, and `displayGraph` would only catch it at
+             * build time.
+             */
+            {
+              target: './src/transfer',
+              from: './src/ui',
+              message:
+                'I8: src/transfer is fetched by the display — it must not import the configuration UI kit.',
+            },
+            {
+              target: './src/transfer',
+              from: './src/app',
+              message:
+                'I8: src/transfer is fetched by the display — it must not import either app.',
+            },
           ],
         },
       ],

@@ -48,6 +48,19 @@ export const KEEPING_A_COPY_NOW = `${KEEPING_A_COPY} ${COPY_HOME}…`;
 /** A copy that landed. */
 export const KEPT_A_COPY = `kept ${COPY_HOME}`;
 
+/**
+ * The receipt a link gets, wherever it was handed over.
+ *
+ * The old wording — *"Sent to your Kraken. It does the downloading, so a tile
+ * appears here once CAM picks it up."* — was implementation copy: "CAM picks it
+ * up" names a program the reader is not running and a hand-off they cannot
+ * observe. What is TRUE and useful is that the Kraken fetches it and keeps a
+ * copy, so a tile turns up shortly. The remote's link field says the same thing
+ * as the Library's, because it is the same act.
+ */
+export const LINK_RECEIPT =
+  'Sent to your Kraken. It fetches the file and keeps a copy, so a tile appears here shortly.';
+
 // ---------------------------------------------------------------------------
 // The library's one verb
 // ---------------------------------------------------------------------------
@@ -67,6 +80,28 @@ export const KEPT_VERB = 'kept';
 /** The shelf's resting sentence when it holds nothing. Present tense, no apology. */
 export const NOTHING_KEPT = `Nothing ${KEPT_VERB} here`;
 
+/**
+ * The shelf's ONE name.
+ *
+ * It had six — Library, Your library, Your pictures, the shelf, the clip
+ * library, the clip picker — spread across the Library page's own heading, the
+ * sub-page header above it, the image module's second list and the video
+ * module's prose. Six names is six shelves, which is precisely the complaint
+ * ("the library is different"). One noun, imported.
+ */
+export const LIBRARY_NOUN = 'Library';
+
+/**
+ * Where a thing IS, when where it is constrains nothing.
+ *
+ * The counterpart to `COPY_HOME`. "on this PC" is a true and useful sentence in
+ * CAM, because the file picker next to it can only reach that PC; on a phone it
+ * is a fact about somebody else's machine, printed next to a shelf the phone can
+ * drive perfectly well. Anything the user can act on from any window says
+ * "in your library" and stops there.
+ */
+export const IN_YOUR_LIBRARY = 'in your library';
+
 // ---------------------------------------------------------------------------
 // The frame-rate economics, said once
 // ---------------------------------------------------------------------------
@@ -82,6 +117,75 @@ export const NOTHING_KEPT = `Nothing ${KEPT_VERB} here`;
  * One string, eight words, imported by both.
  */
 export const FLAT_COLOURS_WHY = 'Flat fills only: kinder to CAM’s frame rate.';
+
+// ---------------------------------------------------------------------------
+// The second axis: WHO IS SPEAKING
+// ---------------------------------------------------------------------------
+
+/**
+ * The one honest sentence about a transfer that did not happen — wave 3.
+ *
+ * It replaces `FILES_ADDED_AT_PC` ("Files are added at your PC."), which was
+ * true for exactly as long as a phone had no way to hand the Kraken a file. It
+ * has one now: the bytes go peer to peer over the LAN, straight into the same
+ * ingest pipeline a file dropped on CAM's own Library page takes. So the
+ * asymmetry the old sentence stated as a fact is gone, and what is left is a
+ * CONSTRAINT — there is one STUN server and deliberately no TURN relay, because
+ * a relay means somebody's server carrying somebody's video and this project is
+ * not going to run one.
+ *
+ * Which is why this names the real requirement rather than apologising for a
+ * failure, and why it is shown ONLY after a genuine failure or timeout. Warning
+ * about it up front would be pre-emptively distrusting the case that almost
+ * always works — a phone and a PC on one home network — which is how a feature
+ * teaches its user not to use it.
+ */
+export const SAME_NETWORK_NOTE = 'Your phone and PC need to be on the same network.';
+
+/**
+ * Terms that only make sense on the surface that owns the bytes.
+ *
+ * The first vocabulary pass asked *what do we call this?* and stopped there,
+ * which is how `COPY_HOME = 'on this PC'` — correct and load-bearing in CAM —
+ * ended up rendered on a phone, where "this PC" refers to nothing the reader is
+ * holding. The second axis is *who is allowed to say it*: these identifiers may
+ * only be imported by modules that render on the owning surface, and
+ * `vocabulary.test.ts` pins the import list. A phone-visible file that reaches
+ * for one is a failing test rather than a screenshot in the next audit.
+ */
+export const OWNER_ONLY_TERMS: readonly string[] = [
+  'COPY_HOME',
+  'KEEP_A_COPY_LABEL',
+  'KEEPING_A_COPY_NOW',
+  'KEPT_A_COPY',
+];
+
+/**
+ * Nouns for a machine the reader may not be sitting at.
+ *
+ * `OWNER_ONLY_TERMS` pins IMPORTS, which is a complete rule for a sentence that
+ * lives in this file and no rule at all for one typed inline — and that is
+ * exactly how the remote's pin button ended up carrying
+ * `title="Allow this to be cleared when the disk fills up"` for a whole wave.
+ * "The disk" is CAM's referent: from a sofa it names a thing the reader cannot
+ * see, cannot check and cannot act on, which is the `COPY_HOME` failure wearing
+ * a tooltip. `vocabulary.test.ts` reads the remote-rendered files themselves for
+ * these, so an inline string cannot slip the import discipline again.
+ *
+ * "Your PC" is deliberately NOT here. It is a real referent for somebody holding
+ * a paired phone — they paired it with that PC — and the remote says it on
+ * purpose ("Paired with your PC", "scan it from the CAM window on your PC").
+ * What is banned is the bare, unowned machine: the one the copy assumes you are
+ * standing in front of.
+ */
+export const MACHINE_NOUNS: readonly string[] = [
+  'the disk',
+  'the drive',
+  'the hard drive',
+  'this PC',
+  'this computer',
+  'this machine',
+];
 
 // ---------------------------------------------------------------------------
 // The dead spellings
@@ -105,4 +209,11 @@ export const RETIRED_PHRASES: readonly string[] = [
   // Round 4, F4 — the twin frame-rate-economics sentences.
   'repaints the whole tile',
   'repaints every pixel',
+  // Wave 1, A5 — implementation copy, and the sixth name for the one shelf.
+  'CAM picks it up',
+  'Your pictures',
+  // Wave 3 — retired by the LAN file transfer, which makes it untrue: a phone
+  // hands the Kraken a file directly now, and the only remaining constraint is
+  // the network one, which `SAME_NETWORK_NOTE` states when it actually bites.
+  'Files are added at your PC',
 ];

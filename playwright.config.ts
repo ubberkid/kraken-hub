@@ -19,7 +19,29 @@ export default defineConfig({
     viewport: { width: 640, height: 640 },
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        /*
+         * WebRTC, so `lan-transfer.spec.ts` can actually connect.
+         *
+         * Chromium hides a page's local IPs behind mDNS `.local` candidate
+         * names unless the page has a media permission. Two pages in ONE
+         * browser can normally resolve each other's names, but headless CI
+         * frequently has no mDNS responder at all, and the transfer then hangs
+         * until the honest fifteen-second timeout — which would make the
+         * loopback test measure the timeout rather than the transfer. Turning
+         * the obfuscation off makes host candidates real addresses, which is
+         * what a LAN transfer uses in the field anyway.
+         */
+        launchOptions: {
+          args: ['--disable-features=WebRtcHideLocalIpsWithMdns'],
+        },
+      },
+    },
+  ],
   webServer: {
     command: 'npm run build && npm run preview -- --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173/',

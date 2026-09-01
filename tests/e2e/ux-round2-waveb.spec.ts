@@ -238,7 +238,7 @@ test.describe('R7 — library tiles', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
 
     // The + is a labelled button now, which is what let the empty card stop
     // explaining where its own button was.

@@ -30,9 +30,14 @@ no back button of its own.
 The page is **one grid of what you have**: clips and pictures together, each tile
 badged with its kind and carrying the real stored metadata (duration, the
 dimensions the file actually is, its size on disk). The tile that is currently on
-the panel is marked **On screen**. Hovering or focusing a tile reveals **Pin** and
-**Delete**; clicking the tile itself puts it on the panel. A compact usage bar
-sits under the grid.
+the panel is marked **On screen**. Hovering or focusing a tile reveals **Pin**,
+**Rename** and **Delete**; clicking the tile itself puts it on the panel. A
+compact usage bar sits under the grid.
+
+**The same shelf, with the same three actions, is on the phone remote** — see
+[Remote control → The library, from the sofa](remote-control.md#the-library-from-the-sofa).
+There is one library and one set of things you can do to it; what differs between
+the windows is only which of them is holding the bytes.
 
 **A download in progress is a tile in that same grid**, with its percentage drawn
 over the space its thumbnail is about to occupy and a **Cancel** next to it. When
@@ -156,13 +161,22 @@ browser storage is partitioned.
 6. **Stored** — bytes and metadata written in a single transaction, so a
    metadata row can never exist without its bytes.
 
-**Adding a clip must happen in CAM's Configuration Browser.** The phone remote
-has no upload control and no clip picker at all: a clip added from the phone
-would land in storage the LCD cannot read, and round 2's audit deleted the
-picker along with the rest of the remote's duplicate copy of the app. The
-remote's job is to drive what is already on the panel. A source the display
-cannot find still gets a `clip-missing` card on the LCD, which is the same
-message the local-clip validator produces.
+**The file picker only exists in CAM's Configuration Browser**, and that is a
+fact about storage rather than a policy: this window's IndexedDB is the one the
+LCD page reads back, and no other browser on earth shares it. A `Browse…` on a
+phone would ingest into a database the Kraken can never open.
+
+**But a phone can still hand the Kraken a file** — it just does not go through
+this path. **Remote → Add → Send a file** opens a WebRTC data channel directly to
+the display over your local network and streams the bytes to it; the display then
+runs _exactly_ the six steps above on what it receives, so a file sent from a
+phone is probed, thumbnailed, quota-checked and rejected in the same words as one
+dropped here. It needs both devices on the same network — there is no relay
+server — and the app says so if it cannot connect. See
+[Remote control → Add from your phone](remote-control.md#add-from-your-phone).
+
+A source the display cannot find still gets a `clip-missing` card on the LCD,
+which is the same message the local-clip validator produces.
 
 ---
 
@@ -249,12 +263,19 @@ blob in memory for that whole time.
 
 ## Where the data lives
 
-| What                        | Where                                                                |
-| --------------------------- | -------------------------------------------------------------------- |
-| Clip metadata and bytes     | IndexedDB database **`kraken-hub.v1`**, stores `clips` / `clipBlobs` |
-| Clip index (for the remote) | `localStorage` key `kraken-hub:v1:video:clipIndex`                   |
-| Download progress mirror    | `localStorage` key `kraken-hub:v1:video:downloads`                   |
-| Diagnostics ring buffer     | `localStorage` key `kraken-hub:v1:video:log`                         |
+| What                         | Where                                                                |
+| ---------------------------- | -------------------------------------------------------------------- |
+| Clip metadata and bytes      | IndexedDB database **`kraken-hub.v1`**, stores `clips` / `clipBlobs` |
+| Clip index (change notifier) | `localStorage` key `kraken-hub:v1:video:clipIndex`                   |
+| Download progress mirror     | `localStorage` key `kraken-hub:v1:video:downloads`                   |
+| Diagnostics ring buffer      | `localStorage` key `kraken-hub:v1:video:log`                         |
+
+The clip index is **not** what the remote is sent. A `localStorage` write fires a
+`storage` event in every other window on the origin, and that is what the index is
+for now: CAM's grid refreshes on it, and the display re-reads the merged media
+store and re-announces the shelf on it. What goes on the wire is built from
+`listMedia()` — one library, one reader — because a mirror and a store that can
+disagree are two libraries with extra steps.
 
 Clip ids are random (`crypto.randomUUID()`), never derived from the filename.
 

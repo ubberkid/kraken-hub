@@ -5,7 +5,7 @@ import {
   CAM_FRAME_RATE_TAIL,
   CAM_PATH_FRAME_RATE,
 } from '../../../config/camPaths';
-import { KEEPING_A_COPY, KEPT_A_COPY } from '../../../config/vocabulary';
+import { KEEPING_A_COPY, KEPT_A_COPY, LIBRARY_NOUN } from '../../../config/vocabulary';
 import { validateClock } from '../../../modules/clock/schema';
 import { validateImageConfig } from '../../../modules/image/schema';
 import { getModule, listModules } from '../../../modules/registry';
@@ -42,6 +42,8 @@ import {
   type Status,
 } from '../homeState';
 import { submitImageLink, submitVideoLink, type PasteIssue } from '../pasteLink';
+import { ownsBytes } from '../surface';
+import { PHONE_QUERY, useNarrow } from '../useNarrow';
 
 import { CamSetupCard } from './CamSetupCard';
 import { prefetchConfigPanel } from './configPanels';
@@ -152,37 +154,6 @@ function useMirror<T>(read: () => T): T {
   }, [read]);
   return value;
 }
-
-/**
- * A media query as React state.
- *
- * Used for exactly one thing — the paste field's placeholder — and it has to be
- * JavaScript because CSS cannot rewrite a `placeholder` attribute. At 390 px the
- * long form truncated mid-word to `Paste a video link — YouTube, MP4, HI`
- * (design audit, F11), which is worse than saying less: a hint that ends in a
- * fragment reads as a rendering bug.
- */
-function useNarrow(query: string): boolean {
-  const [narrow, setNarrow] = useState(() =>
-    typeof window.matchMedia === 'function' ? window.matchMedia(query).matches : false,
-  );
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
-    const mql = window.matchMedia(query);
-    const onChange = (): void => {
-      setNarrow(mql.matches);
-    };
-    onChange();
-    mql.addEventListener('change', onChange);
-    return () => {
-      mql.removeEventListener('change', onChange);
-    };
-  }, [query]);
-  return narrow;
-}
-
-/** Matches `ui.css`'s own phone breakpoint, so the two never disagree. */
-const PHONE_QUERY = '(max-width: 700px)';
 
 /** A 1 Hz clock, so "live" can go stale on its own without a storage write. */
 function useNow(): number {
@@ -404,6 +375,15 @@ export function HomeView({
   useEffect(() => {
     prefetchConfigPanel(activeId);
   }, [activeId]);
+
+  /**
+   * Whether this window's storage is the one the LCD reads back (A1).
+   *
+   * The home screen's one bytes-owning object is the live mirror: an iframe of
+   * the real display page, which is only the real display page on the surface
+   * that shares CAM's origin and storage partition.
+   */
+  const owns = ownsBytes(runtime);
 
   const facts = useMirror(readDisplayFacts);
   const tele = useMirror(readTeleMirror);
@@ -633,12 +613,25 @@ export function HomeView({
           className={preset.shape === 'circle' ? 'kh-halo' : 'kh-halo kh-halo--square'}
           data-testid="mirror"
           data-mirror-preset={preset.id}
-          data-mirror-mode={activeId === videoModule.id ? 'surface' : 'live'}
+          data-mirror-mode={activeId === videoModule.id || !owns ? 'surface' : 'live'}
         >
           <div className="kh-halo__lcd">
-            {activeId === videoModule.id ? (
+            {activeId === videoModule.id || !owns ? (
+              /*
+                The mirror is an iframe of the REAL display page, and that is
+                only honest on the window that owns the storage (A1).
+
+                On CAM's Configuration Browser it boots the same document the
+                LCD boots, on the same origin, sharing the same IndexedDB — so
+                what it shows IS what the panel shows. In any other browser it
+                would boot a SECOND display: a second decoder and a second
+                download, on a battery, reading a database with nothing in it
+                and rendering a confident picture of a Kraken it has never seen.
+                A remote surface gets the same named card the video path already
+                uses, and the ring on `#/remote` is where a live replica lives.
+              */
               <VideoHalo
-                url={videoCfg.url}
+                url={activeId === videoModule.id ? videoCfg.url : ''}
                 name={status.name}
                 progress={haloProgress}
                 held={liveStats?.held === true}
@@ -852,8 +845,19 @@ export function HomeView({
           Remote
         </a>
         <span aria-hidden="true">·</span>
+        {/*
+          Two destinations, still — and the shelf's ONE name (A5).
+
+          The door stays on every surface, because the Library is a property of
+          the Kraken rather than of the window: hiding it would be the app
+          telling a phone it has no library, which is the impression this wave
+          exists to remove. What changed is on the other side of it — a window
+          that owns no bytes and is paired to no Kraken has nothing to show, so
+          `ConfigApp` lands that case on pairing instead of drawing an empty
+          grid and calling it yours.
+        */}
         <a href="#/library" data-testid="disclosure-library">
-          Library
+          {LIBRARY_NOUN}
         </a>
       </nav>
     </section>

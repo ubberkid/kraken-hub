@@ -57,6 +57,8 @@ function image(over: Partial<ImageRecord> = {}): ImageRecord {
     lastUsedAt: 900,
     sourceUrl: null,
     pinned: false,
+    // A picture carries a stored thumbnail now, exactly as a clip does (C3).
+    thumbBlob: null,
     ...over,
   };
 }

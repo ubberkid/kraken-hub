@@ -221,7 +221,7 @@ test.describe('every control is a thumb target at 390 px', () => {
   test('the library, the remote and the About page', async ({ page }) => {
     await phone(page);
 
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     await expect(page.getByTestId('library')).toBeVisible();
     await expectAllReachable(page, 'library');
     await page.getByTestId('library-add').click();

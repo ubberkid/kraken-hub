@@ -21,8 +21,6 @@
  * IndexedDB or a clock.
  */
 
-import type { ImageRecord } from '../../modules/image/imageStore';
-import type { ClipRecord } from '../../modules/video/local/clipStore';
 import type { DownloadEntry } from '../../modules/video/local/downloadManager';
 
 export type LibraryKind = 'clip' | 'image';
@@ -54,17 +52,77 @@ export interface LibraryTile {
   pinned: boolean;
   /** GIF / APNG / animated WebP. Always false for a clip. */
   animated: boolean;
+  /**
+   * Where the bytes came from, when anybody knows.
+   *
+   * The one field a window that cannot reach the bytes can still DO something
+   * with: a YouTube source has a public poster at a public URL, and a phone with
+   * internet fetches that still itself rather than asking the display to grab a
+   * frame, re-encode it and chunk it over a radio (A4).
+   */
+  sourceUrl: string | null;
   /** Newest first. `createdAt` for stored bytes, `startedAt` for a job. */
   sortAt: number;
-  /** The clip's stored thumbnail. Pictures are thumbnailed from their own bytes. */
+  /**
+   * The stored 320-edge thumbnail, for EITHER kind (C3).
+   *
+   * `null` on a window that does not own the bytes — a blob cannot go on the
+   * wire — and on a row stored before its kind grew one, which the view
+   * backfills on sight.
+   */
   thumbBlob: Blob | null;
   /** The job this tile is showing, for progress, cancel, retry and dismiss. */
   download: DownloadEntry | null;
 }
 
+/**
+ * The shape a stored clip has to have for a tile to be built from it.
+ *
+ * Structural rather than nominal, and that is the whole of A2: `ClipRecord` (the
+ * IndexedDB row this window owns) and `ClipSummary` (the row that arrives over
+ * the wire from the window that does) are both supersets of this, so the SAME
+ * pure builder serves both sources and the phone's shelf cannot drift from
+ * CAM's by construction. `width`/`height` are optional because the wire row
+ * stopped carrying them (B1) and the tile's detail line stopped rendering them
+ * two rounds before that.
+ */
+export interface ClipLike {
+  id: string;
+  name: string;
+  size: number;
+  durationSec: number;
+  width?: number;
+  height?: number;
+  pinned: boolean;
+  createdAt: number;
+  thumbBlob?: Blob | null;
+  sourceUrl?: string | null;
+}
+
+/** The same, for a picture. `ImageRecord` and `ImageSummary` both satisfy it. */
+export interface ImageLike {
+  id: string;
+  name: string;
+  size: number;
+  width?: number;
+  height?: number;
+  animated: boolean;
+  pinned: boolean;
+  createdAt: number;
+  sourceUrl?: string | null;
+  /**
+   * A picture's stored thumbnail (C3) — the same field, meaning the same thing,
+   * that a clip has carried since M1.
+   *
+   * Optional for the same reason `ClipLike.thumbBlob` is: the wire row cannot
+   * carry a blob, so a shelf seen from the sofa has none and draws treated art.
+   */
+  thumbBlob?: Blob | null;
+}
+
 export interface LibraryInput {
-  clips: readonly ClipRecord[];
-  images: readonly ImageRecord[];
+  clips: readonly ClipLike[];
+  images: readonly ImageLike[];
   downloads: readonly DownloadEntry[];
   /** Failed jobs the user has waved away, by download id. */
   dismissed: ReadonlySet<string>;
@@ -86,7 +144,7 @@ function isLiveJob(entry: DownloadEntry): boolean {
   );
 }
 
-function clipTile(clip: ClipRecord): LibraryTile {
+function clipTile(clip: ClipLike): LibraryTile {
   return {
     key: `clip:${clip.id}`,
     kind: 'clip',
@@ -95,17 +153,18 @@ function clipTile(clip: ClipRecord): LibraryTile {
     name: clip.name,
     sizeBytes: clip.size,
     durationSec: clip.durationSec,
-    width: clip.width,
-    height: clip.height,
+    width: clip.width ?? 0,
+    height: clip.height ?? 0,
     pinned: clip.pinned,
     animated: false,
+    sourceUrl: clip.sourceUrl ?? null,
     sortAt: clip.createdAt,
-    thumbBlob: clip.thumbBlob,
+    thumbBlob: clip.thumbBlob ?? null,
     download: null,
   };
 }
 
-function imageTile(row: ImageRecord): LibraryTile {
+function imageTile(row: ImageLike): LibraryTile {
   return {
     key: `image:${row.id}`,
     kind: 'image',
@@ -114,12 +173,13 @@ function imageTile(row: ImageRecord): LibraryTile {
     name: row.name,
     sizeBytes: row.size,
     durationSec: null,
-    width: row.width,
-    height: row.height,
+    width: row.width ?? 0,
+    height: row.height ?? 0,
     pinned: row.pinned,
     animated: row.animated,
+    sourceUrl: row.sourceUrl ?? null,
     sortAt: row.createdAt,
-    thumbBlob: null,
+    thumbBlob: row.thumbBlob ?? null,
     download: null,
   };
 }
@@ -140,6 +200,7 @@ function jobTile(entry: DownloadEntry): LibraryTile {
     height: 0,
     pinned: false,
     animated: false,
+    sourceUrl: entry.sourceUrl === '' ? null : entry.sourceUrl,
     sortAt: entry.startedAt,
     thumbBlob: null,
     download: entry,
@@ -158,7 +219,9 @@ function jobTile(entry: DownloadEntry): LibraryTile {
 export function buildLibraryTiles(input: LibraryInput): LibraryTile[] {
   const clipIds = new Set(input.clips.map((c) => c.id));
   const clipSources = new Set(
-    input.clips.map((c) => c.sourceUrl).filter((u): u is string => u !== null && u !== ''),
+    input.clips
+      .map((c) => c.sourceUrl)
+      .filter((u): u is string => u !== null && u !== undefined && u !== ''),
   );
 
   const seenSources = new Set<string>();

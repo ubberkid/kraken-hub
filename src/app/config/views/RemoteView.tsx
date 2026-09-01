@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ytPosterUrls } from '../../../config/knownHosts';
+import { LINK_RECEIPT } from '../../../config/vocabulary';
+import { localImageId, validateImageConfig } from '../../../modules/image/schema';
 import { listModules } from '../../../modules/registry';
 import { detect } from '../../../modules/video/routing/detect';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
@@ -25,9 +27,13 @@ import { sourceName } from '../homeState';
 import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
 import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom';
 import { currentHash, hashQuery, subscribeRoute } from '../router';
+import { PHONE_QUERY, useNarrow } from '../useNarrow';
 import { useSync } from '../useSync';
 
+import { CamSetupCard } from './CamSetupCard';
 import { LoopScrubber, LOOP_MAX_SEC, SEEK_SLIDER_STEP_SEC } from './LoopScrubber';
+import { RemoteAdd } from './RemoteAdd';
+import { RemoteLibrary } from './RemoteLibrary';
 import { RemoteQuality } from './RemoteQuality';
 import { RemoteRing } from './RemoteRing';
 
@@ -340,11 +346,20 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const displayOnline =
     sync.lastTele !== null && (now === 0 || now - sync.lastTele.at < DISPLAY_ONLINE_MS);
 
+  /*
+   * The library packet, used for the whole shelf rather than one string.
+   *
+   * This is the gap A3 closes: the display has published `{kind:'library', …}`
+   * for two milestones and this page latched it, built a name→title lookup out
+   * of it, and threw the rest away. A full shelf arrived on the phone, every
+   * packet, and one filename was rendered from it.
+   */
+  const wireLibrary = sync.library?.body ?? null;
   const clips = useMemo(() => {
-    const raw = sync.library?.body['clips'];
+    const raw = wireLibrary?.['clips'];
     if (!Array.isArray(raw)) return [];
-    return raw as { id: string; name: string; durationSec: number }[];
-  }, [sync.library]);
+    return raw as { id: string; name: string }[];
+  }, [wireLibrary]);
 
   const clipNames = useMemo(() => new Map(clips.map((c) => [c.id, c.name])), [clips]);
   const title = sourceName(videoCfg.url, clipNames);
@@ -481,6 +496,17 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const urlCheck = urlValue.trim().length === 0 ? null : validateUrl(urlValue.trim());
   const urlIssue = urlCheck === null ? null : primaryIssue(urlCheck);
 
+  /**
+   * The receipt for a link handed over from here — A5.
+   *
+   * Adding from the phone has WORKED the whole time: this field commits the
+   * source and the display fetches it. The surface that needed the explanation
+   * least (CAM) carried the full receipt, and the one that needed it most said
+   * "Play" and nothing else, so nobody ever found out. Same sentence as the
+   * Library's, from `vocabulary.ts`, because it is the same act.
+   */
+  const [receipt, setReceipt] = useState(false);
+
   /*
    * What the ring shows for a picture module.
    *
@@ -530,6 +556,25 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    * What is left before one exists is the ring, one sentence and one button.
    */
   const live = paired;
+
+  /**
+   * A6 — a desktop browser is the same remote, at a desk.
+   *
+   * Paired, it is identical to the phone: the same ring, the same transport, the
+   * same shelf, plus the pairing QR at a size a camera can read (already
+   * width-conditioned in `ui.css`). Unpaired, it is pairing **and install** —
+   * because the person sitting at a desktop browser with nothing paired is very
+   * often the person who has not pointed CAM at this page yet, and the only door
+   * to that instruction was on a screen they cannot reach from here.
+   *
+   * Not on a phone. "Point CAM at this address" is advice about a PC, and the
+   * phone is not the PC; mounting it there would be the machine-centric
+   * vocabulary problem in card form. The one thing a desktop browser never gets,
+   * at any width, is file ingest — that is a data-integrity lie rather than a UI
+   * preference, and `ownsBytes()` refuses it everywhere.
+   */
+  const narrow = useNarrow(PHONE_QUERY);
+  const offerInstall = !live && !narrow && !runtime.camDetected;
 
   return (
     <div className="kh-remote" data-testid="remote" data-live={live ? 'true' : 'false'}>
@@ -642,6 +687,41 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
           <LinkStatus sync={sync} now={now} online={displayOnline} />
 
           {/*
+            The Library, as a PEER of the transport (A3).
+
+            Ring → what's playing → transport → Library → pairing. It sits in the
+            page's flow, at the same level as the buttons above it, because it is
+            the same kind of thing: a way to drive the one Kraken. A drawer or a
+            modal here would be the deleted "clip picker" all over again — a
+            second app, behind a door, that reads as a different library.
+          */}
+          <RemoteLibrary
+            store={runtime.store}
+            wire={wireLibrary}
+            /*
+              When the packet ARRIVED, on this device's clock — the clock that
+              also stamped the moment a curation command went out. The `ts` the
+              display wrote is a different machine's and cannot be compared with
+              either.
+            */
+            packetAt={sync.library?.at ?? null}
+            sendCmd={sync.sendCmd}
+            activeModuleId={state.activeModuleId}
+            videoUrl={videoCfg.url}
+            imageId={localImageId(validateImageConfig(state.modules['image']?.cfg).url)}
+            /*
+              Adding, from the window that cannot hold the bytes.
+
+              The line that used to sit here — "Files are added at your PC." —
+              was true for exactly as long as that was the case. A phone hands
+              the Kraken a file directly now, over the LAN, into the same ingest
+              pipeline CAM's own drop target uses, so the sentence is retired and
+              the control that makes it untrue stands where it stood.
+            */
+            add={<RemoteAdd runtime={runtime} sync={sync} />}
+          />
+
+          {/*
         The compact essentials — four controls, not fourteen.
 
         These are the ones a person on a sofa genuinely reaches for, and they
@@ -660,6 +740,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                 e.preventDefault();
                 setVideo({ url: urlValue.trim() });
                 setUrlDraft(null);
+                setReceipt(true);
               }}
             >
               <label className="kh-sr" htmlFor="remote-src">
@@ -669,7 +750,10 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                 id="remote-src"
                 value={urlValue}
                 placeholder="Paste a video link"
-                onChange={setUrlDraft}
+                onChange={(next) => {
+                  setUrlDraft(next);
+                  setReceipt(false);
+                }}
               />
               <button type="submit" className="kh-btn kh-btn--primary" data-testid="remote-play">
                 Play
@@ -679,6 +763,11 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
               <Notice tone={urlIssue.severity === 'error' ? 'error' : 'warn'}>
                 {urlIssue.message}
               </Notice>
+            )}
+            {receipt && urlIssue === null && (
+              <p className="kh-hint" data-testid="remote-receipt">
+                {LINK_RECEIPT}
+              </p>
             )}
 
             {/*
@@ -750,6 +839,8 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         Gated with everything else: before a room exists there is no connection
         to inspect, and the unpaired screen is one sentence and one button.
       */}
+      {offerInstall && <CamSetupCard runtime={runtime} variant="quiet" />}
+
       {live && (
         <p className="kh-remote__foot">
           {/*

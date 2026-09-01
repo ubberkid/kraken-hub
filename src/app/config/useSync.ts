@@ -15,6 +15,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createDiagAssembler } from '../../diag/wire';
 import { createChunkAssembler } from '../../lib/chunkedTele';
+import { LIBRARY_CHUNK_KIND } from '../../lib/libraryPacket';
+import { createLogger } from '../../lib/log';
 import { clientId } from '../../platform/env';
 import { stateToSyncBody } from '../../sync/appSync';
 import { decodeMonitorSnapshot } from '../../sync/monitorSnapshot';
@@ -26,6 +28,8 @@ import type { AppState } from '../../state/schema';
 import type { AppSync } from '../../sync/appSync';
 import type { MonitorSnapshot } from '../../sync/monitorSnapshot';
 import type { CmdOp, RecvMeta, SyncStatus } from '../../sync/types';
+
+const log = createLogger('config/sync');
 
 /**
  * The display's 0.5 Hz "here is what I am" packet, decoded.
@@ -107,6 +111,16 @@ export function carriesVideoTelemetry(body: Record<string, unknown>): boolean {
   return typeof body['provider'] === 'string' || typeof body['stats'] === 'object';
 }
 
+/**
+ * How often a remote with no shelf re-asks for one.
+ *
+ * Three seconds: fast enough that a phone opened before the display finished
+ * booting fills in while the user is still looking at it, slow enough that a
+ * room with nobody home is not a chatty one. Well clear of `SyncService`'s
+ * 200 ms per-op command throttle, which DROPS rather than queues.
+ */
+export const LIBRARY_PULL_RETRY_MS = 3000;
+
 export interface SyncHandle {
   status: SyncStatus | null;
   /**
@@ -159,6 +173,21 @@ export interface SyncHandle {
    */
   ringThumb: RingThumb | null;
   topicId: string | null;
+  /**
+   * Every `tele` body, as it lands, before React sees any of it.
+   *
+   * `lastTele` is a rendered SNAPSHOT: React coalesces state updates, so two
+   * packets arriving in one tick leave one behind. For a position sample or a
+   * frame-rate reading that is exactly right — the newest is the only one that
+   * matters. For a HANDSHAKE it is fatal: an answer and a candidate list landing
+   * together would lose one of them, and a WebRTC offer that is never answered
+   * looks precisely like a network that cannot carry it.
+   *
+   * So the file-transfer sender subscribes to the raw stream instead. The
+   * callback identity is stable for the life of the hook, so a subscriber does
+   * not resubscribe on every packet.
+   */
+  subscribeTele: (cb: (body: Record<string, unknown>) => void) => () => void;
   sendCmd: (op: CmdOp, arg?: unknown) => void;
   /** Publish a snapshot immediately, bypassing the 5 Hz coalescing window. */
   publishNow: (state: AppState) => void;
@@ -196,6 +225,32 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
    * two chunks, and a failover between them must not lose the first one.
    */
   const thumbAssembler = useRef(createChunkAssembler('thumb'));
+  /**
+   * The library's assembler, for a shelf too big for one 8 KB envelope.
+   *
+   * Same reasoning as the other two: the buffer belongs to the conversation, not
+   * to the socket carrying it. `library` and `libraryPart` are one conversation
+   * with two shapes on the wire — a shelf that fits arrives whole, a shelf that
+   * does not arrives in parts — and both land in `library` below, so nothing
+   * downstream has a "was it chunked?" branch to get wrong.
+   */
+  const libraryAssembler = useRef(createChunkAssembler(LIBRARY_CHUNK_KIND));
+
+  /**
+   * Raw `tele` listeners — see `SyncHandle.subscribeTele`.
+   *
+   * A ref rather than state: adding a listener must not render, and the set has
+   * to survive the effect re-run that restarts the transport, because a transfer
+   * in flight outlives a failover.
+   */
+  const teleSubs = useRef(new Set<(body: Record<string, unknown>) => void>());
+  const subscribeTele = useCallback((cb: (body: Record<string, unknown>) => void) => {
+    const subs = teleSubs.current;
+    subs.add(cb);
+    return () => {
+      subs.delete(cb);
+    };
+  }, []);
 
   useEffect(() => {
     // No room means nothing to start; the cleanup of the previous run has
@@ -245,12 +300,33 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
             meta,
             at: Date.now(),
           };
+          // The raw stream first, and outside React's batching: a handshake
+          // cannot afford to be coalesced into "the most recent packet".
+          for (const cb of teleSubs.current) {
+            try {
+              cb(sample.body);
+            } catch (err) {
+              log.warn('a telemetry listener threw', err);
+            }
+          }
           setLastTele(sample);
           if (carriesVideoTelemetry(sample.body)) setLastVideo(sample);
           if (typeof sample.body['stats'] === 'object' && sample.body['stats'] !== null) {
             setLastStats(sample);
           }
           if (sample.body['kind'] === 'library') setLibrary(sample);
+          // Returns non-null only on the part that completes a shelf.
+          const shelf = libraryAssembler.current.accept(sample.body);
+          if (shelf !== null) {
+            try {
+              const parsed: unknown = JSON.parse(shelf.payload);
+              if (typeof parsed === 'object' && parsed !== null) {
+                setLibrary({ ...sample, body: parsed as Record<string, unknown> });
+              }
+            } catch {
+              /* a shelf that does not parse is a dropped packet, not a crash */
+            }
+          }
           if (sample.body['severity'] === 'error') setLastError(sample);
           // Returns non-null only on the part that completes a report, so this
           // is a no-op for every other packet on the channel.
@@ -339,6 +415,37 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
     syncRef.current?.service.sendCmd(op, arg);
   }, []);
 
+  /*
+   * ── The cold pull ────────────────────────────────────────────────────────
+   *
+   * `tele` publishes UNRETAINED and the display re-announces its library every
+   * five minutes, so a phone unlocked at the wrong moment had a genuinely empty
+   * shelf for most of five minutes, with nothing on screen to say it was
+   * waiting for anything. That is the "no pull, no retain" defect, and it is
+   * what made every other library fix untrustworthy: a shelf that is sometimes
+   * blank teaches the user it is not the real one.
+   *
+   * So the moment this page has a live channel and no shelf, it ASKS — and
+   * keeps asking on a slow beat until an answer lands, because the request is
+   * imperative and unretained too, and a display that was still booting when the
+   * first one went out never saw it. `sendCmd` throttles per-op at 200 ms, so
+   * the interval is comfortably clear of it; the retry stops dead on the first
+   * packet, so a room with no display in it costs one small command every three
+   * seconds and nothing else.
+   */
+  const online = status?.network === 'online' || status?.local === 'online';
+  const haveLibrary = library !== null;
+  useEffect(() => {
+    if (room === null || !online || haveLibrary) return undefined;
+    sendCmd('requestLibrary');
+    const timer = setInterval(() => {
+      sendCmd('requestLibrary');
+    }, LIBRARY_PULL_RETRY_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [room, online, haveLibrary, sendCmd]);
+
   const publishNow = useCallback((next: AppState) => {
     syncRef.current?.service.publishState(stateToSyncBody(next), {
       rev: next.rev,
@@ -386,6 +493,7 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
       monitor: live ? monitor : null,
       ringThumb: live ? ringThumb : null,
       topicId: live ? topicId : null,
+      subscribeTele,
       sendCmd,
       publishNow,
     }),
@@ -401,6 +509,7 @@ export function useSync(runtime: ConfigRuntime): SyncHandle {
       monitor,
       ringThumb,
       topicId,
+      subscribeTele,
       sendCmd,
       publishNow,
     ],

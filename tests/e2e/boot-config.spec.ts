@@ -110,8 +110,11 @@ test.describe('config boot', () => {
       loads += 1;
     });
 
-    await page.goto('/#/sources');
-    await expect(page.getByRole('heading', { name: 'Your library' })).toBeVisible();
+    await page.goto('/?cam=1#/sources');
+    // "Library", not "Your library": the shelf answered to six names and now
+    // answers to one (wave 1, A5), and the name it answers to is the sub-page
+    // header's — the page's own duplicate `<h2>` two rows below it is gone.
+    await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible();
     await expect.poll(() => new URL(page.url()).hash).toBe('#/library');
     expect(loads).toBe(1);
 
@@ -212,7 +215,10 @@ test.describe('config boot', () => {
    * download and, on an embed, a second set of ads.
    */
   test('the mirror runs the real display for every module but video', async ({ page }) => {
-    await page.goto('/');
+    // `?cam=1` — the live mirror is an iframe of the real display page, and
+    // that is only true on the window that shares CAM's storage partition
+    // (wave 1, A1). Any other browser would boot a SECOND display.
+    await page.goto('/?cam=1');
     await expect(page.getByTestId('mirror')).toHaveAttribute('data-mirror-mode', 'surface');
     await expect(page.locator('.kh-halo__frame')).toHaveCount(0);
 

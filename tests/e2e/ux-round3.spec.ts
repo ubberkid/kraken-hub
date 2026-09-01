@@ -140,7 +140,7 @@ test.describe('F7 — the app says one thing one way', () => {
         ]),
       );
     });
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
 
     const tile = page.locator('[data-testid="library-tile"]').first();
     await expect(tile).toHaveAttribute('data-tile-state', 'downloading');
@@ -203,7 +203,7 @@ test.describe('F8 — downloading and failed tiles carry the shelf’s language'
   test('a download in flight has a treated card, not a black rectangle', async ({ page }) => {
     await cam(page);
     await seedJob(page, 'downloading', null);
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
 
     const tile = page.locator('[data-testid="library-tile"]').first();
     await expect(tile).toHaveAttribute('data-tile-state', 'downloading');
@@ -216,7 +216,7 @@ test.describe('F8 — downloading and failed tiles carry the shelf’s language'
   test('a failed download shows the reason, on a card that is not empty', async ({ page }) => {
     await cam(page);
     await seedJob(page, 'error', 'quota');
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
 
     const tile = page.locator('[data-testid="library-tile"]').first();
     await expect(tile).toHaveAttribute('data-tile-state', 'failed');
@@ -259,7 +259,7 @@ test.describe('round 3 minors', () => {
 
   test('the library’s close button says close', async ({ page }) => {
     await page.setViewportSize(CAM);
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     const add = page.getByTestId('library-add');
     await expect(add).toContainText('Add');
     await add.click();
@@ -272,7 +272,7 @@ test.describe('round 3 minors', () => {
 
   test('the add panel does not give editing advice', async ({ page }) => {
     await page.setViewportSize(CAM);
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     await page.getByTestId('library-add').click();
     const panel = page.getByTestId('library-add-panel');
     // Advice about preparing a file, in the box that takes the file you have.
@@ -282,7 +282,7 @@ test.describe('round 3 minors', () => {
 
   test('the empty library sits in the middle of the room it is empty of', async ({ page }) => {
     await page.setViewportSize(CAM);
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
     await expect(page.getByTestId('library-empty')).toBeVisible();
     const boxes = await page.evaluate(() => {
       const empty = document.querySelector('[data-testid="library-empty"]');

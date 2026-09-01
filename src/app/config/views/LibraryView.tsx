@@ -1,21 +1,33 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { COPY_HOME, KEEPING_A_COPY_NOW, KEPT_VERB, NOTHING_KEPT } from '../../../config/vocabulary';
+import {
+  COPY_HOME,
+  IN_YOUR_LIBRARY,
+  KEEPING_A_COPY_NOW,
+  KEPT_VERB,
+  LINK_RECEIPT,
+  NOTHING_KEPT,
+} from '../../../config/vocabulary';
 import { imageModule } from '../../../modules/image';
 import {
   deleteImage,
   getImageBlob,
   listImages,
+  renameImage,
   setImagePinned,
+  setImageThumb,
   type ImageRecord,
 } from '../../../modules/image/imageStore';
-import { localImageId, localImageUrl, validateImageConfig } from '../../../modules/image/schema';
+import { ingestImageBlob } from '../../../modules/image/ingest';
+import { localImageId, validateImageConfig } from '../../../modules/image/schema';
+import { makeImageThumbnail } from '../../../modules/image/thumbnail';
 import { videoModule } from '../../../modules/video';
 import {
   deleteClip,
   getClipBlob,
   publishClipIndex,
   readQuota,
+  renameClip,
   setClipThumb,
   setPinned,
   listClips,
@@ -33,19 +45,18 @@ import {
 } from '../../../modules/video/local/downloadManager';
 import { ingestFile, makeThumbnail } from '../../../modules/video/local/ingest';
 import { detect } from '../../../modules/video/routing/detect';
-import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
 import { validateVideoConfig } from '../../../modules/video/types';
-import { withModuleConfig } from '../../../state/selectors';
 import { Button, Chip, Meter, Notice } from '../../../ui';
 import { failureLine } from '../homeState';
-import {
-  buildLibraryTiles,
-  formatBytes,
-  tileDetail,
-  tileHue,
-  type LibraryTile,
-} from '../libraryItems';
+import { buildLibraryTiles, formatBytes, tileDetail, type LibraryTile } from '../libraryItems';
 import { submitVideoLink } from '../pasteLink';
+import { activeTileKey, showTile } from '../showTile';
+import { ownsBytes } from '../surface';
+import { useSync } from '../useSync';
+
+import { RemoteAdd } from './RemoteAdd';
+import { RemoteLibrary } from './RemoteLibrary';
+import { TreatedArt } from './TileArt';
 
 import type { ConfigRuntime } from '../runtime';
 
@@ -120,40 +131,6 @@ function ClipThumb({ blob, name }: { blob: Blob | null; name: string }) {
 }
 
 /**
- * What a tile shows when there is no picture to show — and there never will be.
- *
- * Flat, quiet, and derived from the name so two clips never look identical: the
- * initial plus a hue rotation off a cheap string hash. It is not decoration, it
- * is the difference between "three grey squares" and "three things I can tell
- * apart".
- */
-function TreatedArt({ name }: { name: string }) {
-  const trimmed = name.trim();
-  // `codePointAt` rather than `[0]`, so a name that starts outside the BMP
-  // renders one character instead of half a surrogate pair.
-  const first = trimmed.codePointAt(0);
-  const initial = first === undefined ? '?' : String.fromCodePoint(first).toUpperCase();
-  return (
-    <div
-      className="kh-tile__thumb kh-tile__thumb--treated"
-      data-testid="tile-treated"
-      /*
-        A cool hue, always (round 4, F5).
-
-        The rotation used to be `hash % 360` — a full turn — so a name could put
-        an ordinary clip in red or amber, which are this product's failure
-        colours and nothing else. `libraryItems.tileHue` clamps the hash into
-        blue → teal → violet; the warm end is spoken for by `data-tile-state`,
-        in the stylesheet, and means exactly one thing.
-      */
-      style={{ '--kh-tile-hue': `${String(tileHue(trimmed))}deg` } as CSSProperties}
-    >
-      <span aria-hidden="true">{initial}</span>
-    </div>
-  );
-}
-
-/**
  * Clips whose thumbnail we have already tried to generate, this page load.
  *
  * Module-level rather than component state on purpose: `refresh()` re-reads
@@ -162,6 +139,18 @@ function TreatedArt({ name }: { name: string }) {
  * which is a decoder spun up once a second, forever.
  */
 const thumbAttempted = new Set<string>();
+
+/**
+ * Focus the rename input the moment it appears.
+ *
+ * A stable module-level callback ref rather than `autoFocus`: the prop is a
+ * blunt instrument the a11y lint rightly refuses (it steals focus on page load,
+ * where nobody asked for it), while this only ever runs when the input is
+ * mounted — which happens exactly because somebody pressed **Rename**.
+ */
+function focusOnMount(el: HTMLInputElement | null): void {
+  el?.focus();
+}
 
 /**
  * A clip stored without a thumbnail, thumbnailed on first sight (R7).
@@ -211,19 +200,34 @@ function GeneratedThumb({
 }
 
 /**
- * Pictures have no stored thumbnail — they ARE their own thumbnail, and they
- * are kilobytes rather than megabytes, so the tile reads the blob back rather
- * than the library carrying a second copy of every picture at 320 px.
+ * A picture stored before C3, thumbnailed on first sight — the exact mirror of
+ * `GeneratedThumb`, and now for the exact same reason.
+ *
+ * "A picture is its own thumbnail" was true and cheap in one window with a short
+ * shelf; it is a full decode of a multi-megapixel file per tile, on every visit,
+ * once the shelf is long. Pictures ingested from C3 onwards carry a 320-edge
+ * WebP and never reach this component at all — this is the backfill for the ones
+ * already on disk, done once per picture and written back.
  */
 function ImageThumb({ id, name }: { id: string; name: string }) {
   const [blob, setBlob] = useState<Blob | null>(null);
   useEffect(() => {
-    let live = true;
-    void getImageBlob(id).then((found) => {
-      if (live) setBlob(found);
-    });
+    // Read through a function so TypeScript cannot narrow it across an await.
+    let gone = false;
+    const isGone = (): boolean => gone;
+    void (async () => {
+      const bytes = await getImageBlob(id);
+      if (isGone() || bytes === null) return;
+      const thumb = await makeImageThumbnail(bytes);
+      // A picture this decoder cannot draw still shows: the full blob is a
+      // perfectly good `<img>` source, it is only an expensive one.
+      setBlob(thumb ?? bytes);
+      if (thumb === null || thumbAttempted.has(id)) return;
+      thumbAttempted.add(id);
+      await setImageThumb(id, thumb);
+    })();
     return () => {
-      live = false;
+      gone = true;
     };
   }, [id]);
   return <ClipThumb blob={blob} name={name} />;
@@ -235,6 +239,28 @@ interface Message {
 }
 
 export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
+  /**
+   * The gate — A1, and the one item in this wave that is a BUG rather than a
+   * design change.
+   *
+   * `#/library` was routed with no surface check at all, so a phone reached this
+   * page and it read the PHONE's IndexedDB: an empty grid, a phone-storage quota
+   * meter, a drop target, and a `Browse…` that really did ingest — into a store
+   * the Kraken can never open. Two libraries, two databases, both reachable,
+   * and the one with a working Add button was the wrong one.
+   *
+   * So one boolean decides two things, and only two:
+   *
+   *  - **where the shelf comes from** — this window's database when it owns the
+   *    bytes, the wire when it does not. Same builder, same tiles either way;
+   *  - **which controls exist** — a window that cannot hold bytes renders no
+   *    file picker, no drop target, no quota meter and no persistence chip,
+   *    because every one of them is a promise it cannot keep.
+   *
+   * Everything else on this page is deliberately identical between the two.
+   */
+  const owns = ownsBytes(runtime);
+  const sync = useSync(runtime);
   const [clips, setClips] = useState<ClipRecord[]>([]);
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [quota, setQuota] = useState<QuotaInfo | null>(null);
@@ -261,16 +287,21 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
    * plays perfectly well.
    */
   const [forceable, setForceable] = useState<File | null>(null);
+  /** The tile whose name is being edited, and the name so far. */
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const addInput = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(() => {
+    // Never on a window that does not own the bytes: reading this browser's
+    // IndexedDB there is what produced the second, empty library.
+    if (!owns) return;
     void listClips().then(setClips);
     void listImages().then(setImages);
     void readQuota().then(setQuota);
-  }, []);
+  }, [owns]);
 
   /**
    * A signature of what the jobs ARE, ignoring how many bytes have landed.
@@ -295,6 +326,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   );
 
   useEffect(() => {
+    if (!owns) return undefined;
     refresh();
     // Live progress for a download running in the OTHER window (the display
     // does the downloading) plus anything started from this page.
@@ -313,41 +345,33 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
       clearInterval(poll);
       window.removeEventListener('storage', onStorage);
     };
-  }, [refresh, syncJobs]);
+  }, [owns, refresh, syncJobs]);
 
   const state = runtime.store.getSnapshot();
   const videoCfg = validateVideoConfig(state.modules[videoModule.id]?.cfg);
   const imageCfg = validateImageConfig(state.modules[imageModule.id]?.cfg);
-  const activeKey =
-    state.activeModuleId === videoModule.id
-      ? videoCfg.url.startsWith(LOCAL_CLIP_SCHEME)
-        ? `clip:${videoCfg.url.slice(LOCAL_CLIP_SCHEME.length)}`
-        : null
-      : state.activeModuleId === imageModule.id
-        ? mapImageKey(localImageId(imageCfg.url))
-        : null;
+  const activeKey = activeTileKey(state.activeModuleId, videoCfg.url, localImageId(imageCfg.url));
 
-  const tiles = buildLibraryTiles({ clips, images, downloads, dismissed });
+  /**
+   * ONE shelf, from whichever source this window can actually see — A2.
+   *
+   * `buildLibraryTiles` is the same pure function on both branches, fed the same
+   * structural shape, so a tile drawn on a phone and the tile drawn in CAM for
+   * the same clip are the same tile by construction rather than by discipline.
+   * The display has published this packet for two milestones; the remote used to
+   * latch it and render exactly one string out of it.
+   */
+  const wireLibrary = sync.library?.body ?? null;
+  const tiles = useMemo(
+    () => buildLibraryTiles({ clips, images, downloads, dismissed }),
+    [clips, images, downloads, dismissed],
+  );
 
   const show = (tile: LibraryTile): void => {
     if (tile.id === null) return;
-    if (tile.kind === 'clip') {
-      runtime.store.commit((s) => ({
-        ...withModuleConfig(s, videoModule.id, videoModule.configVersion, {
-          ...videoCfg,
-          url: `${LOCAL_CLIP_SCHEME}${tile.id ?? ''}`,
-        }),
-        activeModuleId: videoModule.id,
-      }));
-    } else {
-      runtime.store.commit((s) => ({
-        ...withModuleConfig(s, imageModule.id, imageModule.configVersion, {
-          ...imageCfg,
-          url: localImageUrl(tile.id ?? ''),
-        }),
-        activeModuleId: imageModule.id,
-      }));
-    }
+    // The shared commit (`showTile`), so a tile does the same thing whichever
+    // window it was tapped in — see A3.
+    showTile(runtime.store, tile);
     setMessage({ tone: 'ok', text: `“${tile.name}” is on your Kraken.` });
   };
 
@@ -363,6 +387,23 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
     const id = tile.id;
     if (tile.kind === 'clip') void deleteClip(id).then(refresh);
     else void deleteImage(id).then(refresh);
+  };
+
+  /**
+   * Renaming, from the window that holds the row.
+   *
+   * The same act the remote asks for with `renameMedia`, done directly because
+   * this window can. Both shelves carry it, in the same place, spelt the same
+   * way — a capability one surface has and the other does not is how "the
+   * library is different" starts again.
+   */
+  const commitRename = (tile: LibraryTile, next: string): void => {
+    const id = tile.id;
+    const clean = next.trim();
+    setRenaming(null);
+    if (id === null || clean.length === 0 || clean === tile.name) return;
+    if (tile.kind === 'clip') void renameClip(id, clean).then(refresh);
+    else void renameImage(id, clean).then(refresh);
   };
 
   const dismiss = (entry: DownloadEntry): void => {
@@ -411,19 +452,62 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
        * the LCD reads. So if CAM is not running there is no tile, and there will
        * not be one, and the message has to say so.
        */
-      setMessage({
-        tone: 'ok',
-        text: 'Sent to your Kraken. It does the downloading, so a tile appears here once CAM picks it up.',
-      });
+      setMessage({ tone: 'ok', text: LINK_RECEIPT });
     }
   };
 
+  /**
+   * Both kinds, on the surface that owns the bytes.
+   *
+   * This picker accepted `video/mp4,video/webm,video/quicktime` and sent every
+   * file it got to the video ingest, on a page whose grid renders pictures and
+   * whose **+** button has always been labelled *"Add a video or a picture"* —
+   * while the phone's Add, on the surface that owns NOTHING, accepted both. That
+   * is fork 3's asymmetry (kind is a property, not a place) surviving in the one
+   * control where it is most visible: the only routes to a picture in CAM were a
+   * URL or a transfer from a phone in the same room.
+   *
+   * The routing is `isPictureFile`, the same function the LAN transfer's receiver
+   * has used since wave 3 — mime first, extension as the fallback, because a file
+   * picked out of a document provider genuinely arrives with an empty type — and
+   * the two destinations are the same two ingests, so there is still exactly one
+   * way a byte becomes a row. It is reached through the dynamic import the
+   * transfer chunk already lives behind, so the configuration UI does not gain a
+   * static dependency on `src/transfer` for a fourteen-line predicate.
+   *
+   * A picture has no `force`: "Add anyway" answers a video probe that timed out,
+   * and `ingestImageBlob` either decodes the bytes or does not.
+   */
   const addFiles = (files: FileList | null, opts: { force?: boolean } = {}): void => {
     if (files === null || files.length === 0) return;
     setMessage(null);
     setForceable(null);
+    /*
+     * Copied out SYNCHRONOUSLY, before anything awaits.
+     *
+     * A `FileList` is a live view of the input, and the change handler clears
+     * `e.target.value` the moment this function returns — so the list is empty by
+     * the time any `await` resumes. It used to survive by accident: the first
+     * await was inside the loop, so the spread had already happened. Adding one
+     * await above the loop silently added nothing at all to the library, with no
+     * error anywhere, which is a good argument for not relying on the accident.
+     */
+    const chosen = [...files];
     void (async () => {
-      for (const file of [...files]) {
+      const { isPictureFile } = await import('../../../transfer/protocol');
+      for (const file of chosen) {
+        if (isPictureFile(file.name, file.type)) {
+          const picture = await ingestImageBlob(file, file.name);
+          setMessage(
+            picture.ok
+              ? { tone: 'ok', text: `Added “${file.name}”.` }
+              : {
+                  tone: 'error',
+                  text: picture.message ?? 'That file could not be added.',
+                },
+          );
+          continue;
+        }
         const result = await ingestFile(file, opts.force === true ? { force: true } : {});
         if (!result.ok) {
           setMessage({ tone: 'error', text: result.message ?? 'That file could not be added.' });
@@ -467,12 +551,68 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
    */
   const quotaMatters = tiles.length > 0 || (quotaPct !== null && quotaPct > QUOTA_WARN_PCT);
 
+  /*
+   * ONE remote shelf, not two.
+   *
+   * Wave 1 gave this page a wire-fed branch of its own so a phone reaching
+   * `#/library` saw the real library instead of its own empty database. Wave 3
+   * gives the shelf ACTIONS — pin, rename, delete, and an Add that hands the
+   * Kraken a file over the LAN — and a second copy of those actions is exactly
+   * how "the library is different" comes back: two shelves that look identical
+   * and can do different things are still two shelves.
+   *
+   * So a window that does not own the bytes renders `RemoteLibrary`, the same
+   * component the remote screen uses, inside this page's frame. The frame is
+   * what the surface gate is about (`data-owns`, no file picker, no quota meter
+   * for a disk the library does not live on); the shelf inside it is the shelf.
+   *
+   * Every hook above this line has already run, which is why the early return is
+   * safe — and it is an early return rather than a ternary because the two
+   * branches share almost nothing but the `<section>`.
+   */
+  if (!owns) {
+    return (
+      <section className="kh-library" data-testid="library" data-owns="false">
+        <div className="kh-library__head">
+          <p className="kh-hint" data-testid="library-lede">
+            Everything {IN_YOUR_LIBRARY}.
+          </p>
+        </div>
+        <RemoteLibrary
+          store={runtime.store}
+          wire={wireLibrary}
+          packetAt={sync.library?.at ?? null}
+          sendCmd={sync.sendCmd}
+          activeModuleId={state.activeModuleId}
+          videoUrl={videoCfg.url}
+          imageId={localImageId(imageCfg.url)}
+          add={<RemoteAdd runtime={runtime} sync={sync} />}
+        />
+      </section>
+    );
+  }
+
   return (
-    <section className="kh-library" data-testid="library">
+    <section className="kh-library" data-testid="library" data-owns="true">
       <div className="kh-library__head">
         <div>
-          <h2>Your library</h2>
-          <p className="kh-hint">
+          {/*
+            No heading here — A5, the six-names sweep.
+
+            The shelf answered to six: Library, Your library, Your pictures, the
+            shelf, the clip library, the clip picker. Six names is six shelves,
+            which is the complaint. This page already carries its name in the
+            sub-header two rows up (`SUBPAGE_TITLE`), so a second `<h2>` saying
+            it differently was the duplication in its purest form.
+          */}
+          {/*
+            The location, on the ONE surface where it constrains an action.
+
+            "on this PC" is true and useful next to a file picker that can only
+            reach this PC. It is referentless on a phone, which is why the remote
+            branch above says nothing about machines at all.
+          */}
+          <p className="kh-hint" data-testid="library-lede">
             {`${KEPT_VERB.charAt(0).toUpperCase()}${KEPT_VERB.slice(1)}`} {COPY_HOME}, inside CAM’s
             own browser storage.
           </p>
@@ -492,19 +632,19 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           }}
         >
           {/*
-            A labelled button, not a glyph — and the label follows the glyph.
+          A labelled button, not a glyph — and the label follows the glyph.
 
-            The empty card underneath used to have to explain where this control
-            was and what it did — "Add a link or a file with the button in the
-            corner" — which is a caption for an icon that failed. A button that
-            says Add needs no caption anywhere.
+          The empty card underneath used to have to explain where this control
+          was and what it did — "Add a link or a file with the button in the
+          corner" — which is a caption for an icon that failed. A button that
+          says Add needs no caption anywhere.
 
-            With the panel open the + rotates into an ×, and round 3 caught the
-            word underneath it still saying "Add": a close button labelled with
-            the action it undoes, which is the same class of lie as F5.2's
-            "Press + up there" printed next to an ×. The glyph and the word say
-            the same thing in both states.
-          */}
+          With the panel open the + rotates into an ×, and round 3 caught the
+          word underneath it still saying "Add": a close button labelled with
+          the action it undoes, which is the same class of lie as F5.2's
+          "Press + up there" printed next to an ×. The glyph and the word say
+          the same thing in both states.
+        */}
           <span aria-hidden="true">+</span>
           <span className="kh-add__lab">{addOpen ? 'Close' : 'Add'}</span>
         </button>
@@ -578,23 +718,32 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
             </Button>
           </form>
           {/*
-            One sentence about what the two paths DO.
+          One sentence about what the two paths DO.
 
-            It ran to thirty words, and the back half of it — "square-cropped if
-            you can, with the audio dropped" — is advice about editing a file
-            before you get here, in a box whose whole job is to take the file you
-            already have. Nothing in the app acts on it and nothing goes wrong if
-            it is ignored. It lives in `docs/local-clips.md`, where somebody
-            preparing clips is actually reading (round 3, minors).
+          It ran to thirty words, and the back half of it — "square-cropped if
+          you can, with the audio dropped" — is advice about editing a file
+          before you get here, in a box whose whole job is to take the file you
+          already have. Nothing in the app acts on it and nothing goes wrong if
+          it is ignored. It lives in `docs/local-clips.md`, where somebody
+          preparing clips is actually reading (round 3, minors).
+        */}
+          {/*
+            It names both kinds, because the picker takes both.
+
+            The sentence said "a file", above a picker that accepted three video
+            containers, on a page whose grid draws pictures — so the one word
+            doing the work was doing it wrong. Naming the two kinds is not the
+            shelf explaining itself: it is the control saying what it will take.
           */}
           <p className="kh-hint">
-            A link is fetched by your Kraken and kept here. A file is added straight from this PC.
+            A link is fetched by your Kraken and kept here. A video or a picture is added straight
+            from this PC.
           </p>
           <input
             ref={fileInput}
             data-testid="clip-file-input"
             type="file"
-            accept="video/mp4,video/webm,video/quicktime"
+            accept="video/*,image/*"
             multiple
             hidden
             onChange={(e) => {
@@ -653,10 +802,24 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
             <Tile
               key={tile.key}
               tile={tile}
+              owns={owns}
               active={tile.key === activeKey}
               onShow={show}
               onPin={togglePin}
               onDelete={remove}
+              renamingDraft={renaming !== null && renaming.id === tile.id ? renaming.draft : null}
+              onRenameStart={() => {
+                if (tile.id !== null) setRenaming({ id: tile.id, draft: tile.name });
+              }}
+              onRenameDraft={(draft) => {
+                setRenaming((current) => (current === null ? null : { ...current, draft }));
+              }}
+              onRenameCommit={() => {
+                if (renaming !== null) commitRename(tile, renaming.draft);
+              }}
+              onRenameCancel={() => {
+                setRenaming(null);
+              }}
               onCancel={abortDownload}
               onRetry={retry}
               onDismiss={dismiss}
@@ -665,6 +828,12 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         </ul>
       )}
 
+      {/*
+        The quota meter and the persistence chip are claims about THIS browser's
+        disk (A1). On a phone they measure storage the library does not live in,
+        offer a remedy ("pin the ones you care about") for a pressure that is not
+        the phone's, and imply the bytes are here. They are not drawn at all.
+      */}
       <div className="kh-quota" data-testid="library-quota">
         <Meter
           pct={quotaPct}
@@ -698,6 +867,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
  */
 function Tile({
   tile,
+  owns,
   active,
   onShow,
   onPin,
@@ -705,8 +875,15 @@ function Tile({
   onCancel,
   onRetry,
   onDismiss,
+  renamingDraft,
+  onRenameStart,
+  onRenameDraft,
+  onRenameCommit,
+  onRenameCancel,
 }: {
   tile: LibraryTile;
+  /** Whether this window can act on the bytes, not merely name them. */
+  owns: boolean;
   active: boolean;
   onShow: (tile: LibraryTile) => void;
   onPin: (tile: LibraryTile) => void;
@@ -714,6 +891,12 @@ function Tile({
   onCancel: (id: string) => void;
   onRetry: (entry: DownloadEntry) => void;
   onDismiss: (entry: DownloadEntry) => void;
+  /** The in-progress new name, or `null` when this tile is not being renamed. */
+  renamingDraft: string | null;
+  onRenameStart: () => void;
+  onRenameDraft: (draft: string) => void;
+  onRenameCommit: () => void;
+  onRenameCancel: () => void;
 }) {
   const entry = tile.download;
   const pct = entry === null ? null : progressPct(entry);
@@ -742,10 +925,28 @@ function Tile({
           the moment it starts; the progress and the failure line are drawn ON
           it rather than instead of it.
         */}
+        {/*
+          A window that cannot reach the bytes draws the SAME art, computed
+          rather than shipped (A4) — but it does it in `RemoteLibrary` now, which
+          this page renders wholesale on a remote surface (wave 3). This tile is
+          the OWNING window's, so it always has a database to read a frame from.
+        */}
         {tile.state === 'ready' ? (
-          tile.kind === 'image' && tile.id !== null ? (
+          /*
+            One branch on the STORED thumbnail, not on the kind (C3).
+
+            A picture used to be its own thumbnail — the tile read the full blob
+            back — which is a decode of a multi-megapixel file to paint a 160 px
+            square, forty times, on a page that also drives the panel. Pictures
+            carry a 320-edge WebP at ingest now, exactly as clips do, so both
+            kinds take the same first branch and the kind only decides how a
+            MISSING one is backfilled.
+          */
+          tile.thumbBlob !== null ? (
+            <ClipThumb blob={tile.thumbBlob} name={tile.name} />
+          ) : tile.kind === 'image' && tile.id !== null ? (
             <ImageThumb id={tile.id} name={tile.name} />
-          ) : tile.thumbBlob === null && tile.id !== null ? (
+          ) : tile.id !== null ? (
             <GeneratedThumb id={tile.id} name={tile.name} durationSec={tile.durationSec ?? 0} />
           ) : (
             <ClipThumb blob={tile.thumbBlob} name={tile.name} />
@@ -796,9 +997,32 @@ function Tile({
       </div>
 
       <div className="kh-tile__meta">
-        <div className="kh-tile__name" title={tile.name}>
-          {tile.name}
-        </div>
+        {renamingDraft === null ? (
+          <div className="kh-tile__name" title={tile.name}>
+            {tile.name}
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              onRenameCommit();
+            }}
+          >
+            <input
+              className="kh-input"
+              data-testid="tile-rename-input"
+              aria-label={`New name for “${tile.name}”`}
+              value={renamingDraft}
+              ref={focusOnMount}
+              onChange={(e) => {
+                onRenameDraft(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') onRenameCancel();
+              }}
+            />
+          </form>
+        )}
         <div className="kh-tile__detail">
           {/*
             The app's one vocabulary, on the surface that was still speaking its
@@ -816,8 +1040,15 @@ function Tile({
         </div>
       </div>
 
+      {/*
+        Curation is an act on bytes, so it belongs to the window that holds them
+        — for now. Pin, delete, cancel, retry and dismiss all write to a store a
+        remote cannot reach, and a button that silently writes to the wrong
+        database is worse than no button. What every window CAN do is play, and
+        that is a state commit, which already travels.
+      */}
       <div className="kh-tile__actions">
-        {tile.state === 'ready' && (
+        {owns && tile.state === 'ready' && renamingDraft === null && (
           <>
             <Button
               testId="tile-pin"
@@ -832,6 +1063,17 @@ function Tile({
             >
               {tile.pinned ? 'Unpin' : 'Pin'}
             </Button>
+            {/*
+              Rename, on both shelves (wave 3).
+
+              The name is the one thing on a tile a person chose, and it was
+              whatever the file happened to be called when it arrived — for a
+              downloaded clip, frequently a hash. The remote asks for this with
+              `renameMedia`; this window simply does it, because it holds the row.
+            */}
+            <Button testId="tile-rename" title={`Rename “${tile.name}”`} onClick={onRenameStart}>
+              Rename
+            </Button>
             <Button
               testId="tile-delete"
               title={`Delete “${tile.name}”`}
@@ -843,7 +1085,17 @@ function Tile({
             </Button>
           </>
         )}
-        {tile.state === 'downloading' && entry !== null && (
+        {owns && tile.state === 'ready' && renamingDraft !== null && (
+          <>
+            <Button testId="tile-rename-save" title="Save the new name" onClick={onRenameCommit}>
+              Save
+            </Button>
+            <Button testId="tile-rename-cancel" title="Keep the old name" onClick={onRenameCancel}>
+              Cancel
+            </Button>
+          </>
+        )}
+        {owns && tile.state === 'downloading' && entry !== null && (
           <Button
             testId="tile-cancel"
             title="Stop fetching this"
@@ -854,7 +1106,7 @@ function Tile({
             Cancel
           </Button>
         )}
-        {tile.state === 'failed' && entry !== null && (
+        {owns && tile.state === 'failed' && entry !== null && (
           <>
             <Button
               testId="tile-retry"
@@ -889,11 +1141,6 @@ function Tile({
  * versa). An entry this window owns wins on conflict: it is live rather than a
  * throttled snapshot.
  */
-/** `null` in, `null` out — a picture that is not a local one marks no tile. */
-function mapImageKey(id: string | null): string | null {
-  return id === null ? null : `image:${id}`;
-}
-
 function mergeDownloads(
   primary: readonly DownloadEntry[],
   secondary: readonly DownloadEntry[],

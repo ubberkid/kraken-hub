@@ -189,6 +189,28 @@ export default defineConfig(() => ({
               test: /[\\/]src[\\/]diag[\\/][^/\\\\]*\.ts$/,
               priority: 93,
             },
+            /**
+             * The LAN file transfer — protocol, sender and receiver.
+             *
+             * Its own chunk for exactly the reason `diag-core` has one: the
+             * DISPLAY lazily imports the receiver to answer a `transferOffer`,
+             * and anything under `src/app/display/` belongs to `display-shell`,
+             * which IS weighed in `displayCriticalPath`. A feature that only ever
+             * fires when somebody points a phone at it must not cost the LCD's
+             * first paint a single byte, so it lives outside both shells and both
+             * shells reach it dynamically.
+             *
+             * Ranked above the two shells (90) so neither claims it, and above
+             * `config-ui` (90) so the sender does not drag the configuration UI
+             * into the chunk the display fetches. Nothing in `src/transfer`
+             * imports `src/ui` or `src/app/config` — eslint's layering zones say
+             * so, and `displayGraph` (I8) proves it on every build.
+             */
+            {
+              name: 'transfer',
+              test: /[\\/]src[\\/]transfer[\\/]/,
+              priority: 93,
+            },
             {
               name: 'sync-core',
               test: /[\\/]src[\\/]sync[\\/]/,

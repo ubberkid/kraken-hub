@@ -100,11 +100,87 @@ _Connection & diagnostics_ link at the bottom of the page (once it is paired),
 and which the configuration page reaches by clicking the version line in its
 footer.
 
-Two things the remote deliberately no longer does: it does not pick from the clip
-library (the shelf lives on the machine running CAM, and the Library page is
-where you manage it), and it does not nudge, zoom or rotate the picture — those
-are setup, not remote control, and they live under the module's own options on
-the home screen.
+The one thing the remote deliberately does not do is nudge, zoom or rotate the
+picture — that is setup, not remote control, and it lives under the module's own
+options on the home screen.
+
+## The library, from the sofa
+
+The shelf on the remote is **the** shelf. It is not a copy and it is not a
+picker: the display publishes its library on the telemetry channel, the remote
+draws it with the same tile builder CAM's own Library page uses, and pressing a
+tile is the ordinary state commit — the same one CAM makes — so playing something
+from a phone invents no new machinery at all.
+
+Tile art on the phone is the **treated card**: a deterministic function of the
+name, so most tiles are pixel-identical to CAM's for zero bytes on the wire. A
+source with a public poster (YouTube) is fetched by the phone itself. Nothing is
+ever streamed or chunked over the radio to draw a shelf.
+
+### Curating
+
+**Pin**, **Rename** and **Delete** are on every tile, on every surface. The
+remote cannot reach the bytes, so it does not try: it sends a command, the
+display applies it to the one library and immediately re-announces the shelf.
+
+Three properties are load-bearing, and all three are in
+`src/lib/curation.ts`:
+
+- **Absolute, never a toggle.** `setPinned` carries the value it wants. The
+  command channel is redelivered by a replaying transport, and "flip it" applied
+  twice is a bug that looks exactly like somebody changing their mind.
+- **Batched by id.** Commands are throttled per operation at 200 ms and the
+  extras are **dropped**, not queued — so a five-item delete loop would delete
+  one thing. Press **Select**, choose what you mean, and one command carries
+  every id.
+- **Idempotent by id.** Applying a delete twice is applying it once. That is what
+  makes it safe for this channel to have no acknowledgement.
+
+Deleting from the remote asks once, in a confirm, because it is destructive and
+the screen it affects is in another room. CAM deletes on the press: there, the
+row, the finger and the shelf that redraws from the database are all in one
+place.
+
+The remote removes the tile **optimistically** and then reconciles against the
+next library packet. If the Kraken turns out to still have the row — it was
+asleep, the command was lost — the tile comes back and the shelf says
+_"Your Kraken did not change …"_. Nothing is silently pretended.
+
+## Add from your phone
+
+The **Add** button above the shelf offers two things.
+
+**Paste a link** commits the URL as the source, exactly as the home screen's
+paste row does; your Kraken fetches it and keeps a copy.
+
+**Send a file** hands the Kraken a photo or a video **straight from the phone**,
+peer to peer over your network. This is the one genuinely device-local thing left
+in the product: the bytes have to land in the browser profile the LCD page can
+read, and a phone shares nothing with it.
+
+How it works, and what it costs:
+
+- **WebRTC, with a data channel.** The offer, the answer and the ICE candidates
+  ride the ordinary encrypted sync channel — there is no signalling server and
+  there will not be one, so the broker only ever sees ciphertext and only a peer
+  holding the room code can start a transfer.
+- **The display is the receiver**, because the display is the window that owns
+  the store. The assembled file goes through the **same ingest pipeline** a file
+  dropped on CAM's own Library page takes: the same probe, the same thumbnail,
+  the same quota check, the same rejection messages. There is no second way for a
+  byte to become a row.
+- **The quota is checked before a byte moves.** The offer carries the size; a
+  library with no room for it is a refusal in one round trip rather than a
+  progress bar that fails at the end. The cap is 500 MB.
+- **One STUN server, no TURN relay.** A relay means somebody's server carrying
+  somebody's video, which this project is not going to run and cannot honestly
+  promise. So this works when **your phone and your PC are on the same network**,
+  which is the case it is for — and that sentence is what the app says, once,
+  after a transfer has genuinely failed or timed out. It is deliberately not a
+  warning shown up front.
+
+Cancel is available throughout, on both ends, and a transfer that is interrupted
+leaves nothing behind: a row is written only when the whole file has arrived.
 
 ### The ring is a live replica, not a picture of one
 
@@ -350,7 +426,9 @@ on, so a captured `state` frame cannot be replayed onto `cmd`.
 - That a topic with a particular 16-character name exists.
 - How large the messages are and how often they arrive.
 - Nothing else. Not the video URL, not the seek position, not the clip names,
-  not the error text.
+  not the error text — and not the WebRTC offer or the ICE candidates a file
+  transfer signals with, which are sealed like everything else. The file itself
+  never touches the broker at all: it goes directly between the two devices.
 
 ### What the broker cannot do
 

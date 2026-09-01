@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 import { Footer } from './Footer';
 import { currentHash, parseRoute, subscribeRoute } from './router';
+import { ownsBytes } from './surface';
 import { AboutView } from './views/AboutView';
 import { HomeView } from './views/HomeView';
 import { LibraryView } from './views/LibraryView';
@@ -105,6 +106,22 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
   const route = parseRoute(hash);
   const subTitle = SUBPAGE_TITLE[route.name] ?? null;
 
+  /**
+   * A6 — there is no Library to show a window that is not attached to a Kraken.
+   *
+   * A remote surface draws the shelf from the wire (A2), and with no room there
+   * is no wire: the page would be an empty grid claiming to be somebody's
+   * library, which is the exact false-second-library impression this wave
+   * exists to remove. So an unpaired remote's Library route lands on the one
+   * screen that can do something about it, by rewriting the hash — never
+   * `location.replace`, which IS a navigation (invariant I1/I2).
+   *
+   * CAM is never redirected: its shelf is a database it can read with the
+   * network unplugged, and pairing has nothing to do with it.
+   */
+  const state = runtime.store.getSnapshot();
+  const reachable = ownsBytes(runtime) || (state.sync.roomCode !== null && state.sync.enabled);
+
   return (
     <div className="kh-app">
       <div className="kh-shell">
@@ -160,10 +177,17 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
               />
             </HashRedirect>
           )}
-          {route.name === 'library' && <LibraryView runtime={runtime} />}
-          {route.name === 'sources' && (
-            <HashRedirect from="sources" to="#/library">
+          {route.name === 'library' &&
+            (reachable ? (
               <LibraryView runtime={runtime} />
+            ) : (
+              <HashRedirect from="library" to="#/remote">
+                <RemoteView runtime={runtime} />
+              </HashRedirect>
+            ))}
+          {route.name === 'sources' && (
+            <HashRedirect from="sources" to={reachable ? '#/library' : '#/remote'}>
+              {reachable ? <LibraryView runtime={runtime} /> : <RemoteView runtime={runtime} />}
             </HashRedirect>
           )}
           {route.name === 'remote' && <RemoteView runtime={runtime} />}

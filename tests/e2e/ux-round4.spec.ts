@@ -232,7 +232,7 @@ test.describe('F5 — a failed tile is marked failed, not merely unlucky', () =>
   test('the failure colour comes from the state, and only from the state', async ({ page }) => {
     await cam(page);
     await seed(page, 'error', 'quota');
-    await page.goto('/#/library');
+    await page.goto('/?cam=1#/library');
 
     const tile = page.locator('[data-testid="library-tile"]').first();
     await expect(tile).toHaveAttribute('data-tile-state', 'failed');
@@ -245,7 +245,7 @@ test.describe('F5 — a failed tile is marked failed, not merely unlucky', () =>
     const other = await page.context().newPage();
     await other.setViewportSize(CAM);
     await seed(other, 'downloading', null);
-    await other.goto('/#/library');
+    await other.goto('/?cam=1#/library');
     const running = other.locator('[data-testid="library-tile"]').first();
     await expect(running).toHaveAttribute('data-tile-state', 'downloading');
     const ok = await running

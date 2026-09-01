@@ -21,6 +21,7 @@
 import { createLogger } from '../../lib/log';
 
 import { newImageId, putImage, type ImageRecord } from './imageStore';
+import { makeImageThumbnail } from './thumbnail';
 
 const log = createLogger('image/download');
 
@@ -155,6 +156,17 @@ export async function downloadImage(
   }
 
   const { width, height } = await probeImage(blob);
+  /*
+   * The shelf thumbnail, made once, here (C3).
+   *
+   * At ingest and nowhere else: this is the one moment the bytes are already
+   * decoded-adjacent and the user is already waiting on a fetch, so a few
+   * milliseconds of canvas work is invisible. The alternative — the tile
+   * re-encoding the full picture every time a shelf is drawn — puts that work on
+   * the display page's main thread, which is the thread the panel's frame rate
+   * lives on.
+   */
+  const thumbBlob = await makeImageThumbnail(blob);
   const now = Date.now();
   const record: ImageRecord = {
     id: newImageId(),
@@ -168,6 +180,7 @@ export async function downloadImage(
     lastUsedAt: now,
     sourceUrl: url,
     pinned: false,
+    thumbBlob,
   };
 
   // `putImage` publishes the index itself, in the same call.

@@ -201,8 +201,10 @@ test.describe('resolver companion', () => {
           new Promise<number>((resolve) => {
             const req = indexedDB.open('kraken-hub.v1');
             req.onsuccess = () => {
-              const tx = req.result.transaction('clips', 'readonly');
-              const count = tx.objectStore('clips').count();
+              // `media`, not `clips`: wave 2 merged the two libraries into one
+              // store with `kind` as a property (C2), and new rows go there.
+              const tx = req.result.transaction('media', 'readonly');
+              const count = tx.objectStore('media').count();
               count.onsuccess = () => {
                 resolve(count.result);
               };

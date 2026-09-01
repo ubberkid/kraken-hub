@@ -41,6 +41,18 @@ export interface RuntimeFlags {
   inject: 'late' | null;
   pattern: DiagPattern | null;
   page: number | null;
+  /**
+   * `?cam=1` / `?cam=0` — the CAM-window simulator.
+   *
+   * Whether this page is CAM's own Configuration Browser is a property of the
+   * BROWSER (`window.nzxt`, or an Electron UA), and wave 1 makes that property
+   * the gate on every piece of UI that owns bytes. Which leaves no way at all to
+   * exercise either side of the gate from an automated run, or from a
+   * contributor's laptop with no CAM on it — the same reason `?sim=` exists for
+   * the panel geometry. `null` means "detect it honestly", which is what a real
+   * user always gets.
+   */
+  cam: boolean | null;
 }
 
 export interface ParsedUrlParams {
@@ -74,6 +86,7 @@ const KNOWN_KEYS = new Set([
   'inject',
   'pattern',
   'page',
+  'cam',
 ]);
 
 function isOne(raw: string): boolean {
@@ -113,6 +126,7 @@ export function parseUrlParams(search: string): ParsedUrlParams {
     inject: null,
     pattern: null,
     page: null,
+    cam: null,
   };
 
   const reject = (key: string, raw: string, reason: string): void => {
@@ -142,6 +156,15 @@ export function parseUrlParams(search: string): ParsedUrlParams {
       case 'pin':
         flags.pin = isOne(raw);
         break;
+      case 'cam': {
+        const cam = parseBoolParam(raw);
+        if (cam === undefined) {
+          reject(key, raw, 'expected 0|1');
+          break;
+        }
+        flags.cam = cam;
+        break;
+      }
 
       case 'module': {
         if (!MODULE_ID_RE.test(raw)) {

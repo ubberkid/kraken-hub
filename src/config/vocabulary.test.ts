@@ -6,14 +6,19 @@ import { describe, expect, it } from 'vitest';
 import {
   COPY_HOME,
   FLAT_COLOURS_WHY,
+  IN_YOUR_LIBRARY,
   KEEPING_A_COPY,
   KEEPING_A_COPY_NOW,
   KEEP_A_COPY,
   KEEP_A_COPY_LABEL,
   KEPT_A_COPY,
   KEPT_VERB,
+  LINK_RECEIPT,
+  MACHINE_NOUNS,
   NOTHING_KEPT,
+  OWNER_ONLY_TERMS,
   RETIRED_PHRASES,
+  SAME_NETWORK_NOTE,
   STREAM_ONLY,
 } from './vocabulary';
 
@@ -89,6 +94,33 @@ const SINGLE_SOURCE: readonly string[] = [
   // Round 4, F4 — the two families that were hand-written twice.
   NOTHING_KEPT,
   FLAT_COLOURS_WHY,
+  // Wave 1, A5 — the sentence the one-Kraken model turns on.
+  LINK_RECEIPT,
+  // Wave 3 — the one honest line about a transfer that could not be made.
+  SAME_NETWORK_NOTE,
+];
+
+/**
+ * Files allowed to import an owner-only term.
+ *
+ * Every one of these either renders only inside CAM's Configuration Browser, is
+ * gated on `ownsBytes()` at the point of use, or names the PC because the PC is
+ * what the sentence is genuinely about — a disk that ran out of room is a fact
+ * about one machine, and the remedy is on that machine. The list is deliberately
+ * short and deliberately explicit: growing it is the moment to ask whether the
+ * sentence really is about a machine the reader is sitting at.
+ */
+const OWNER_SURFACE_FILES: readonly string[] = [
+  'app/config/views/LibraryView.tsx',
+  'app/config/views/HomeView.tsx',
+  // `failureLine` — "there is no room left on this PC for a copy". The location
+  // IS the constraint here, and the tile that renders it is reporting somebody
+  // else's disk on purpose.
+  'app/config/homeState.ts',
+  'modules/video/VideoConfigPanel.tsx',
+  'modules/image/ImageConfigPanel.tsx',
+  // The module registry's one-line summary, rendered in CAM's own panel list.
+  'modules/video/index.ts',
 ];
 
 describe('the app has one vocabulary', () => {
@@ -133,6 +165,78 @@ describe('the app has one vocabulary', () => {
   it('says why the colours are flat in eight words or fewer', () => {
     expect(FLAT_COLOURS_WHY.split(/\s+/).length).toBeLessThanOrEqual(8);
   });
+
+  /**
+   * The second axis (wave 1, A5): WHO is allowed to say it.
+   *
+   * The first pass unified the words and left the speaker unconstrained, which
+   * is how "on this PC" — correct in CAM, referentless on a phone — ended up on
+   * every surface that imported it. A term about the machine the bytes live on
+   * may only be imported by a file that renders on that machine.
+   */
+  for (const term of OWNER_ONLY_TERMS) {
+    it(`"${term}" is only spoken by the surface that owns the bytes`, () => {
+      const used = new RegExp(`\\b${term}\\b`);
+      const strays = FILES.filter((f) => used.test(f.text))
+        .map((f) => f.rel)
+        .filter((rel) => !/\.test\.tsx?$/.test(rel) && !OWNER_SURFACE_FILES.includes(rel));
+      expect(
+        strays,
+        `say "${IN_YOUR_LIBRARY}" instead, or gate the surface — see OWNER_ONLY_TERMS`,
+      ).toEqual([]);
+    });
+  }
+
+  /**
+   * The third axis: what a file may SAY, not only what it may import.
+   *
+   * `OWNER_ONLY_TERMS` above pins the import list, and for a wave that looked
+   * like enough. It is not: the remote's pin button carried
+   * `title="Allow this to be cleared when the disk fills up"` — a machine noun,
+   * on a phone, written as a literal — and no import discipline can see it. So
+   * these files are read for the nouns themselves.
+   *
+   * The whole comment-stripped file is scanned rather than only its `title=`
+   * attributes, because a tooltip and a rendered sentence fail identically for
+   * the reader and a scanner that knows the difference is a scanner with a gap in
+   * it. Comments are stripped by `withoutComments`, so the code may still discuss
+   * the wording it removed — including this one. Imported constants are
+   * identifiers, so `SAME_NETWORK_NOTE` ("Your phone and PC need to be on the
+   * same network.") passes: it is the file naming a term the vocabulary owns,
+   * which is the behaviour the whole test is trying to produce.
+   */
+  const REMOTE_RENDERED_FILES: readonly string[] = [
+    'app/config/views/RemoteLibrary.tsx',
+    'app/config/views/RemoteAdd.tsx',
+    'app/config/views/RemoteView.tsx',
+    'app/config/views/RemoteRing.tsx',
+    'app/config/views/RemoteQuality.tsx',
+    'app/config/views/TileArt.tsx',
+    'app/config/libraryItems.ts',
+    'app/config/curationOptimistic.ts',
+    'app/config/wireLibrary.ts',
+    'app/config/showTile.ts',
+  ];
+
+  for (const rel of REMOTE_RENDERED_FILES) {
+    it(`${rel} is read for machine nouns at all`, () => {
+      // A renamed file would make its noun assertion vacuously true, which is
+      // the one way this rule could quietly stop being enforced.
+      expect(FILES.map((f) => f.rel)).toContain(rel);
+    });
+  }
+
+  for (const noun of MACHINE_NOUNS) {
+    it(`"${noun}" is not spoken to a window that cannot see one`, () => {
+      const offenders = FILES.filter(
+        (f) => REMOTE_RENDERED_FILES.includes(f.rel) && f.text.includes(noun),
+      ).map((f) => f.rel);
+      expect(
+        offenders,
+        `a remote reader has no "${noun}" — say what the act does instead, or import the term`,
+      ).toEqual([]);
+    });
+  }
 
   it('composes the destination into every phrase that names one', () => {
     expect(KEEPING_A_COPY_NOW).toContain(COPY_HOME);

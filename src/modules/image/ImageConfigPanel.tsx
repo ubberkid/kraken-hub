@@ -29,22 +29,27 @@
  *  - **Fit and Slideshow are on the ops strip**, in view, so they are not asked
  *    again down here.
  *
- * "Your pictures" stays exactly where it is. Merging the image store into the
- * Library is a real architectural change with storage-quota consequences, and
- * the audit reserved it for the user (§6).
+ * ## Wave 2, C1 — and the picture list is gone
+ *
+ * The audit parked the decision (§6) and it is made: **there is one shelf, and
+ * a module panel holds settings only.** This panel used to render its own "Your
+ * pictures" list beside the unified Library grid — an asymmetry clips never had,
+ * a second name for the one shelf, and a second place to go looking for a
+ * picture. Photos has no separate Videos app; kind is a property, not a place.
+ *
+ * Picking a stored picture is what the Library grid's tiles do, for both kinds,
+ * through one commit (`app/config/showTile.ts`). Deleting this list took a
+ * feature away from nowhere: the same act, on the same picture, is one screen
+ * over and works from the sofa as well as from CAM.
  */
-
-import { useEffect, useState } from 'react';
 
 import { KEEP_A_COPY, KEEP_A_COPY_LABEL, STREAM_ONLY } from '../../config/vocabulary';
 import { Field, GroupField, ModuleOptions, RangeInput, Segmented } from '../../ui';
 import { FramingAdvanced } from '../../ui/Framing';
 
-import { readImageIndex, type ImageSummary } from './imageStore';
 import {
   SLIDESHOW_MAX_INTERVAL_SEC,
   SLIDESHOW_MIN_INTERVAL_SEC,
-  localImageUrl,
   validateImageConfig,
   type ImageModuleConfig,
 } from './schema';
@@ -52,28 +57,9 @@ import {
 import type { ModuleConfigProps } from '../types';
 
 const INTERVAL_STEP = 5;
-const BYTES_PER_KB = 1024;
-
-function kb(bytes: number): string {
-  return `${String(Math.round(bytes / BYTES_PER_KB))} kB`;
-}
 
 export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   const cfg = validateImageConfig(config);
-  // Lazy initial value rather than a setState in the effect: the index is a
-  // synchronous localStorage read, so there is nothing to wait for and a
-  // cascading render buys nothing.
-  const [library, setLibrary] = useState<ImageSummary[]>(readImageIndex);
-
-  useEffect(() => {
-    const onStorage = (): void => {
-      setLibrary(readImageIndex());
-    };
-    window.addEventListener('storage', onStorage);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-    };
-  }, []);
 
   const patch = (next: Partial<ImageModuleConfig>): void => {
     onChange({ ...cfg, ...next });
@@ -110,38 +96,6 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
               }}
             />
           </GroupField>
-
-          {/*
-          The picture store, inside this panel rather than in a second one.
-
-          A `.kh-panel` of its own cost a heading, a lede and two sets of
-          padding for what is a list — and the round-2 measurement is that the
-          image options overflowed CAM's window by 260 px, more than any other
-          module. It is a subhead and a shelf now. (Merging it into the Library
-          proper is still the user's call — audit §6.)
-        */}
-          {library.length === 0 ? (
-            /* Empty needs one line, not a heading over a paragraph saying the
-               heading has nothing under it. */
-            <p className="kh-hint">Your pictures — the shelf is empty.</p>
-          ) : (
-            <ul className="kh-list kh-list--shelf" aria-label="Your pictures">
-              {library.map((row) => (
-                <li key={row.id}>
-                  <button
-                    type="button"
-                    className="kh-btn"
-                    onClick={() => {
-                      patch({ url: localImageUrl(row.id) });
-                    }}
-                  >
-                    {row.name} — {String(row.width)}×{String(row.height)}, {kb(row.size)}
-                    {row.animated ? ' (animated)' : ''}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
         </>
       }
       advanced={

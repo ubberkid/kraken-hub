@@ -29,6 +29,323 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **One Kraken, many windows — wave 1 (architecture proposal, phases A and B).**
+  The report was _"the library is different on my phone and the files are
+  separate."_ It was not a perception problem: `#/library` was routed with no
+  surface gating at all, so a phone reached a **second, real, empty library**
+  backed by the phone's own IndexedDB — with a quota meter for the wrong disk, a
+  drop target, and a working `Browse…` that ingested into a store the Kraken can
+  never open. Meanwhile the display had been publishing its actual shelf on the
+  `tele` channel for two milestones, and the remote latched the packet, built a
+  `name → title` lookup out of it, and threw the rest away.
+
+  The model the whole wave is built on: there is exactly one object in this
+  product, and every surface is a _window_ onto it. **Visibility is a property of
+  the Kraken; capability is a property of the window.** A window that cannot hold
+  the bytes still shows the whole shelf and still routes the play command; the
+  only thing it must not do is offer a control whose bytes would land where the
+  Kraken can never read them.
+
+  - **The gate (A1).** `mount.tsx` already computed `camDetected` and `role`, and
+    they drove exactly one status chip. They are now THE gate, in one pure,
+    unit-tested function (`app/config/surface.ts`), and it fails closed: anything
+    short of both signals agreeing is a remote. Off the owning surface there is
+    no `Browse…`, no drop target, no file input, no quota meter, no persistence
+    chip, and no display iframe in the home screen's halo — that iframe boots the
+    _real_ display page, which is only true on the window sharing CAM's storage
+    partition; anywhere else it is a second decoder and a second download, on a
+    battery, reading a database with nothing in it. `?cam=1` / `?cam=0` is a
+    simulator seam for both sides of the gate, exactly like `?sim=` for the panel
+    geometry.
+  - **The wire adapter (A2).** `sync.library.body` → `LibraryTile[]`, through the
+    same pure `buildLibraryTiles` CAM's grid uses. `ClipSummary` and
+    `ImageSummary` are structural supersets of the builder's input, so the
+    phone's shelf cannot drift from CAM's by construction rather than by
+    discipline — and a half-read row from a fork or a different build is dropped
+    rather than rendered as a tile that does nothing when pressed.
+  - **The remote's Library is a PEER of the transport (A3).** Ring → what's
+    playing → transport → **Library** → pairing. Not a modal, not a drawer, and
+    not a "picker" — the deleted feature that read as a duplicate app. Playing is
+    the existing state commit (`showTile`, now shared by both shelves so a tile
+    does the same thing in whichever window it is tapped), which already travels
+    and is already retained. No new command op was invented for it.
+  - **Treated art is the shipping answer (A4).** `TreatedArt` is a deterministic
+    pure function of the name, so most tiles are pixel-identical on the phone and
+    in CAM for **zero bytes on the wire**. A YouTube source additionally gets its
+    public poster, fetched by the phone itself — the still already has an address
+    and the phone already has internet. Nothing bulk-pushes thumbnails: that is
+    ~14 s of channel-saturating traffic per cold phone through a free public
+    broker, repeated on every unlock.
+  - **The vocabulary sweep, on a second axis (A5).** The first pass unified the
+    _words_ and left the _speaker_ unconstrained, which is how `COPY_HOME =
+'on this PC'` — correct and load-bearing in CAM — ended up rendered on a
+    phone, where "this PC" refers to nothing the reader is holding.
+    `OWNER_ONLY_TERMS` names the terms only the owning surface may import and
+    `vocabulary.test.ts` pins the import list, so a phone-visible file reaching
+    for one is a failing test rather than a screenshot in the next audit. The
+    shelf's six names (Library, Your library, Your pictures, the shelf, the clip
+    library, the clip picker) collapse to one noun. The phone says one sentence
+    about the one real asymmetry — _"Files are added at your PC."_ — once, as a
+    fact. And the remote's link field finally carries the receipt: adding from
+    the phone has worked the whole time and only the surface that needed the
+    explanation least was saying so. The receipt itself drops "once CAM picks it
+    up", which named a program the reader is not running.
+  - **A desktop browser is the same remote, at a desk (A6).** Paired, it is
+    identical to the phone plus the pairing QR at scannable size. Unpaired, it is
+    pairing **and** the install card — the person at a desktop browser with
+    nothing paired is very often the person who has not pointed CAM at this page
+    yet, and the only door to that instruction was on a screen they could not
+    reach from here. Not on a phone: "point CAM at this address" is advice about
+    a PC. Never file ingest, at any width — that is a data-integrity lie rather
+    than a UI preference. An unpaired remote's `#/library` lands on pairing (a
+    hash rewrite, never a navigation — invariants I1/I2) rather than drawing an
+    empty grid and calling it your library.
+
+- **One shelf, one set of acts, and a way in from your phone — wave 3
+  (architecture proposal, D2 and fork 1).** Waves 1 and 2 made the library one
+  library: one store, one order, one packet, visible from every window. What was
+  still asymmetric was what you could _do_ with it. The phone could see every row
+  and play any of them, and then had to walk to the PC to rename a badly-named
+  clip or delete something — and could not add a photo from its own camera roll
+  at all. Both of those are now gone, and neither needed a second library to fix.
+
+  - **Curation as commands (`setPinned`, `renameMedia`, `deleteMedia`).** Playing
+    something needed no protocol — it is a state commit, and state is a full
+    retained snapshot both windows already share. Pin, rename and delete have
+    nothing to commit, so they are the first library _acts_ on the `cmd` channel,
+    parsed once at the boundary in `src/lib/curation.ts` and applied by the
+    display against the merged media store. Three properties carry the design:
+    **absolute, never a toggle** (`setPinned` sends the value it wants — the
+    `cmd` channel is redelivered by a replaying transport, and this is the
+    `seekBy` hazard); **batched by id** (`sendCmd` throttles per op at 200 ms and
+    **drops** the rest, so a five-item delete loop would delete one thing — the
+    remote's shelf grew a **Select** mode so one command carries every id); and
+    **idempotent by id**, which is what makes it safe for this channel to have no
+    acknowledgement. `v` stays 1, exactly as it did for `requestDiag`.
+  - **Optimistic, then reconciled** (`app/config/curationOptimistic.ts`, pure and
+    unit-tested). The tile changes the instant you press; the next library packet
+    either agrees, in which case the overlay is forgotten, or it does not — and
+    the tile comes back with one sentence saying so. A grace window stops a
+    packet that was already in flight from restoring a tile a heartbeat after it
+    was deleted, and while anything is unsettled the remote repeats the command
+    (it is idempotent) and then falls back to pulling the shelf, because both
+    zero-network transports are a **last-value slot rather than a queue** and a
+    command can be written over.
+  - **Delete asks once, and only on the remote.** Destructive, from a room away,
+    over a link with no acknowledgement and no undo. CAM deletes on the press:
+    there the row, the finger and the shelf that redraws from a local database
+    are all in one place, and a confirm would be a tax on the surface that needs
+    one least. **Rename is new on both surfaces** — the name is the one thing on
+    a tile a person chose, and for a downloaded clip it was frequently a hash.
+  - **LAN file transfer — "Send a file" (fork 1, built).** A photo in a camera
+    roll could not reach the Kraken by any path the app had: the bytes have to
+    land in the browser profile the LCD page can read, and a phone shares nothing
+    with it. So they go **peer to peer over WebRTC**, with the offer, the answer
+    and the ICE candidates riding the ordinary **encrypted** sync channel — there
+    is no signalling server and there will not be one, so the broker sees
+    ciphertext and only a peer holding the room code can start a transfer. The
+    **display is the receiver**, because the display is the window that owns the
+    store, and the assembled blob goes through the **existing ingest pipeline** —
+    same probe, same thumbnail, same quota check, same rejection words as a file
+    dropped on CAM's own page. There is still exactly one way a byte becomes a
+    row. 16 KB chunks with `bufferedAmount` backpressure; a 500 MB cap; and the
+    **quota consulted before a byte moves**, in one round trip, rather than at
+    the end of a progress bar.
+  - **LAN-grade, and honest about it.** One STUN server and deliberately **no
+    TURN relay** — a relay means somebody's server carrying somebody's video,
+    which this project will not run and cannot promise. So the constraint is that
+    the two devices share a network, and the app says exactly that, once, **after
+    a transfer has genuinely failed or timed out** (~15 s). It is not a warning
+    shown up front: pre-emptively apologising for the case that almost never
+    happens is how a feature teaches its user not to use it.
+  - **Nothing new on the LCD's critical path.** The receiver is a lazy import on
+    the first `transferOffer` — the same seam `requestDiag` uses — and lives in
+    its own `transfer` chunk outside both shells, because anything under
+    `src/app/display/` is weighed in `displayCriticalPath`. `displayGraph` (I8)
+    and a new eslint layering zone both prove `src/transfer` reaches neither
+    `src/ui` nor `src/app/config`.
+  - **`Files are added at your PC.` is retired**, because it stopped being true.
+    The sentence was wave 1's one honest asymmetry; the control that removes the
+    asymmetry now stands where it stood. `#/library` on a remote surface renders
+    the same `RemoteLibrary` the remote screen does, so there is one shelf
+    implementation with one set of capabilities rather than two that look alike.
+  - **Proved end to end.** `tests/e2e/lan-transfer.spec.ts` opens a **real**
+    `RTCPeerConnection` between two pages in one browser context and moves a real
+    mp4 across a real data channel, then asserts the tile in both windows —
+    because every interesting failure in this feature is in the handshake and a
+    mocked handshake proves nothing about it. `tests/e2e/curation.spec.ts` pins
+    the batching claim as a **number**: three tiles deleted together increment
+    the display's applied-command counter by exactly one.
+
+- **One media library, all the way down — wave 2 (architecture proposal, phase
+  C).** Wave 1 made the shelf _look_ like one shelf. Underneath it was still two:
+  two object stores, two orderings, two localStorage mirrors, two record shapes —
+  and, in the image module's own settings panel, a second list of pictures
+  sitting beside the unified grid. Their union existed only in the view layer,
+  which is exactly why the shelf could look like one shelf and behave like two.
+  **Kind is a property, not a place.**
+
+  - **The second picture shelf is deleted (C1).** The design audit parked this
+    for the user (§6) and the decision is made: a module panel holds _settings_,
+    and there is exactly one shelf. Photos has no separate Videos app. Picking a
+    stored picture is what the Library grid's tiles already do, for both kinds,
+    through one commit — so this is a deletion rather than a redesign, and it
+    took a feature away from nowhere: the same act, on the same picture, is one
+    screen over and works from the sofa as well as from CAM.
+  - **The stores are merged, and it needed no schema surgery (C2).**
+    `platform/mediaStore.ts` is the one library: clips and pictures in `media`,
+    bytes in `mediaBlobs`, `kind` on the row. `media` and `meta` were created at
+    DB v1 and referenced nowhere outside `idb.ts`, so every install already
+    carried an EMPTY `media` store — which is what makes the upgrade safe. **v4
+    creates one object store and reads nothing**, so an interrupted
+    `versionchange` still cannot leave a library half-migrated; the copy happens
+    afterwards in an ordinary `readwrite` transaction, one row at a time, driven
+    by what is already in `media`, so idempotence and restartability are the same
+    property and an interruption simply means "not finished yet". Nothing is
+    _moved_: reads fall back to `clips`/`images` for any row not yet copied, with
+    the merged row winning on a collision, so the shelf is complete before the
+    copy starts, while it runs and after it ends. A delete removes the legacy row
+    too — otherwise the fallback read would put back what the user just deleted —
+    and is idempotent by construction, which is what will make it safe to accept
+    from a remote. **The old stores are not dropped in this release**: the
+    overlap costs a duplicate library on disk and buys a rollback.
+  - **One order, and one list on the wire (C2).** `newestFirst` — newest first,
+    ties broken by id, so the order is TOTAL — is the comparator the store sorts
+    with _and_ the comparator the wire packet trims with. Two files written in
+    the same millisecond can no longer swap places between the window that owns
+    them and the window looking at them from the sofa. The library packet is one
+    `items` array carrying `kind` per row rather than two arrays a shared budget
+    split apart and the reader re-joined; a packet whose shape has to be rejoined
+    by its reader is a shelf that can be ordered differently at each end. A row
+    with no `kind` is read as a clip, so an older display still fills the shelf.
+  - **A picture carries a thumbnail, made once, at ingest (C3).** "A picture is
+    its own thumbnail" was true and cheap in one window with a short shelf; it is
+    a full decode of a multi-megapixel file per tile, on every visit, once the
+    shelf is long — and on the display page that decode competes with the
+    renderer's frame budget, the one place in this app where a stutter is visible
+    on the physical panel. `ImageRecord` gets the same 320-edge WebP
+    `ClipRecord` has carried since M1, cropped from the centre so a mixed shelf
+    is one shelf visually as well as structurally. Pictures stored before this
+    are backfilled on first sight and written back, exactly as clips without a
+    frame already were.
+
+### Fixed
+
+- **The silent scale cliff, and the five-minute cold start (wave 1, phase B).**
+  Two defects that between them made every other library fix untrustworthy — a
+  shelf that is sometimes blank teaches the user it is not the real one.
+
+  - **The index row is ~90 bytes lighter, and the 40-item cap is now shared
+    (B1).** `tele` is not trimmed the way `state` is: an envelope over the 8 KB
+    ceiling is DROPPED with a `log.warn` nobody is reading on a hidden Kraken
+    Browser window. A 40-row clip index was already ~8.2 KB against that ceiling,
+    so above roughly thirty-five clips the phone's library went blank **forever,
+    invisibly**. `mime`, `width` and `height` are gone from the wire row — the
+    tile's detail line has not rendered pixel dimensions since round 2's R7, and
+    nothing ever rendered the MIME type — and the item budget is now shared
+    across clips and pictures, so a library of 30 and 30 publishes the 40 newest
+    things rather than 40 clips and no pictures at all.
+  - **Pictures cross the wire (B2).** `publishImageIndex` wrote to localStorage
+    only, which reaches CAM's own configuration window over the shared origin and
+    reaches a phone never — so the remote's shelf was half the collection and had
+    no way to know it. They ride the same packet now, under the same budget,
+    because they are one shelf. A shelf too big for one envelope **pages** via
+    `chunkedTele` instead of being dropped; the budget arithmetic is unit-tested
+    (`lib/libraryPacket.test.ts`) rather than observed as a packet that
+    mysteriously did not arrive.
+  - **`requestLibrary`, and it sits outside the telemetry gate (B3).**
+    `LIBRARY_REPUBLISH_MS` is **300 s**, and `tele` publishes unretained — so a
+    phone unlocked one second after a republish waited most of five minutes in
+    front of an empty shelf, with nothing on screen to say it was waiting. A cold
+    remote now ASKS the moment its transport comes up, and keeps asking on a
+    three-second beat until an answer lands, because the request is unretained
+    too and a display that was still booting never saw the first one. The
+    keepalive stays at five minutes: it is a keepalive, not the cold-start path.
+    The command is handled outside the `publishTelemetry` gate for the reason the
+    repo already gives for `requestDiag` — that toggle governs the continuous
+    stream a display volunteers about itself, and this is a person in the room
+    pressing a button; gating it would leave the library permanently blank on a
+    phone whose owner once turned telemetry off, with nothing anywhere to explain
+    why. Additive, so the protocol version stays 1.
+
+- **The shelf is live in every window, and it has one source (adversarial
+  verification of waves 1–3).** The waves were re-verified against a running
+  build rather than against their own reports, and the five gaps that survived
+  are closed here. The first one is the original complaint coming back through a
+  different door.
+
+  - **A change made in CAM reached an already-open phone in up to five minutes.**
+    The display re-announced its shelf on four triggers — boot, the
+    `LIBRARY_REPUBLISH_MS` keepalive, its own downloader, and a command from a
+    remote — and every one of them is something the DISPLAY did. A file added,
+    renamed, pinned or deleted in CAM's configuration window, the window that
+    actually owns the bytes, was none of them, and an idle remote never asks
+    (`PENDING_PULL_MS` only beats while that remote has a change of its own in
+    flight). So the phone showed a shelf that was not the Kraken's shelf, with
+    nothing on screen saying so — including tiles for rows that had been deleted,
+    which play nothing when pressed. Reloading fixed it instantly, which is the
+    shape of the bug: the cold path was right and the live path did not exist.
+    CAM already publishes both library mirrors on every write, and a
+    `localStorage` write fires a `storage` event in every other document on the
+    origin — CAM's own grid has listened for exactly that since the beginning.
+    The display listens too now, through the same `schedule()` debounce the
+    downloader uses. No protocol change, no new command, no new packet.
+  - **…and the debounced republish is `immediate`, which turned out to matter.**
+    `publishTele` throttles at 5 Hz and **drops** what lands inside the window
+    rather than queueing it, while the replica feed publishes a monitoring
+    snapshot and a panel thumbnail on that same channel continuously. A dropped
+    `videoStats` costs 200 ms of a stale counter and the next one repairs it; a
+    dropped library packet is a shelf that stays wrong until the five-minute
+    keepalive — the defect above, arriving through a third door. Found by the new
+    e2e, which failed six times out of six on a loaded machine and passed alone;
+    with `immediate` it is 12 for 12 under the same load, in about four seconds.
+    It cannot flood: the debounce already caps it at one per second.
+  - **The wire shelf and CAM's shelf had two sources of truth.**
+    `publishLibrary` built its packet from `readClipIndex()` + `readImageIndex()`
+    — the two **localStorage mirrors** — while CAM's grid built its shelf from
+    `listMedia()`, the merged IndexedDB store with its legacy fallback. Two
+    readers, two sources, nothing reconciling them: `writeRaw` degrades to an
+    in-memory map when localStorage refuses, and an in-memory mirror in one
+    window's JS context is invisible to every other window, so a row that reached
+    IndexedDB during a failed mirror write was a row the phone could never be
+    told about, permanently, with no repair path. It was reproduced, not feared.
+    `publishLibrary` reads the store now and `toMediaSummaries` takes
+    `MediaRecord`s, so the shelf on the wire is the shelf CAM is looking at by
+    construction. The mirrors keep the one job IndexedDB cannot do — telling the
+    other windows that something changed — and their key names move to
+    `platform/mediaStore` beside the library they describe. `readImageIndex()`
+    had no readers left and is gone.
+  - **CAM's own Add could not add a picture.** `accept` was
+    `video/mp4,video/webm,video/quicktime` and every file went to the video
+    ingest — on the surface that OWNS the bytes, on a page whose grid renders
+    pictures, under a **+** button labelled "Add a video or a picture", while the
+    phone's Add (on a surface that owns nothing) accepted both kinds. The only
+    routes to a picture in CAM were a URL or a transfer from a phone in the same
+    room. The picker takes `video/*,image/*` now and routes on `isPictureFile` —
+    the same predicate the LAN transfer's receiver has used since wave 3 — into
+    the same two ingests, so there is still exactly one way a byte becomes a row.
+    The sentence above the picker names both kinds, because the control does.
+  - **`surfaceName()` is deleted.** A dead export whose only caller was its own
+    unit test, with a docstring promising a `data-surface` attribute no component
+    rendered. The distinction it named is already drawn where it changes
+    behaviour (`data-owns`).
+  - **Machine-centric copy is caught by a test, not by a reading.** The remote's
+    pin button carried `title="Allow this to be cleared when the disk fills up"`
+    — "the disk" is CAM's referent, and from a sofa it names something the reader
+    cannot see or act on, which is precisely the failure A5 was written to
+    prevent. `OWNER_ONLY_TERMS` pins _imports_, so a string typed inline slipped
+    it entirely. `vocabulary.test.ts` reads the remote-rendered files themselves
+    for `MACHINE_NOUNS` now. ("Your PC" is deliberately not on that list: a
+    paired phone has a real referent for it, and says so on purpose.)
+  - **Both defects are pinned by e2e the suite structurally could not have
+    caught.** Every existing spec seeds CAM _before_ the display boots, or has
+    the display ingest for itself. `tests/e2e/library-live.spec.ts` brings the
+    display up, opens the phone, waits for it to settle on an empty shelf, and
+    only then lets CAM appear and add a clip — then deletes it and watches the
+    tile go. Both were confirmed to fail without the fix.
+
+### Changed
+
 - **The design audit's fourth round: every mechanism reaches every state it
   governs.** (Design audit round 4 — findings F1–F7 and the minors.) The audit's
   meta-finding was that each previous round installed a real mechanism and then

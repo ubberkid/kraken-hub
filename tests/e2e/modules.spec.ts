@@ -292,7 +292,16 @@ test('the image slideshow advances on its interval', async ({ page }) => {
   await page.evaluate(async (base64: string) => {
     const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('kraken-hub.v1', 3);
+      /*
+       * No version, deliberately (wave 2, C2).
+       *
+       * The seed used to name v3 and the schema is at v4, which would make this
+       * open fail outright the moment the app got there first. Opening without
+       * one means "whatever version this is" — and the point of the test is
+       * unchanged either way: the rows go into the LEGACY `images` store, so
+       * what it now also proves is that the merged library still reads them.
+       */
+      const req = indexedDB.open('kraken-hub.v1');
       // The module only opens the database lazily, so the test may get here
       // first; create the two stores it needs rather than racing the app.
       req.onupgradeneeded = () => {

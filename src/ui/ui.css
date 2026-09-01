@@ -2270,6 +2270,8 @@ main > .kh-panel .kh-setup {
   .kh-btn,
   .kh-input,
   .kh-library__head .kh-add,
+  /* The remote's own Add, which is the same control on a smaller screen. */
+  .kh-remoteadd .kh-add,
   .kh-mod,
   .kh-quiet,
   .kh-band__more,
@@ -3149,6 +3151,134 @@ main > .kh-panel .kh-setup {
  * how it is framed, what quality. Four controls with no Panel chrome, no hint
  * paragraph each and no door in front of them — a remote, not a settings mirror.
  * ========================================================================== */
+
+/*
+ * The Library, as a PEER of the transport (A3).
+ *
+ * Deliberately NOT a panel with a heading and a border: the essentials block
+ * above it is a settings card, and this is the shelf. It reuses `.kh-grid` and
+ * `.kh-tile` unchanged — the same classes CAM's Library page uses — so the two
+ * shelves are one object in the stylesheet as well as in the tile builder, and a
+ * change to a tile cannot land on one surface and not the other.
+ *
+ * The only override is the track width: a phone at 390 px fits two 11 rem tiles
+ * with nothing to spare, and a shelf you scroll from a sofa wants more of the
+ * name visible than a desktop grid does.
+ */
+.kh-remote__lib {
+  margin: 0 0 1rem;
+}
+
+.kh-remote__lib .kh-hint {
+  margin: 0.35rem 0 0;
+}
+
+.kh-grid--remote {
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  margin: 0;
+}
+
+/*
+ * The shelf's own header row: Add on the left, Select on the right.
+ *
+ * Both are controls ABOUT the shelf rather than about any one thing on it, so
+ * they sit above it in one row — the same relationship CAM's `+` has to its
+ * grid, drawn the same way.
+ */
+.kh-remote__libhead {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 0.5rem;
+}
+
+.kh-remoteadd {
+  display: grid;
+  flex: 1;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.kh-remoteadd__head {
+  display: flex;
+}
+
+/*
+ * The chosen-things bar.
+ *
+ * Sticky to the bottom of the shelf rather than floating over it: a phone's
+ * thumb is at the bottom of the screen, and a bar that covers tiles while you
+ * are choosing them is a bar that hides the thing you are choosing.
+ */
+.kh-remote__bulk {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.6rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+}
+
+.kh-remote__bulk .kh-hint {
+  flex: 1;
+  margin: 0;
+}
+
+/*
+ * The delete confirm — a card in the flow, not a modal.
+ *
+ * A modal on a phone means a scrim, a focus trap and an escape route, for a
+ * two-word question. This is the question, drawn where the shelf is, with the
+ * safe answer first and the destructive one where the thumb has to travel.
+ */
+.kh-confirm {
+  margin: 0.6rem 0 0;
+  padding: 0.7rem 0.8rem;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+}
+
+.kh-confirm__q {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+}
+
+.kh-confirm__row {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* A transfer in flight: one line, a bar, and a way out. */
+.kh-transfer {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0;
+}
+
+.kh-transfer .kh-hint {
+  margin: 0;
+}
+
+.kh-transfer[data-phase='failed'] .kh-hint {
+  color: var(--kh-warn-ink);
+}
+
+/* A tile being renamed gives its name row to the input. */
+.kh-tile__meta .kh-input {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+/* Chosen tiles read like the active one, in the shelf's own language. */
+.kh-tile[data-tile-selected='true'] {
+  outline: 2px solid var(--kh-accent, currentcolor);
+  outline-offset: -2px;
+}
 
 .kh-remote__ess {
   display: grid;

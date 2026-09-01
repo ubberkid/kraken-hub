@@ -428,7 +428,10 @@ test('the halo becomes a live corner thumb while the options are open, and comes
   page,
 }) => {
   await cam(page);
-  await page.goto('/');
+  // `?cam=1` — only the owning window mounts the real display page in its halo
+  // (wave 1, A1); everywhere else that iframe would be a second decoder on a
+  // battery, reading a database with nothing in it.
+  await page.goto('/?cam=1');
   await page.getByTestId('module-chip-clock').click();
   await expect(page.getByTestId('mirror')).toHaveAttribute('data-mirror-mode', 'live');
 
