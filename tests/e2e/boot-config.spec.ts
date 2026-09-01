@@ -55,6 +55,17 @@ test.describe('config boot', () => {
   }) => {
     await page.goto('/');
     await expect(page.getByTestId('setup-first-run')).toBeVisible();
+    /*
+     * One primary action on the band; the address behind a reveal.
+     *
+     * The card used to put four buttons on the first screen a user ever sees
+     * (design audit, F7). "Open in CAM" is the one that does the job, so it is
+     * the only one on the band — and the address, which the user needs only when
+     * that button cannot reach CAM, is one press away and still copyable.
+     */
+    await expect(page.getByTestId('setup-open-cam')).toBeVisible();
+    await expect(page.getByTestId('setup-copy-url')).toHaveCount(0);
+    await page.getByTestId('setup-reveal-address').click();
     await expect(page.getByTestId('setup-copy-url')).toBeVisible();
 
     // Evidence: exactly what the display module publishes during ordinary use.
@@ -103,6 +114,72 @@ test.describe('config boot', () => {
     // And the home screen's quiet row points at the new name.
     await page.goto('/');
     await expect(page.getByTestId('disclosure-library')).toHaveAttribute('href', '#/library');
+  });
+
+  /**
+   * About and Diagnostics were the same errand behind two doors in two type
+   * styles (design audit, F7/F8): `Remote · Library · Diagnostics` in the home
+   * screen's quiet row, and `About` alone in the footer. They are one page now,
+   * behind the footer's version line, and `#/diag` still resolves to it — in
+   * page, without a navigation (invariant I1/I2).
+   */
+  test('#/diag resolves to the merged About page without navigating', async ({ page }) => {
+    let loads = 0;
+    page.on('load', () => {
+      loads += 1;
+    });
+
+    await page.goto('/#/diag');
+
+    // Both halves are on the one page.
+    await expect(
+      page.getByRole('heading', { name: 'kraken-hub', level: 2, exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Connection', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'This browser' })).toBeVisible();
+
+    await expect.poll(() => new URL(page.url()).hash).toBe('#/about');
+    expect(loads).toBe(1);
+
+    // The home screen's quiet row is exactly two destinations, and the footer's
+    // version line is the way to this page.
+    await page.goto('/');
+    await expect(page.getByTestId('disclosure-remote')).toBeVisible();
+    await expect(page.getByTestId('disclosure-library')).toBeVisible();
+    await expect(page.getByTestId('disclosure-diag')).toHaveCount(0);
+    await expect(page.getByTestId('disclosure-about')).toHaveAttribute('href', '#/about');
+    await expect(page.getByTestId('disclosure-about')).toContainText('kraken-hub v');
+  });
+
+  /**
+   * Type: `--kh-mono` is for literal machine strings, and nothing else.
+   *
+   * It used to set the app's entire navigation row and its footer — "the single
+   * loudest way a product says 'engineered' when it meant to say 'considered'"
+   * (design audit, F8). A spot check on one of each, because the rule is only
+   * worth having if a regression fails a build rather than a review.
+   */
+  test('only machine strings are set in the code face', async ({ page }) => {
+    await page.goto('/#/about');
+
+    const face = async (selector: string): Promise<string> =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((el) => getComputedStyle(el).fontFamily);
+
+    // The install URL is a literal machine string: mono, and staying mono.
+    expect(await face('.kh-code')).toContain('monospace');
+
+    // Navigation and chrome are not.
+    for (const selector of ['.kh-footer', '.kh-footer a', '.kh-subhead__title']) {
+      expect(await face(selector)).not.toContain('monospace');
+    }
+
+    await page.goto('/');
+    for (const selector of ['.kh-more', '.kh-more a']) {
+      expect(await face(selector)).not.toContain('monospace');
+    }
   });
 
   /**
@@ -251,25 +328,235 @@ test.describe('config boot', () => {
   });
 
   /**
-   * Contextual options, in place: the inline ops line opens the module's own
-   * settings panel under the halo rather than sending anyone to a settings page
-   * — and lands on the CONTROL IT NAMES, not merely somewhere in the panel. A
-   * line that says "Format · 24 h" and then dumps you at the top of a settings
-   * card has made you do the finding twice.
+   * The ops strip resolves in place.
+   *
+   * It used to be three lines of text that LOOKED like toggles and all opened
+   * the same 1,600 px settings wall, scroll-jumping 1,363 px into it (design
+   * audit, F2). Pressing one now changes the setting where it stands, opens
+   * nothing, and moves nobody.
    */
-  test('an inline op opens the module panel and focuses the control it names', async ({ page }) => {
+  test('an inline op changes the setting where it stands, and opens nothing', async ({ page }) => {
+    // The steady state, in the window CAM actually opens: the whole
+    // composition is on screen at once, so any scroll below would be the app's
+    // doing rather than the click's scroll-into-view.
+    await page.setViewportSize({ width: 866, height: 537 });
+    await page.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
     await page.goto('/');
     await page.getByTestId('module-chip-clock').click();
-
     await expect(page.getByTestId('ops-panel')).toHaveCount(0);
-    await page.getByTestId('ops-format').click();
-    await expect(page.getByTestId('ops-panel')).toBeVisible();
-    await expect(page.getByLabel('Hour format')).toBeVisible();
-    await expect(page.locator('#clock-hour-format')).toBeFocused();
 
-    // A second op moves the focus to ITS control, in the same open panel.
-    await page.getByTestId('ops-seconds').click();
-    await expect(page.locator('#clock-seconds')).toBeFocused();
+    await page.getByTestId('home-clock-hour-format-12').click();
+    await expect(page.getByTestId('home-clock-hour-format-12')).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // The whole point: no panel, no scroll, no page.
+    await expect(page.getByTestId('ops-panel')).toHaveCount(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    await page.getByTestId('home-clock-seconds-off').click();
+    await expect(page.getByTestId('home-clock-seconds-off')).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // And it is the real setting, not a local widget state.
+    const stored = await page.evaluate(() => localStorage.getItem('kraken-hub:v1:state') ?? '');
+    expect(stored).toContain('"hourFormat":"12"');
+    expect(stored).toContain('"showSeconds":false');
+  });
+
+  /**
+   * Options are contextual: the chip that is already active IS the door.
+   *
+   * Before this there was no button anywhere in the product called Settings,
+   * Options or Edit, and `#/module/<id>` had zero inbound links (audit F1).
+   */
+  test('tapping the active chip reveals that module’s options, and hides them again', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByTestId('module-chip-clock').click();
+    const chip = page.getByTestId('module-chip-clock');
+    await expect(chip).toHaveAttribute('aria-expanded', 'false');
+
+    await chip.click();
+    await expect(page.getByTestId('ops-panel')).toBeVisible();
+    await expect(chip).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('heading', { name: 'Clock', exact: true })).toBeVisible();
+    // The halo never leaves: the panel appears UNDER the composition, it does
+    // not replace it and it does not teleport the scroll position.
+    await expect(page.getByTestId('mirror')).toBeInViewport();
+
+    await page.getByTestId('ops-close').click();
+    await expect(page.getByTestId('ops-panel')).toHaveCount(0);
+  });
+
+  /**
+   * The number the whole redesign is answerable to.
+   *
+   * Clicking `Loop Off` on the shipped build grew the home page to **2,121 px**
+   * — four screens — and jumped `window.scrollY` to 1,363, leaving the halo,
+   * the paste row and the chips off screen entirely (design audit, F2, with the
+   * measurement in `tasks.mjs`). The video panel is the biggest one there is, so
+   * it is the one the ceiling is measured on.
+   */
+  test('opening the video options keeps the halo on screen and the page under two screens', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 866, height: 537 });
+    await page.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await page.goto('/');
+
+    const before = await page.evaluate(
+      () => (document.scrollingElement ?? document.documentElement).scrollHeight,
+    );
+    await page.getByTestId('module-chip-video').click();
+    await expect(page.getByTestId('ops-panel')).toBeVisible();
+    // Wait for the panel's lazy chunk to have actually rendered its controls.
+    await expect(page.getByTestId('video-fit-cover')).toBeVisible();
+
+    // No teleport. The halo is still the thing you are looking at.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page.getByTestId('mirror')).toBeInViewport();
+
+    const after = await page.evaluate(
+      () => (document.scrollingElement ?? document.documentElement).scrollHeight,
+    );
+    expect(after).toBeGreaterThan(before);
+    expect(after).toBeLessThan(1100);
+  });
+
+  /**
+   * Loop is a scrubber with two handles, on the home screen, under the halo.
+   *
+   * It was two number fields **in seconds**, five clicks and a 1,363 px scroll
+   * away — the worst task in the app by the audit's own task-speed test, and the
+   * one control the prototype had explicitly drawn as a scrubber all along.
+   */
+  test('the Loop op opens the A/B scrubber in place, and a handle sets the loop', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 866, height: 537 });
+    await page.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await page.goto('/');
+
+    await expect(page.getByTestId('ops-loop-panel')).toHaveCount(0);
+    await page.getByTestId('ops-loop-button').click();
+    await expect(page.getByTestId('scrubber')).toBeVisible();
+    // The halo stays put — that is the entire difference from the old path.
+    await expect(page.getByTestId('mirror')).toBeInViewport();
+
+    // A handle is a real slider: keyboard-operable, and moving it turns the
+    // loop on rather than leaving it correct-but-inert behind a separate toggle.
+    await page.getByTestId('loop-handle-a').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('loop-toggle')).toHaveAttribute('aria-pressed', 'true');
+    const stored = await page.evaluate(() => localStorage.getItem('kraken-hub:v1:state') ?? '');
+    expect(stored).toContain('"enabled":true');
+
+    // And the numeric second-fields are gone from every surface.
+    await expect(page.locator('#video-loop-start')).toHaveCount(0);
+    await expect(page.locator('#video-loop-end')).toHaveCount(0);
+
+    await page.getByTestId('ops-loop-button').click();
+    await expect(page.getByTestId('ops-loop-panel')).toHaveCount(0);
+  });
+
+  /**
+   * The status line, in the present tense (design audit, F4).
+   *
+   * Two bugs in one line: `sourceName` took the last path segment, so every
+   * YouTube watch link in the world produced "Ready to play **watch**"; and the
+   * verb never left the pre-flight rung even with a full telemetry packet on
+   * the shared origin, because in the configuration browser liveness was
+   * unreachable. Both are asserted here on seeded telemetry.
+   */
+  test('the status line names the source and says what is happening now', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+      localStorage.setItem(
+        'kraken-hub:v1:state',
+        JSON.stringify({
+          schema: 2,
+          rev: 1,
+          updatedAt: Date.now(),
+          writerId: 'e2e-config',
+          writerRole: 'config',
+          activeModuleId: 'video',
+          modules: { video: { v: 1, cfg: { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' } } },
+        }),
+      );
+    });
+    await page.goto('/');
+
+    const line = page.getByTestId('status-line');
+    // Never the word "watch", which is what every YouTube URL's path ends in.
+    await expect(line).toContainText('a YouTube video');
+    await expect(line).not.toContainText('watch');
+
+    await page.evaluate(() => {
+      localStorage.setItem(
+        'kraken-hub:v1:video:tele',
+        JSON.stringify({
+          ch: 'tele',
+          kind: 'videoStats',
+          ts: Date.now(),
+          provider: 'youtube-embed',
+          display: { w: 640, h: 640, shape: 'circle', targetFps: 40 },
+          title: 'lofi hip hop radio',
+          stats: {
+            currentTime: 84,
+            durationSec: 182,
+            bufferedEnd: 182,
+            held: false,
+            loopCrossings: 0,
+            maskVisiblePct: 0,
+          },
+        }),
+      );
+    });
+
+    // Present tense, the display's own clock, and the real title.
+    await expect(line).toContainText('Playing');
+    await expect(line).toContainText('lofi hip hop radio');
+    await expect(line).toContainText('1:24 / 3:02');
+    await expect(page.locator('.kh-status__live')).toBeVisible();
+
+    // And the halo is no longer a frozen gradient: telemetry draws the arc
+    // (audit F3), over the source's own poster.
+    await expect(page.getByTestId('halo-arc')).toBeAttached();
+    await expect(page.getByTestId('halo-poster')).toBeAttached();
+  });
+
+  /**
+   * The same gesture gets the same response (design audit, F4).
+   *
+   * Pasting a YouTube link produced three step-cards; pasting an `.mp4`
+   * produced nothing at all — the primary action, answered with silence.
+   */
+  test('pasting an MP4 is acknowledged the same way a YouTube link is', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await page.goto('/');
+
+    await page.getByTestId('paste-input').fill('https://example.test/clips/dunes.mp4');
+    await page.getByTestId('paste-submit').click();
+
+    const flow = page.getByTestId('paste-flow');
+    await expect(flow).toBeVisible();
+    await expect(flow).toHaveAttribute('data-flow-stage', 'accepted');
+    await expect(flow).toContainText('Video link detected');
+    await expect(flow).toContainText('dunes.mp4');
+    await expect(flow).toContainText('On screen now');
+    // The acknowledgement is not a sales pitch.
+    await expect(flow).not.toContainText('Get the downloader');
   });
 
   /**
@@ -309,10 +596,23 @@ test.describe('config boot', () => {
     await expect(page.getByTestId('fps-banner')).toHaveCount(0);
   });
 
-  test('the module settings route renders the module panel', async ({ page }) => {
+  /**
+   * `#/module/<id>` survives as a redirect, not as a page.
+   *
+   * It was a settings screen with no inbound links and no way back. Bookmarks,
+   * doc links and forks still resolve — to home, with that module active and its
+   * options already open, which is where the content actually lives now.
+   */
+  test('the module settings route redirects home with that module’s options open', async ({
+    page,
+  }) => {
     await page.goto('/#/module/clock');
+    await expect(page.getByTestId('home')).toBeVisible();
+    await expect(page.getByTestId('module-chip-clock')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('ops-panel')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Clock', exact: true })).toBeVisible();
-    await expect(page.getByLabel('Hour format')).toBeVisible();
+    // The hash is rewritten in page — never a navigation (invariants I1/I2).
+    await expect.poll(async () => page.evaluate(() => window.location.hash)).toBe('#/');
   });
 });
 
@@ -399,7 +699,7 @@ test.describe('scrolling', () => {
     for (const id of ['status-line', 'module-chip-video', 'ops-fill'] as const) {
       await expect(page.getByTestId(id)).toBeInViewport();
     }
-    const wayDown = page.getByTestId('disclosure-diag');
+    const wayDown = page.getByTestId('disclosure-library');
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(wayDown).toBeInViewport();
     await wayDown.click({ trial: true });
@@ -441,13 +741,43 @@ test.describe('scrolling', () => {
     // The transport is reachable without scrolling — it is what the page is for.
     await expect(page.getByTestId('transport-hold')).toBeInViewport();
 
-    await page.getByTestId('more-controls').locator('summary').first().click();
+    // Any disclosure will do; what is being proved is that opening one produces
+    // a page that scrolls all the way to the footer. "More controls" used to be
+    // the one here, and it is gone (design audit, F6).
+    await page.getByTestId('pair-by-hand').locator('summary').first().click();
     const metrics = await scrollMetrics(page);
     expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
 
     await page.locator('.kh-footer').scrollIntoViewIfNeeded();
     await expect(page.locator('.kh-footer')).toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  });
+
+  /**
+   * First run must not cost you the product.
+   *
+   * The audit's F7 measured the old first-run card filling the entire 866x537
+   * CAM window: the halo, the paste field and the chips were all below the fold,
+   * behind a page of prose. The band replaces it, and the ONE thing that has to
+   * be true of it is that the object is still the first thing you see.
+   */
+  test('the first-run band never displaces the halo in a CAM-sized window', async ({ page }) => {
+    await page.setViewportSize({ width: 866, height: 537 });
+    // No `displaySeen` seeded: this is genuinely the first run.
+    await page.goto('/');
+
+    await expect(page.getByTestId('setup-first-run')).toBeVisible();
+    const halo = page.getByTestId('mirror');
+    await expect(halo).toBeInViewport();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    // Halo FIRST: the band sits under it, not on top of it.
+    const haloBox = await halo.boundingBox();
+    const bandBox = await page.getByTestId('setup-first-run').boundingBox();
+    expect(haloBox).not.toBeNull();
+    expect(bandBox).not.toBeNull();
+    expect(haloBox?.y ?? 0).toBeLessThan(bandBox?.y ?? 0);
+    // The primary action is on screen with it.
+    await expect(page.getByTestId('setup-open-cam')).toBeInViewport();
   });
 
   test('the display page stays locked to the viewport', async ({ page }) => {

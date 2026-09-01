@@ -6,7 +6,7 @@
  * the UI kit and React.
  */
 
-import { Disclosure, Field, Panel, Select, Toggle } from '../../ui';
+import { Disclosure, Field, GroupField, Panel, Segmented, Select, Toggle } from '../../ui';
 
 import {
   CLOCK_FACES,
@@ -51,20 +51,22 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
       title="Clock"
       hint="Digital or analog, with an optional date line. No network, nothing to download — and the only thing here that looks exactly right even at CAM's 1-frame-a-second default."
     >
-      <Field label="Face" htmlFor="clock-face">
-        <Select
+      <GroupField label="Face" id="clock-face">
+        <Segmented
           id="clock-face"
+          labelledBy="clock-face-label"
           value={cfg.face}
           options={CLOCK_FACES.map((f) => ({ value: f, label: FACE_LABELS[f] }))}
           onChange={(value) => {
             onChange({ ...cfg, face: asOneOf(value, CLOCK_FACES, cfg.face) });
           }}
         />
-      </Field>
+      </GroupField>
 
-      <Field label="Hour format" htmlFor="clock-hour-format">
-        <Select
+      <GroupField label="Hours" id="clock-hour-format">
+        <Segmented
           id="clock-hour-format"
+          labelledBy="clock-hour-format-label"
           value={cfg.hourFormat}
           options={CLOCK_HOUR_FORMATS.map((f) => ({ value: f, label: HOUR_LABELS[f] }))}
           onChange={(value) => {
@@ -74,7 +76,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             });
           }}
         />
-      </Field>
+      </GroupField>
 
       <Field
         label="Show seconds"

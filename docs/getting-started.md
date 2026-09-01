@@ -60,10 +60,12 @@ community integration uses.
 option → paste the URL → _Apply_.**
 
 If you opened kraken-hub in an ordinary browser first, the page does this for
-you: until a Kraken has ever connected, an **Add kraken-hub to CAM** card sits at
-the top of the home screen with the frame-rate step, this page's own address, and
-one-click _Open in CAM_ buttons. It disappears for good the first time the
-display actually reports in, and afterwards lives quietly under **About**.
+you: until a Kraken has ever connected, a slim band sits under the halo on the
+home screen with the frame-rate step and one **Open in CAM** button. _Show the
+address_ on that band reveals this page's own URL, a copy button, the CAM Beta
+channel and whether CAM is what is showing the page. The band disappears for good
+the first time the display actually reports in, and the full two-step card lives
+on afterwards under **About** — the version line in the footer.
 
 ```
 https://ubberkid.github.io/kraken-hub/
@@ -150,7 +152,8 @@ it reports what is genuinely playing, from the display's own telemetry.
 
 ## Step 4 — pair your phone (optional)
 
-Open **Remote** from the row under the halo, and scan the QR on the pairing card
+Open **Remote** from the row under the halo — it and **Library** are the only
+two entries there — and scan the QR on the pairing card
 with your phone's camera.
 
 ![The phone remote](assets/remote.png)
@@ -161,7 +164,7 @@ never touches a public broker. The layout is identical on a real one.</sub>
 - **There is nothing to type.** The QR is a link that carries the room code, so
   the phone opens the remote and joins before the card first paints. It stays
   paired afterwards, and a bookmark works too. To unpair, use **Forget this
-  Kraken** under _Pairing options_.
+  Kraken** under _Pairing options_ on the pairing card.
 - The code is **eight characters of Crockford base32** — no I, L, O or U, so
   nothing is ambiguous read off a screen. You can still type it into
   **Room code → Join** if the camera route is not available.
@@ -247,8 +250,9 @@ a bug report you want somebody else to reproduce exactly.
 
 Pages deploys continuously, so there is nothing to update: the next time CAM
 loads the page you have the current build. To force it now, toggle the card off
-and on in CAM. The version footer on every configuration page names the exact
-build you are looking at — quote it in bug reports.
+and on in CAM. The version line in the footer of every configuration page names
+the exact build you are looking at — quote it in bug reports. It is also the link
+to the About page, which carries the diagnostics.
 
 ## Removing everything
 

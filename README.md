@@ -213,10 +213,10 @@ and can be locked with `--token`. The full posture, and the reasoning, is in
 Every image here is generated from the built app by `npm run capture` — nothing
 is a mockup, and nothing is hand-cropped.
 
-|                                                               |                                                                             |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| ![The configuration UI](docs/assets/config-ui.png)            | ![The diagnostics page](docs/assets/diag.png)                               |
-| The configuration UI, as CAM's Configuration Browser opens it | Diagnostics — the way to get a report off a panel you cannot copy text from |
+|                                                               |                                                                                     |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| ![The configuration UI](docs/assets/config-ui.png)            | ![The diagnostics page](docs/assets/diag.png)                                       |
+| The configuration UI, as CAM's Configuration Browser opens it | About & diagnostics — the way to get a report off a panel you cannot copy text from |
 
 <img src="docs/assets/remote.png" alt="The phone remote, paired" width="300">
 
@@ -294,22 +294,23 @@ npm run capture    # regenerate every screenshot in docs/assets/
 The app ships a hardware simulator, so every panel size, shape and frame rate is
 reachable from an ordinary browser tab. Start `npm run dev`, then open:
 
-| URL                                             | What it gives you                                            |
-| ----------------------------------------------- | ------------------------------------------------------------ |
-| `/`                                             | the configuration UI, exactly as CAM's browser sees it       |
-| `/?kraken=1&sim=elite`                          | the display, as the LCD sees it: 640 round at 40 FPS         |
-| `/?kraken=1&sim=z`                              | Kraken Z — 320 round, and CAM's 1 FPS ceiling                |
-| `/?kraken=1&sim=kraken2023`                     | Kraken (2023) — 240 square, no round mask                    |
-| `/?kraken=1&sim=elite&fps=1`                    | what a user who never touched the CAM slider actually sees   |
-| `/?kraken=1&sim=elite&inject=late`              | CAM injecting `window.nzxt` 1.5 s after the page booted      |
-| `/?kraken=1&sim=elite&monitor=missing`          | the 1 Hz feed with fields rotating in and out of `undefined` |
-| `/?kraken=1&sim=elite&module=clock&face=analog` | the Clock module's analog face                               |
-| `/?kraken=1&sim=elite&module=stats&layout=grid` | System stats in the compact grid layout                      |
-| `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                    |
-| `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)    |
-| `/#/library`                                    | your library: one grid of clips and pictures, plus the quota |
-| `/#/remote`                                     | the phone remote, at whatever size the window is             |
-| `/#/diag`                                       | local probes plus the report the display published, as JSON  |
+| URL                                             | What it gives you                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `/`                                             | the configuration UI, exactly as CAM's browser sees it                                                  |
+| `/?kraken=1&sim=elite`                          | the display, as the LCD sees it: 640 round at 40 FPS                                                    |
+| `/?kraken=1&sim=z`                              | Kraken Z — 320 round, and CAM's 1 FPS ceiling                                                           |
+| `/?kraken=1&sim=kraken2023`                     | Kraken (2023) — 240 square, no round mask                                                               |
+| `/?kraken=1&sim=elite&fps=1`                    | what a user who never touched the CAM slider actually sees                                              |
+| `/?kraken=1&sim=elite&inject=late`              | CAM injecting `window.nzxt` 1.5 s after the page booted                                                 |
+| `/?kraken=1&sim=elite&monitor=missing`          | the 1 Hz feed with fields rotating in and out of `undefined`                                            |
+| `/?kraken=1&sim=elite&module=clock&face=analog` | the Clock module's analog face                                                                          |
+| `/?kraken=1&sim=elite&module=stats&layout=grid` | System stats in the compact grid layout                                                                 |
+| `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                                                               |
+| `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)                                               |
+| `/#/library`                                    | your library: one grid of clips and pictures, plus the quota                                            |
+| `/#/remote`                                     | the phone remote, at whatever size the window is                                                        |
+| `/#/about`                                      | About **and** Diagnostics: the build, Add to CAM, Connection, local probes and the display's own report |
+| `/#/diag`                                       | resolves to `/#/about` — the two pages merged                                                           |
 
 The simulator refuses to run whenever a real `window.nzxt` is present, so a
 `?sim=` left in a configured URL is inert inside CAM.

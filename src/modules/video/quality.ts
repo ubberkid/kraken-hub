@@ -266,7 +266,11 @@ export function qualityOptions(
   const list =
     levels.length > 0 ? levels : QUALITY_LADDER.map((h) => ({ height: h, label: qualityLabel(h) }));
   return [
-    { value: 'auto', label: 'Auto — let the source decide' },
+    // One word. The design audit's F9 counted 171 words living inside
+    // `<option>` elements across the config UI; the sentence that used to be
+    // here was one of them, and the row's own description already says what
+    // Auto is doing right now.
+    { value: 'auto', label: 'Auto' },
     ...[...list]
       .sort((a, b) => b.height - a.height)
       .map((l) => ({ value: String(l.height), label: l.label })),

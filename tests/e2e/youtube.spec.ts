@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { SCHEMA_VERSION } from '../../src/state/schema';
 import {
   YT_PLAYER_STATE,
   emitPlayerState,
@@ -37,7 +38,12 @@ async function seed(page: Page, cfg: VideoCfg): Promise<void> {
     [
       STATE_KEY,
       JSON.stringify({
-        schema: 2,
+        // Current schema on purpose. `perf`, `youtube.mode` and the crossfade are
+        // no longer things a user can set — the settings census retired those
+        // controls and the 5 → 6 migration retires the stored values with them.
+        // This suite drives the ENGINE, not the panel, so it seeds a document
+        // that is already current and hands the display the levers directly.
+        schema: SCHEMA_VERSION,
         rev: 1,
         updatedAt: Date.now(),
         writerId: 'e2e-config',

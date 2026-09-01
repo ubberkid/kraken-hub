@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 
 import { validateClock } from '../../../modules/clock/schema';
 import { validateImageConfig } from '../../../modules/image/schema';
-import { listModules } from '../../../modules/registry';
+import { getModule, listModules } from '../../../modules/registry';
 import { validateStatsConfig } from '../../../modules/stats/schema';
 import { videoModule } from '../../../modules/video';
 import { readClipIndex } from '../../../modules/video/local/clipStore';
@@ -11,15 +11,18 @@ import {
   readMirroredDownloads,
   type DownloadEntry,
 } from '../../../modules/video/local/downloadManager';
-import { ResolverConnectPanel } from '../../../modules/video/resolver/ResolverConnectPanel';
 import { type ValidationIssue } from '../../../modules/video/routing/validate';
 import { readTeleMirror, type TelePacket } from '../../../modules/video/telemetry/videoTelemetry';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { DEVICE_PRESETS } from '../../../platform/devicePresets';
-import { Meter, Notice } from '../../../ui';
+import { withModuleConfig } from '../../../state/selectors';
+import { Meter, Notice, Segmented } from '../../../ui';
+import { FitControl } from '../../../ui/Framing';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import {
+  TELE_FRESH_MS,
   describeFlow,
+  describeVideoStatus,
   failureLine,
   formatSeconds,
   isLowFps,
@@ -28,14 +31,18 @@ import {
   resolverHealthyFromTele,
   sourceName,
   type FlowState,
+  type Status,
 } from '../homeState';
 import { submitVideoLink } from '../pasteLink';
 
 import { CamSetupCard } from './CamSetupCard';
+import { LoopScrubber, LOOP_MAX_SEC } from './LoopScrubber';
 import { ModuleSettingsView } from './ModuleSettingsView';
+import { VideoHalo } from './VideoHalo';
 
 import type { AppState } from '../../../state/schema';
 import type { ConfigRuntime } from '../runtime';
+import type { ReactNode } from 'react';
 
 /**
  * "Your Kraken" — the home screen (docs/design/halo-prototype.html, screen 1).
@@ -51,47 +58,38 @@ import type { ConfigRuntime } from '../runtime';
  *    iframe on the same origin, sharing this page's localStorage, so an edit
  *    made below is reflected above through the production storage-event path.
  *    It is the Preview tab, promoted to the thing you always see.
- *  - **Except for video.** Two players on one origin means two decoders, twice
- *    the network and — for a YouTube embed — a second set of ads, on a page
- *    whose whole job is to watch the first one. The video mirror is therefore a
- *    stylized surface, and the truth about what is playing comes from the
- *    telemetry the display publishes to localStorage, one line below it.
+ *  - **Except for video**, which cannot run a second decoder on this origin and
+ *    shows a poster plus a live position arc instead — see `VideoHalo`.
  *  - **The advisory never guesses.** See `homeState.readDisplayFacts`: the
  *    low-frame-rate banner is drawn only on a number the DISPLAY published, not
  *    on this window's own geometry fallback.
+ *
+ * ## Options are contextual, and they resolve in place
+ *
+ * The design audit's two worst findings were both here. There was no way to
+ * click to a settings page (F1) — `#/module/<id>` had zero inbound links in the
+ * whole product — and the ops line pretended to be three quick toggles while
+ * every one of them opened the same 1,600 px wall and scroll-jumped 1,363 px
+ * into it (F2). So:
+ *
+ *  - **the active chip is the door.** Tap a chip to switch modules; tap the one
+ *    that is already active and its options appear directly underneath, in an
+ *    animated panel, without the halo leaving the screen.
+ *  - **the ops strip is real controls.** Fit is a segmented control, Loop opens
+ *    the A/B scrubber in place, and "Saved locally" is a status chip rather than
+ *    a button that was never a button. Nothing here navigates and nothing here
+ *    scrolls you anywhere.
  */
 
 /** The telemetry and download mirrors are polled at 1 Hz, as §7.5 mandates. */
 const MIRROR_POLL_MS = 1000;
-/** Older than this and the "live" dot would be a lie, so it is not drawn. */
-const TELE_FRESH_MS = 6000;
 
 /**
- * How long the inline-ops line will wait for the module panel to arrive before
- * it gives up trying to focus a control inside it.
+ * How long the options panel lingers while it collapses.
  *
- * The panels are `React.lazy`, so the element named by `focusId` does not exist
- * on the tick the disclosure opens — it exists one network round trip later, on
- * a cold cache. Polling rather than a `ref` because the target lives inside a
- * component this view does not own and must not have to know the shape of.
+ * Must be >= `--kh-dur-slow` in `ui.css`, which is what `kh-close` runs for.
  */
-const FOCUS_POLL_MS = 60;
-const FOCUS_TIMEOUT_MS = 3000;
-
-interface Op {
-  key: string;
-  label: string;
-  value: string;
-  /**
-   * The `id` of the control this line NAMES, inside the module's own panel.
-   *
-   * "Fill · Cover" that opens a settings page is a link; "Fill · Cover" that
-   * scrolls to the fill control and focuses it is the control itself, seen from
-   * a distance. The ids are the ones the panels already give their inputs, so
-   * this is a promise the panels have to keep — see the note in each panel.
-   */
-  focusId: string;
-}
+const OPS_CLOSE_MS = 500;
 
 /**
  * A localStorage mirror, rendered as React state.
@@ -118,6 +116,37 @@ function useMirror<T>(read: () => T): T {
   return value;
 }
 
+/**
+ * A media query as React state.
+ *
+ * Used for exactly one thing — the paste field's placeholder — and it has to be
+ * JavaScript because CSS cannot rewrite a `placeholder` attribute. At 390 px the
+ * long form truncated mid-word to `Paste a video link — YouTube, MP4, HI`
+ * (design audit, F11), which is worse than saying less: a hint that ends in a
+ * fragment reads as a rendering bug.
+ */
+function useNarrow(query: string): boolean {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window.matchMedia === 'function' ? window.matchMedia(query).matches : false,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const mql = window.matchMedia(query);
+    const onChange = (): void => {
+      setNarrow(mql.matches);
+    };
+    onChange();
+    mql.addEventListener('change', onChange);
+    return () => {
+      mql.removeEventListener('change', onChange);
+    };
+  }, [query]);
+  return narrow;
+}
+
+/** Matches `ui.css`'s own phone breakpoint, so the two never disagree. */
+const PHONE_QUERY = '(max-width: 700px)';
+
 /** A 1 Hz clock, so "live" can go stale on its own without a storage write. */
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now());
@@ -132,52 +161,88 @@ function useNow(): number {
   return now;
 }
 
-export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
+export function HomeView({
+  runtime,
+  openModule,
+}: {
+  runtime: ConfigRuntime;
+  /**
+   * `#/module/<id>`, resolved here rather than on a page of its own.
+   *
+   * The route survives as a redirect for bookmarks, docs and forks (see
+   * `ConfigApp`), and it lands where the options actually live now: home, with
+   * that module active and its panel open.
+   */
+  openModule?: string | undefined;
+}) {
   const state = runtime.store.getSnapshot();
   const modules = listModules();
   const activeId = state.activeModuleId;
 
   const [draft, setDraft] = useState('');
   const [issue, setIssue] = useState<ValidationIssue | null>(null);
-  const [openOps, setOpenOps] = useState(false);
-  /** The guided connect panel, opened by "Get the downloader". */
-  const [connectOpen, setConnectOpen] = useState(false);
-  /** The control the last-pressed inline op named, until it has been focused. */
-  const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  /**
+   * The contextual panel, open on arrival when a `#/module/<id>` link brought
+   * us here.
+   *
+   * A lazy initialiser rather than an effect: the panel's open-ness is React's
+   * own state, nothing outside React reads it, and setting it from an effect
+   * would be a cascading render on every mount. `ConfigApp` keeps this screen
+   * mounted across the redirect's hash rewrite (they share a `<main>` key), so
+   * the value survives `openModule` going back to `undefined` one tick later.
+   */
+  const [openOps, setOpenOps] = useState(
+    () => openModule !== undefined && openModule !== '' && getModule(openModule) !== null,
+  );
+  /**
+   * The panel's exit, which React cannot do on its own.
+   *
+   * Wave A gave the options panel a real opening spring (`@keyframes kh-open`)
+   * and then unmounted it instantly on close, so half the gesture was animated
+   * and half was a hard cut (F12). An unmount cannot be animated, so the panel
+   * stays mounted for one beat with a `--closing` modifier and the mirrored
+   * keyframes, and a timer — not `animationend` — takes it down: a timer fires
+   * whether or not the animation ran at all, which matters under
+   * `prefers-reduced-motion` and in any environment that disables animations.
+   */
+  const [closingOps, setClosingOps] = useState(false);
+  useEffect(() => {
+    if (!closingOps) return undefined;
+    const timer = setTimeout(() => {
+      setClosingOps(false);
+    }, OPS_CLOSE_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [closingOps]);
+  const showOps = (next: boolean): void => {
+    setOpenOps(next);
+    setClosingOps(!next && openOps);
+  };
+  /** The A/B scrubber, revealed under the ops strip by the Loop control. */
+  const [loopOpen, setLoopOpen] = useState(false);
   const setupDone = hasDisplayBeenSeen();
 
   /**
-   * Take the user to the control they pointed at.
+   * Make the deep-linked module the active one — the store is the external
+   * system here, which is exactly what an effect is for.
    *
-   * The disclosure opening is not the same as the answer arriving: the module
-   * panel is lazy, so the element is missing for a frame or for a whole fetch.
-   * This retries on a short interval, scrolls the control into view and focuses
-   * it, then stops — and stops regardless after `FOCUS_TIMEOUT_MS`, so a panel
-   * that failed to load never leaves a timer running.
+   * Deliberately not a dependency on `activeId`: after this has run the user is
+   * free to switch modules, and re-applying the deep link on every render would
+   * make that impossible.
    */
   useEffect(() => {
-    if (focusTarget === null) return undefined;
-    const started = Date.now();
-    const timer = setInterval(() => {
-      const el = document.getElementById(focusTarget);
-      if (el === null) {
-        if (Date.now() - started > FOCUS_TIMEOUT_MS) setFocusTarget(null);
-        return;
-      }
-      el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      el.focus({ preventScroll: true });
-      setFocusTarget(null);
-    }, FOCUS_POLL_MS);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [focusTarget]);
+    if (openModule === undefined || openModule === '') return;
+    if (getModule(openModule) === null) return;
+    runtime.store.commit((s) => ({ ...s, activeModuleId: openModule }));
+  }, [openModule, runtime]);
 
   const facts = useMirror(readDisplayFacts);
   const tele = useMirror(readTeleMirror);
   const downloads = useMirror(readMirroredDownloads);
   const clips = useMirror(readClipIndex);
   const now = useNow();
+  const narrow = useNarrow(PHONE_QUERY);
 
   const preset = DEVICE_PRESETS[pickMirrorPreset(facts)];
   // Not memoized on purpose: both are pure, cheap and derived from state the
@@ -192,8 +257,12 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
     if (outcome.accepted) setDraft('');
   };
 
-  const ops = describeOps(activeId, state);
-  const status = describeStatus({ activeId, tele, videoCfg, clipNames, now });
+  const setVideo = (patch: Partial<VideoModuleConfig>): void => {
+    runtime.store.commit((s) =>
+      withModuleConfig(s, videoModule.id, videoModule.configVersion, { ...videoCfg, ...patch }),
+    );
+  };
+
   const flow =
     activeId === videoModule.id
       ? describeFlow({
@@ -203,17 +272,33 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
         })
       : null;
 
+  const status = describeStatus({
+    activeId,
+    tele,
+    videoCfg,
+    clipNames,
+    now,
+    downloading: flow?.stage === 'downloading',
+    displaySeen: setupDone,
+  });
+
+  const fresh = tele !== null && now - tele.ts < TELE_FRESH_MS ? tele : null;
+  const liveStats = fresh?.stats;
+  const durationSec =
+    liveStats == null
+      ? null
+      : liveStats.durationSec !== null && liveStats.durationSec > 0
+        ? liveStats.durationSec
+        : liveStats.bufferedEnd > 0
+          ? liveStats.bufferedEnd
+          : null;
+  const haloProgress =
+    liveStats == null || durationSec === null
+      ? null
+      : Math.max(0, Math.min(1, liveStats.currentTime / durationSec));
+
   return (
     <section className="kh-home" data-testid="home">
-      {/*
-        First run, and only first run. Until something the DISPLAY published has
-        been seen on this origin, the install card is the most important thing
-        on the page and sits above the halo. Afterwards it lives under
-        `#/about` ("Add to CAM") and never appears here again — see
-        `displaySeen.ts` for why the trigger is evidence rather than a dismiss.
-      */}
-      {!setupDone && <CamSetupCard runtime={runtime} variant="first-run" />}
-
       {isLowFps(facts) && (
         <div className="kh-fps-banner" role="status" data-testid="fps-banner">
           Your Kraken is running at <b>{String(facts?.targetFps ?? 0)} FPS</b>, so anything that
@@ -230,7 +315,12 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
       >
         <div className="kh-halo__lcd">
           {activeId === videoModule.id ? (
-            <div className="kh-halo__surface" />
+            <VideoHalo
+              url={videoCfg.url}
+              name={status.name}
+              progress={haloProgress}
+              held={liveStats?.held === true}
+            />
           ) : (
             <iframe
               className="kh-halo__frame"
@@ -257,6 +347,21 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
         </span>
       </p>
 
+      {/*
+        First run, and only first run — BELOW the halo.
+
+        Until something the DISPLAY published has been seen on this origin, this
+        band is the most important thing on the page. It used to be a full card
+        pinned above the halo, and at CAM's real 866×537 window that meant the
+        first thing a user ever saw of kraken-hub was a page of instructions with
+        the entire product below the fold (design audit, F7). Halo first, always:
+        the band is one line and one primary action, and it never displaces the
+        object. Afterwards it lives under `#/about` ("Add to CAM") and never
+        appears here again — see `displaySeen.ts` for why the trigger is evidence
+        rather than a dismiss button.
+      */}
+      {!setupDone && <CamSetupCard runtime={runtime} variant="first-run" />}
+
       <form
         className="kh-paste"
         onSubmit={(e) => {
@@ -270,7 +375,7 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
           value={draft}
           data-testid="paste-input"
           aria-label="Paste a video link"
-          placeholder="Paste a video link — YouTube, MP4, HLS…"
+          placeholder={narrow ? 'Paste a video link' : 'Paste a video link — YouTube, MP4, HLS…'}
           onChange={(e) => {
             setDraft(e.target.value);
             setIssue(null);
@@ -287,85 +392,103 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
         </div>
       )}
 
-      {flow !== null && (
-        <DownloadFlow
-          flow={flow}
-          url={videoCfg.url}
-          onGetDownloader={() => {
-            setConnectOpen(true);
+      {flow !== null && <DownloadFlow flow={flow} url={videoCfg.url} />}
+
+      <div className="kh-mods" role="group" aria-label="What's on the screen">
+        {modules.map((m) => {
+          const active = m.id === activeId;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              className="kh-mod"
+              aria-pressed={active}
+              // Only the ACTIVE chip is a disclosure. An inactive chip switches
+              // modules and nothing else, and claiming otherwise in the
+              // accessibility tree would promise a panel that does not open.
+              aria-expanded={active ? openOps : undefined}
+              aria-controls={active ? 'kh-ops-panel' : undefined}
+              data-testid={`module-chip-${m.id}`}
+              onClick={() => {
+                if (active) {
+                  showOps(!openOps);
+                  return;
+                }
+                runtime.store.commit((s) => ({ ...s, activeModuleId: m.id }));
+                showOps(false);
+                setLoopOpen(false);
+              }}
+            >
+              {m.chipName ?? m.name}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="kh-ops" data-testid="ops-strip">
+        <OpsStrip
+          activeId={activeId}
+          state={state}
+          runtime={runtime}
+          videoCfg={videoCfg}
+          setVideo={setVideo}
+          loopOpen={loopOpen}
+          onToggleLoop={() => {
+            setLoopOpen((open) => !open);
           }}
         />
-      )}
+      </div>
 
-      {connectOpen && (
-        <div className="kh-home__connect">
-          <ResolverConnectPanel
-            resolver={videoCfg.resolver}
-            onClose={() => {
-              setConnectOpen(false);
+      {activeId === videoModule.id && loopOpen && (
+        <div className="kh-home__loop" id="ops-loop-panel" data-testid="ops-loop-panel">
+          <LoopScrubber
+            idPrefix="home"
+            max={durationSec ?? LOOP_MAX_SEC}
+            positionSec={Math.min(liveStats?.currentTime ?? 0, durationSec ?? LOOP_MAX_SEC)}
+            loop={videoCfg.loop}
+            onLoopChange={(loop) => {
+              setVideo({ loop });
             }}
           />
         </div>
       )}
 
-      <div className="kh-mods" role="group" aria-label="What's on the screen">
-        {modules.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            className="kh-mod"
-            aria-pressed={m.id === activeId}
-            data-testid={`module-chip-${m.id}`}
-            onClick={() => {
-              runtime.store.commit((s) => ({ ...s, activeModuleId: m.id }));
-              setOpenOps(false);
-            }}
-          >
-            {m.chipName ?? m.name}
-          </button>
-        ))}
-      </div>
-
-      <div className="kh-ops">
-        {ops.map((op) => (
-          <button
-            key={op.key}
-            type="button"
-            className="kh-op"
-            aria-expanded={openOps}
-            data-testid={`ops-${op.key}`}
-            onClick={() => {
-              // Always open — never a toggle. The line names a control; pressing
-              // it a second time because the panel scrolled out of view must
-              // bring the control back, not hide it.
-              setOpenOps(true);
-              setFocusTarget(op.focusId);
-            }}
-          >
-            {op.label} <b>{op.value}</b>
-          </button>
-        ))}
-      </div>
-
-      {openOps && (
-        <div className="kh-disclosure" id="kh-ops-panel" tabIndex={-1} data-testid="ops-panel">
+      {(openOps || closingOps) && (
+        <div
+          className={closingOps ? 'kh-disclosure kh-disclosure--closing' : 'kh-disclosure'}
+          id="kh-ops-panel"
+          data-testid="ops-panel"
+          // A panel on its way out is scenery: it must not take a click or a
+          // tab stop away from whatever the user pressed to dismiss it.
+          {...(closingOps ? { inert: true } : {})}
+        >
           <div className="kh-disclosure__head">
             <h2>Options</h2>
             <button
               type="button"
-              className="kh-btn"
+              className="kh-iconbtn"
               data-testid="ops-close"
+              aria-label="Close options"
               onClick={() => {
-                setOpenOps(false);
+                showOps(false);
               }}
             >
-              Done
+              <span aria-hidden="true">×</span>
             </button>
           </div>
           <ModuleSettingsView runtime={runtime} id={activeId} />
         </div>
       )}
 
+      {/*
+        Exactly two destinations (F7).
+
+        Diagnostics was the third, and it was never a destination — it was an
+        errand, and the same errand as About, which lived in a *different row* in
+        a *different type style*. Both are one page now, reached by clicking the
+        version line in the footer: the exact string a bug report asks you to
+        quote is the thing you press to get the report.
+      */}
       <nav className="kh-more" aria-label="More">
         <a href="#/remote" data-testid="disclosure-remote">
           Remote
@@ -374,13 +497,248 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
         <a href="#/library" data-testid="disclosure-library">
           Library
         </a>
-        <span aria-hidden="true">·</span>
-        <a href="#/diag" data-testid="disclosure-diag">
-          Diagnostics ⌄
-        </a>
       </nav>
     </section>
   );
+}
+
+// ---------------------------------------------------------------------------
+// The ops strip — controls, not links
+// ---------------------------------------------------------------------------
+
+/** One labelled item on the strip. The label names the thing, never the system. */
+function Op({ label, testId, children }: { label: string; testId: string; children: ReactNode }) {
+  return (
+    <span className="kh-op" data-testid={testId}>
+      <span className="kh-op__lab">{label}</span>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * What a person actually changes about the module that is on screen.
+ *
+ * Every one of these resolves where it stands. The rule the old line broke, and
+ * the reason the audit called it "a lie": a control that looks like a toggle
+ * must BE a toggle. Anything that genuinely needs a panel is reached by tapping
+ * the active chip, which is a different gesture with a different promise.
+ */
+function OpsStrip({
+  activeId,
+  state,
+  runtime,
+  videoCfg,
+  setVideo,
+  loopOpen,
+  onToggleLoop,
+}: {
+  activeId: string;
+  state: AppState;
+  runtime: ConfigRuntime;
+  videoCfg: VideoModuleConfig;
+  setVideo: (patch: Partial<VideoModuleConfig>) => void;
+  loopOpen: boolean;
+  onToggleLoop: () => void;
+}) {
+  /** Commit a module's own config, at the version the registry declares. */
+  const setModule = (id: string, cfg: unknown): void => {
+    const mod = getModule(id);
+    if (mod === null) return;
+    runtime.store.commit((s) => withModuleConfig(s, mod.id, mod.configVersion, cfg));
+  };
+
+  if (activeId === videoModule.id) {
+    const loop = videoCfg.loop;
+    const loopLabel = loop.enabled
+      ? `${formatSeconds(loop.start)} – ${loop.end === null ? 'end' : formatSeconds(loop.end)}`
+      : 'Off';
+    return (
+      <>
+        <Op label="Fit" testId="ops-fill">
+          <FitControl
+            id="home-video-fit"
+            ariaLabel="Fit"
+            value={videoCfg.render.fit}
+            onChange={(fit) => {
+              setVideo({ render: { ...videoCfg.render, fit } });
+            }}
+          />
+        </Op>
+        <span className="kh-op" data-testid="ops-loop">
+          <button
+            type="button"
+            className="kh-op__btn"
+            aria-expanded={loopOpen}
+            aria-controls="ops-loop-panel"
+            data-testid="ops-loop-button"
+            onClick={onToggleLoop}
+          >
+            <span className="kh-op__lab">Loop</span>
+            <b className="kh-tnum">{loopLabel}</b>
+          </button>
+        </span>
+        <span className="kh-op" data-testid="ops-saved">
+          {/*
+            A readout, not a control. It was styled as a button for a whole
+            release and opened a 1,600 px settings wall when pressed, which is
+            the single clearest example of the thing the audit is about.
+          */}
+          <span
+            className={
+              videoCfg.downloadMode === 'auto' ? 'kh-op__chip kh-op__chip--ok' : 'kh-op__chip'
+            }
+          >
+            {videoCfg.downloadMode === 'auto' ? 'Keeping a copy' : 'Streaming only'}
+          </span>
+        </span>
+      </>
+    );
+  }
+
+  if (activeId === 'clock') {
+    const c = validateClock(state.modules['clock']?.cfg);
+    const commit = (patch: Record<string, unknown>): void => {
+      setModule('clock', { ...c, ...patch });
+    };
+    return (
+      <>
+        <Op label="Face" testId="ops-face">
+          <Segmented
+            id="home-clock-face"
+            ariaLabel="Face"
+            value={c.face}
+            options={[
+              { value: 'digital', label: 'Digital' },
+              { value: 'analog', label: 'Analog' },
+            ]}
+            onChange={(face) => {
+              commit({ face });
+            }}
+          />
+        </Op>
+        <Op label="Hours" testId="ops-format">
+          <Segmented
+            id="home-clock-hour-format"
+            ariaLabel="Hours"
+            value={c.hourFormat}
+            options={[
+              { value: '24', label: '24' },
+              { value: '12', label: '12' },
+            ]}
+            onChange={(hourFormat) => {
+              commit({ hourFormat });
+            }}
+          />
+        </Op>
+        <Op label="Seconds" testId="ops-seconds">
+          <Segmented
+            id="home-clock-seconds"
+            ariaLabel="Seconds"
+            value={c.showSeconds ? 'on' : 'off'}
+            options={[
+              { value: 'on', label: 'On' },
+              { value: 'off', label: 'Off' },
+            ]}
+            onChange={(v) => {
+              commit({ showSeconds: v === 'on' });
+            }}
+          />
+        </Op>
+      </>
+    );
+  }
+
+  if (activeId === 'stats') {
+    const s = validateStatsConfig(state.modules['stats']?.cfg);
+    const commit = (patch: Record<string, unknown>): void => {
+      setModule('stats', { ...s, ...patch });
+    };
+    return (
+      <>
+        <Op label="Layout" testId="ops-layout">
+          <Segmented
+            id="home-stats-layout"
+            ariaLabel="Layout"
+            value={s.layout}
+            options={[
+              { value: 'single', label: 'One' },
+              { value: 'dual', label: 'Two' },
+              { value: 'grid', label: 'All' },
+            ]}
+            onChange={(layout) => {
+              commit({ layout });
+            }}
+          />
+        </Op>
+        <Op label="Degrees" testId="ops-unit">
+          <Segmented
+            id="home-stats-unit"
+            ariaLabel="Degrees"
+            value={s.unit}
+            options={[
+              { value: 'c', label: '°C' },
+              { value: 'f', label: '°F' },
+            ]}
+            onChange={(unit) => {
+              commit({ unit });
+            }}
+          />
+        </Op>
+        <Op label="Labels" testId="ops-labels">
+          <Segmented
+            id="home-stats-labels"
+            ariaLabel="Labels"
+            value={s.showLabels ? 'on' : 'off'}
+            options={[
+              { value: 'on', label: 'On' },
+              { value: 'off', label: 'Off' },
+            ]}
+            onChange={(v) => {
+              commit({ showLabels: v === 'on' });
+            }}
+          />
+        </Op>
+      </>
+    );
+  }
+
+  if (activeId === 'image') {
+    const i = validateImageConfig(state.modules['image']?.cfg);
+    return (
+      <>
+        <Op label="Fit" testId="ops-fill">
+          <FitControl
+            id="home-image-fit"
+            ariaLabel="Fit"
+            value={i.render.fit}
+            onChange={(fit) => {
+              setModule('image', { ...i, render: { ...i.render, fit } });
+            }}
+          />
+        </Op>
+        <Op label="Slideshow" testId="ops-slideshow">
+          <Segmented
+            id="home-image-slideshow"
+            ariaLabel="Slideshow"
+            value={i.slideshow.enabled ? 'on' : 'off'}
+            options={[
+              { value: 'on', label: 'On' },
+              { value: 'off', label: 'Off' },
+            ]}
+            onChange={(v) => {
+              setModule('image', {
+                ...i,
+                slideshow: { ...i.slideshow, enabled: v === 'on' },
+              });
+            }}
+          />
+        </Op>
+      </>
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -390,26 +748,24 @@ export function HomeView({ runtime }: { runtime: ConfigRuntime }) {
  * writes while it fetches: CAM's two browsers share a storage partition, so
  * this window watches a download running in the other one with zero network.
  *
- * **What this component is not allowed to do**, and got wrong once (see
- * `homeState.FlowStage`): treat a download that did not happen as a video that
- * did not play. A download is an enhancement on top of playback. Every terminal
- * state below is therefore an *outcome* — kept locally, streaming instead,
- * playing through YouTube — and the only red card in the product stays where it
- * belongs, on the display, for a link that genuinely cannot be played.
+ * **What this component is not allowed to do**, and got wrong twice:
+ *
+ *  1. Treat a download that did not happen as a video that did not play (see
+ *     `homeState.FlowStage`). Every terminal state here is an *outcome* — kept
+ *     locally, streaming instead, playing through YouTube — and the only red
+ *     card in the product stays where it belongs, on the display, for a link
+ *     that genuinely cannot be played.
+ *  2. Answer a success with a sales pitch. The audit found the first thing that
+ *     ever works — a YouTube link, playing — met by an apology and a primary
+ *     teal `Get the downloader` button. The downloader is a real differentiator
+ *     and it is still one tap away, in the module's Advanced options and in the
+ *     Library, but it is not what "it worked" looks like.
  *
  * Which entry the story is about is decided by `describeFlow`, keyed on the URL
  * that is configured RIGHT NOW. The mirror is a ring nobody prunes, so a job
  * from a link three pastes ago is not this link's story.
  */
-function DownloadFlow({
-  flow,
-  url,
-  onGetDownloader,
-}: {
-  flow: FlowState;
-  url: string;
-  onGetDownloader: () => void;
-}) {
+function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
   const { stage, entry } = flow;
   const pct = entry === null ? null : progressPct(entry);
   // Everything except an in-flight download is finished business: the video is
@@ -429,26 +785,13 @@ function DownloadFlow({
       </li>
 
       {stage === 'youtube-embed' ? (
-        <li className="kh-step kh-step--on kh-step--offer" data-testid="paste-step-downloader">
+        <li className="kh-step kh-step--on" data-testid="paste-step-downloader">
           <span className="kh-step__ic" aria-hidden="true">
-            ↓
+            ▸
           </span>
           <span className="kh-step__text">
             <b>Playing through YouTube</b>
-            <small>
-              Ads and all. A local copy needs the downloader — a small program on this PC that
-              fetches the video once and then plays it forever, ad-free.
-            </small>
-            <div className="kh-step__actions">
-              <button
-                type="button"
-                className="kh-btn kh-btn--primary"
-                data-testid="resolver-get"
-                onClick={onGetDownloader}
-              >
-                Get the downloader
-              </button>
-            </div>
+            <small>Ads and all, the way YouTube sends it.</small>
           </span>
         </li>
       ) : (
@@ -461,19 +804,17 @@ function DownloadFlow({
             ↓
           </span>
           <span className="kh-step__text">
-            <b>
-              {stage === 'stored' || stage === 'downloading'
-                ? 'Saving to your Kraken'
-                : 'Streaming from the link'}
-            </b>
+            <b>{secondHeadline(stage)}</b>
             <small>
               {stage === 'streaming'
                 ? 'This server does not allow saving a copy, so your Kraken is playing it straight from the web.'
-                : stage === 'unsaved'
-                  ? failureLine(entry)
-                  : entry === null
-                    ? ''
-                    : downloadingLine(entry, pct)}
+                : stage === 'accepted'
+                  ? 'Your Kraken picks it up straight away.'
+                  : stage === 'unsaved'
+                    ? failureLine(entry)
+                    : entry === null
+                      ? ''
+                      : downloadingLine(entry, pct)}
             </small>
             {(stage === 'downloading' || stage === 'stored') && <Meter pct={pct} />}
           </span>
@@ -491,6 +832,12 @@ function DownloadFlow({
       </li>
     </ol>
   );
+}
+
+function secondHeadline(stage: FlowState['stage']): string {
+  if (stage === 'stored' || stage === 'downloading') return 'Saving to your Kraken';
+  if (stage === 'accepted') return 'Sent to your Kraken';
+  return 'Streaming from the link';
 }
 
 /** The first step's second line before any job exists to name the file. */
@@ -547,97 +894,11 @@ function downloadingLine(entry: DownloadEntry, pct: number | null): string {
 }
 
 /**
- * The contextual line under the chips: one item per thing a user actually
- * changes about the active module. Each opens that module's full settings in
- * place, so nobody has to know a settings page exists.
- */
-function describeOps(activeId: string, state: AppState): Op[] {
-  const cfg = state.modules[activeId]?.cfg;
-  switch (activeId) {
-    case 'video': {
-      const v = validateVideoConfig(cfg);
-      const loop = v.loop.enabled
-        ? `${formatSeconds(v.loop.start)} – ${v.loop.end === null ? 'end' : formatSeconds(v.loop.end)}`
-        : 'Off';
-      return [
-        { key: 'loop', label: 'Loop', value: loop, focusId: 'video-loop-enabled' },
-        { key: 'fill', label: 'Fill ·', value: capitalize(v.render.fit), focusId: 'video-fit' },
-        {
-          key: 'saved',
-          label: 'Saved locally',
-          value: v.downloadMode === 'auto' ? '✓' : 'Off',
-          focusId: 'video-downloadmode',
-        },
-      ];
-    }
-    case 'clock': {
-      const c = validateClock(cfg);
-      return [
-        { key: 'face', label: 'Face ·', value: capitalize(c.face), focusId: 'clock-face' },
-        {
-          key: 'format',
-          label: 'Format ·',
-          value: `${c.hourFormat} h`,
-          focusId: 'clock-hour-format',
-        },
-        {
-          key: 'seconds',
-          label: 'Seconds ·',
-          value: c.showSeconds ? 'On' : 'Off',
-          focusId: 'clock-seconds',
-        },
-      ];
-    }
-    case 'stats': {
-      const s = validateStatsConfig(cfg);
-      return [
-        { key: 'layout', label: 'Layout ·', value: capitalize(s.layout), focusId: 'stats-layout' },
-        {
-          key: 'unit',
-          label: 'Unit ·',
-          value: s.unit === 'f' ? '°F' : '°C',
-          focusId: 'stats-unit',
-        },
-        {
-          key: 'labels',
-          label: 'Labels ·',
-          value: s.showLabels ? 'On' : 'Off',
-          focusId: 'stats-labels',
-        },
-      ];
-    }
-    case 'image': {
-      const i = validateImageConfig(cfg);
-      return [
-        { key: 'fill', label: 'Fill ·', value: capitalize(i.render.fit), focusId: 'image-fit' },
-        {
-          key: 'slideshow',
-          label: 'Slideshow ·',
-          value: i.slideshow.enabled ? `${String(i.slideshow.intervalSec)} s` : 'Off',
-          focusId: 'image-slideshow',
-        },
-      ];
-    }
-    default:
-      return [{ key: 'settings', label: 'Settings ·', value: 'Open', focusId: 'kh-ops-panel' }];
-  }
-}
-
-interface Status {
-  live: boolean;
-  verb: string;
-  name: string;
-  detail: string | null;
-}
-
-/**
  * The line under the halo.
  *
- * For video these are the telemetry mirror's own numbers — the display's clock,
- * not ours — and the "live" dot is drawn only while that mirror is fresh,
- * because a live dot over a stopped player is worse than no dot at all. The
- * display publishes no duration, so the total is the A-B loop's end when one is
- * set and the buffered end otherwise.
+ * Video is the interesting case and lives in `homeState.describeVideoStatus`,
+ * where it is unit-tested; everything else on the panel is a live iframe one
+ * line above, so the honest sentence is simply what it is showing.
  */
 function describeStatus(input: {
   activeId: string;
@@ -645,28 +906,27 @@ function describeStatus(input: {
   videoCfg: VideoModuleConfig;
   clipNames: ReadonlyMap<string, string>;
   now: number;
+  downloading: boolean;
+  displaySeen: boolean;
 }): Status {
-  const { activeId, tele, videoCfg, clipNames, now } = input;
-  if (activeId !== videoModule.id) {
+  if (input.activeId !== videoModule.id) {
     return {
       live: true,
       verb: 'Showing',
-      name: MODULE_LINE[activeId] ?? 'this module',
+      name: MODULE_LINE[input.activeId] ?? 'this module',
       detail: null,
     };
   }
-
-  const name = sourceName(videoCfg.url, clipNames);
-  const stats = tele !== null && now - tele.ts < TELE_FRESH_MS ? tele.stats : undefined;
-  if (stats === undefined) return { live: false, verb: 'Ready to play', name, detail: null };
-
-  const end =
-    videoCfg.loop.enabled && videoCfg.loop.end !== null ? videoCfg.loop.end : stats.bufferedEnd;
-  const detail =
-    end > 0
-      ? `${formatSeconds(stats.currentTime)} / ${formatSeconds(end)}`
-      : formatSeconds(stats.currentTime);
-  return { live: !stats.held, verb: stats.held ? 'Holding' : 'Playing', name, detail };
+  return describeVideoStatus({
+    url: input.videoCfg.url,
+    loopEnabled: input.videoCfg.loop.enabled,
+    loopEnd: input.videoCfg.loop.end,
+    tele: input.tele,
+    clipNames: input.clipNames,
+    now: input.now,
+    downloading: input.downloading,
+    displaySeen: input.displaySeen,
+  });
 }
 
 const MODULE_LINE: Readonly<Record<string, string>> = {
@@ -674,7 +934,3 @@ const MODULE_LINE: Readonly<Record<string, string>> = {
   stats: 'Stats',
   image: 'Image',
 };
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}

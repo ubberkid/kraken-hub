@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
+import { SCHEMA_VERSION } from '../../src/state/schema';
+
 /**
  * The video module end to end, with the download-first pipeline as the headline.
  *
@@ -34,7 +36,11 @@ async function seedVideoConfig(page: Page, cfg: VideoCfg): Promise<void> {
     [
       STATE_KEY,
       JSON.stringify({
-        schema: 2,
+        // Current schema on purpose: the 5 → 6 migration retires `loop.mode`
+        // and `loop.crossfadeMs`, whose controls the settings census removed.
+        // This suite drives the loop ENGINE, which still honours both, so it
+        // seeds a document that is already current.
+        schema: SCHEMA_VERSION,
         rev: 1,
         updatedAt: Date.now(),
         writerId: 'e2e-config',

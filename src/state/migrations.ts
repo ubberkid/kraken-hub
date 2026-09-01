@@ -57,13 +57,145 @@ type Migration = (s: Record<string, unknown>) => Record<string, unknown>;
  * already doing. The state version moves for the same reason as 2 → 3: a v4
  * build must stash a v5 document rather than write it back with the user's
  * pinned resolution silently removed.
+ *
+ * 5 → 6: the settings census. The design audit killed six controls outright and
+ * cut a seven-option picker to three, so this step retires the values those
+ * controls could write. It is the first step that DELETES user data, and every
+ * deletion below is a value the user can no longer reach and no longer change —
+ * leaving them stored would mean somebody's cooler kept rendering with a setting
+ * that has no control, no default and no way back. Each key is either dropped
+ * (the validator refills it from the default) or pinned to the one answer the
+ * audit named. See `docs/design` and the panel headers for the reasoning.
  */
 const MIGRATIONS: Readonly<Record<number, Migration>> = {
   1: (s) => ({ ...s, schema: 2 }),
   2: (s) => ({ ...s, schema: 3 }),
   3: (s) => renameClockLite({ ...s, schema: 4 }),
   4: (s) => ({ ...s, schema: 5 }),
+  5: (s) => settingsCensus({ ...s, schema: 6 }),
 };
+
+/**
+ * The three aspect values the shape override still offers.
+ *
+ * Written as numbers rather than imported from `modules/video/types`: this file
+ * is core state, it is on the display's critical path, and pulling the video
+ * module's whole type surface in here to compare two ratios would put it there
+ * too. The tolerance is the same one `sourceAspectKey` uses.
+ */
+const ASPECT_16_9 = 16 / 9;
+const ASPECT_9_16 = 9 / 16;
+const ASPECT_EPS = 0.005;
+
+/** A module's stored `cfg` object, or `null` when the slot is not one. */
+function moduleCfg(s: Record<string, unknown>, id: string): Record<string, unknown> | null {
+  const modules = s['modules'];
+  if (!isPlainObject(modules)) return null;
+  const slot = modules[id];
+  if (!isPlainObject(slot)) return null;
+  const cfg = slot['cfg'];
+  return isPlainObject(cfg) ? cfg : null;
+}
+
+/** Replace one module's `cfg`, leaving every other slot verbatim. */
+function withCfg(
+  s: Record<string, unknown>,
+  id: string,
+  cfg: Record<string, unknown>,
+): Record<string, unknown> {
+  const modules = s['modules'];
+  if (!isPlainObject(modules)) return s;
+  const slot = modules[id];
+  if (!isPlainObject(slot)) return s;
+  return { ...s, modules: { ...modules, [id]: { ...slot, cfg } } };
+}
+
+/** Drop `keys` from `o`, returning `o` itself when there was nothing to drop. */
+function drop(o: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  const present = keys.filter((k) => Object.hasOwn(o, k));
+  if (present.length === 0) return o;
+  const next: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (!present.includes(k)) next[k] = v;
+  }
+  return next;
+}
+
+/**
+ * 5 → 6 — what the settings census retired.
+ *
+ * Every retired key is **deleted rather than rewritten**, and the reason is that
+ * the validators already default each one to precisely the answer the audit
+ * named. `perf` defaults to `auto`, `loop.mode` to `hard`, `pauseStrategy` to
+ * `microloop`, `sourceAspect` to `auto`, `background` to black. Deleting is
+ * therefore the same outcome as pinning, with two advantages: a document that
+ * never used the control is returned untouched (so the step is a no-op for
+ * almost everybody), and there is no second copy of the default living in this
+ * file to drift away from the one in the module.
+ *
+ * **video**
+ *  - `perf` — the picture-quality picker is gone; `fpsGovernor` and the perf
+ *    promoter already choose from measured frames, and a stored
+ *    `quality`/`performance` would have overridden them forever with no visible
+ *    control saying so.
+ *  - `youtube.pauseStrategy` — the alternative calls YouTube's own pause, which
+ *    raises a grid of suggested videos *inside* the picture, where cropping
+ *    cannot reach it.
+ *  - `youtube.mode` and `youtube.portraitWidth` — compositor internals, and the
+ *    portrait-width control's own help text admitted its alternative was
+ *    unverified on hardware.
+ *  - `youtube.sourceAspect` — only when it is one of the four exotic ratios
+ *    (4:3, 1:1, 21:9, 2.39:1) the three-segment override can no longer show. A
+ *    value with no segment leaves the control displaying nothing selected.
+ *  - `loop.mode` and `loop.crossfadeMs` — the crossfade already switched itself
+ *    off under load, and cost a second video decoder when it did not.
+ *
+ * **image**
+ *  - `background` — a free-form hex field for the strip around a picture, on a
+ *    device whose bezel is black.
+ */
+function settingsCensus(s: Record<string, unknown>): Record<string, unknown> {
+  let next = s;
+
+  const video = moduleCfg(next, 'video');
+  if (video !== null) {
+    let cfg = drop(video, ['perf']);
+
+    const loop = cfg['loop'];
+    if (isPlainObject(loop)) {
+      const trimmed = drop(loop, ['mode', 'crossfadeMs']);
+      if (trimmed !== loop) cfg = { ...cfg, loop: trimmed };
+    }
+
+    const yt = cfg['youtube'];
+    if (isPlainObject(yt)) {
+      const aspect = yt['sourceAspect'];
+      const showable =
+        !Object.hasOwn(yt, 'sourceAspect') ||
+        aspect === 'auto' ||
+        (typeof aspect === 'number' &&
+          (Math.abs(aspect - ASPECT_16_9) < ASPECT_EPS ||
+            Math.abs(aspect - ASPECT_9_16) < ASPECT_EPS));
+      const trimmed = drop(yt, [
+        'mode',
+        'portraitWidth',
+        'pauseStrategy',
+        ...(showable ? [] : ['sourceAspect']),
+      ]);
+      if (trimmed !== yt) cfg = { ...cfg, youtube: trimmed };
+    }
+
+    if (cfg !== video) next = withCfg(next, 'video', cfg);
+  }
+
+  const image = moduleCfg(next, 'image');
+  if (image !== null) {
+    const trimmed = drop(image, ['background']);
+    if (trimmed !== image) next = withCfg(next, 'image', trimmed);
+  }
+
+  return next;
+}
 
 const LEGACY_CLOCK_ID = 'clock-lite';
 const CLOCK_ID = 'clock';

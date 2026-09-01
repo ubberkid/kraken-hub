@@ -102,3 +102,77 @@ describe('migrate', () => {
     expect(twice.raw).toEqual(once.raw);
   });
 });
+
+/**
+ * 5 → 6, the settings census.
+ *
+ * The design audit killed six controls and cut a seven-option picker to three.
+ * A stored value with no control is worse than no value at all: it keeps
+ * changing what the cooler renders with nothing on screen able to change it
+ * back. Every key below is DELETED so the module's own validator refills it
+ * with the default the audit named.
+ */
+describe('migrate 5 → 6 — the settings census', () => {
+  function v5(cfg: Record<string, unknown>, id = 'video') {
+    return { schema: 5, activeModuleId: id, modules: { [id]: { v: 2, cfg } } };
+  }
+
+  function cfgOf(result: ReturnType<typeof migrate>, id = 'video'): Record<string, unknown> {
+    const raw = result.raw as { modules: Record<string, { cfg: Record<string, unknown> }> };
+    return raw.modules[id]?.cfg ?? {};
+  }
+
+  it('retires every control the census killed', () => {
+    const out = cfgOf(
+      migrate(
+        v5({
+          url: 'https://example.test/a.mp4',
+          perf: 'performance',
+          loop: { enabled: true, start: 18, end: 42, mode: 'crossfade', crossfadeMs: 400 },
+          youtube: {
+            sourceAspect: 'auto',
+            mode: 'tight',
+            portraitWidth: 1440,
+            pauseStrategy: 'maskedPause',
+            maskColor: '#000000',
+          },
+        }),
+      ),
+    );
+
+    expect(out['perf']).toBeUndefined();
+    expect(out['loop']).toEqual({ enabled: true, start: 18, end: 42 });
+    expect(out['youtube']).toEqual({ sourceAspect: 'auto', maskColor: '#000000' });
+    // The link itself is never touched. This step retires controls, not content.
+    expect(out['url']).toBe('https://example.test/a.mp4');
+  });
+
+  it('collapses an aspect the three-segment override cannot show', () => {
+    // 4:3 — one of the four exotic ratios the picker no longer offers. Leaving
+    // it stored would render the control with nothing selected.
+    const out = cfgOf(migrate(v5({ youtube: { sourceAspect: 4 / 3 } })));
+    expect((out['youtube'] as Record<string, unknown>)['sourceAspect']).toBeUndefined();
+  });
+
+  it('keeps the two ratios the override still offers, and keeps auto', () => {
+    for (const aspect of ['auto', 16 / 9, 9 / 16] as const) {
+      const out = cfgOf(migrate(v5({ youtube: { sourceAspect: aspect } })));
+      expect((out['youtube'] as Record<string, unknown>)['sourceAspect']).toBe(aspect);
+    }
+  });
+
+  it('drops the image module’s background colour field', () => {
+    const out = cfgOf(migrate(v5({ url: 'x', background: '#112233' }, 'image')), 'image');
+    expect(out).toEqual({ url: 'x' });
+  });
+
+  it('leaves a document that never used any of them completely untouched', () => {
+    const doc = v5({ url: 'x', loop: { enabled: false, start: 0, end: null } });
+    expect(migrate(doc).raw).toEqual({ ...doc, schema: SCHEMA_VERSION });
+  });
+
+  it('survives a document whose module slots are nonsense', () => {
+    expect(migrate({ schema: 5, modules: { video: 7, image: null } }).notes).toEqual([]);
+    expect(migrate({ schema: 5, modules: 'nope' }).notes).toEqual([]);
+  });
+});

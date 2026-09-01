@@ -129,13 +129,21 @@ export function formatSeconds(sec: number | null | undefined): string {
  *  - `unsaved` — something else went wrong while keeping the copy (a 500, no
  *    room on disk). Still not an error card: the display's own fallback chain
  *    has already put something on the panel or shown its own card.
+ *  - `accepted` — the link is recognised and configured, and nothing has told us
+ *    anything else yet. This is the state a pasted `.mp4` was in for the whole
+ *    of the design audit, and it said NOTHING: the same gesture that produced
+ *    three cards for a YouTube link produced a blank page for a direct file
+ *    (F4). Silence after the primary action is the app's single worst moment,
+ *    so the acknowledgement is unconditional now and the *contents* of the
+ *    second card are what vary by source.
  *
  * The regression this type exists to prevent: the redesign rendered a browser
  * `TypeError` ("Failed to fetch") as the second step's copy for `streaming`, for
  * the FIRST entry in a mirror nobody prunes — so one CORS-less link left every
  * later paste, YouTube included, looking broken.
  */
-export type FlowStage = 'downloading' | 'stored' | 'streaming' | 'unsaved' | 'youtube-embed';
+export type FlowStage =
+  'downloading' | 'stored' | 'streaming' | 'unsaved' | 'youtube-embed' | 'accepted';
 
 export interface FlowState {
   stage: FlowStage;
@@ -202,6 +210,9 @@ export function describeFlow(input: {
   if (!input.resolverHealthy && detect(url).provider === 'youtube-embed') {
     return { stage: 'youtube-embed', entry: null };
   }
+  // Everything else that is a recognisable video link: acknowledged in the same
+  // shape, with the same three cards, because it was the same gesture.
+  if (detect(url).provider !== null) return { stage: 'accepted', entry: null };
   return null;
 }
 
@@ -233,23 +244,144 @@ export function failureLine(entry: DownloadEntry | null): string {
 }
 
 /**
+ * What the app calls each source before anything has told it a real title.
+ *
+ * Not provider jargon and not an adapter id — the name of the site the user
+ * came from, in the shape of an English noun phrase, so the status line reads
+ * "Playing **a YouTube video**" rather than "Ready to play **watch**".
+ */
+const PROVIDER_NAME: Readonly<Record<string, string>> = {
+  'youtube-embed': 'a YouTube video',
+  vimeo: 'a Vimeo video',
+  twitch: 'a Twitch stream',
+  streamable: 'a Streamable clip',
+  reddit: 'a Reddit video',
+  resolver: 'a downloaded copy',
+  'local-file': 'a local clip',
+  hls: 'a live stream',
+  dash: 'a stream',
+};
+
+/** A last path segment worth showing: `sunset.mp4`, never `watch` or `dQw4…`. */
+const FILENAME_RE = /^[^/]+\.[a-z0-9]{2,5}$/i;
+
+/**
  * A human name for whatever is playing, without a network round trip.
  *
- * Local clips are named by the published clip index; a remote URL is named by
- * its last path segment, which is what a user recognises. Never the raw URL: it
- * can be 2 kB of signed query string.
+ * Three sources, best first:
+ *
+ *  1. **A real title**, when telemetry carries one. The display is the only peer
+ *     that has ever talked to the player, so if it learned the video's name that
+ *     name beats every guess below.
+ *  2. **The clip index**, for a local clip — the file the user themselves named.
+ *  3. **The detected provider**, for everything else.
+ *
+ * The last path segment is used only when it actually looks like a filename.
+ * That rule is the whole of design-audit finding F4: `sourceName` used to take
+ * the last segment unconditionally, and *every YouTube watch link in the world*
+ * ends in `/watch`, so the app's most common action was answered with the word
+ * "watch". A Shorts link produced the raw video id. Never the raw URL either —
+ * it can be 2 kB of signed query string.
  */
-export function sourceName(url: string, clipNames: ReadonlyMap<string, string>): string {
+export function sourceName(
+  url: string,
+  clipNames: ReadonlyMap<string, string>,
+  title?: string | null,
+): string {
   const trimmed = url.trim();
   if (trimmed === '') return 'the demo clip';
   const clipId = LOCAL_CLIP_RE.exec(trimmed)?.[1];
   if (clipId !== undefined) return clipNames.get(clipId) ?? 'a local clip';
+  if (typeof title === 'string' && title.trim() !== '') return title.trim();
+
+  const provider = detect(trimmed).provider;
+  const named = provider === null ? undefined : PROVIDER_NAME[provider];
+  if (named !== undefined) return named;
+
   try {
     const parsed = new URL(trimmed);
     const last = parsed.pathname.split('/').filter(Boolean).pop();
-    if (last !== undefined && last.length > 0) return decodeURIComponent(last);
+    if (last !== undefined && FILENAME_RE.test(last)) return decodeURIComponent(last);
     return parsed.hostname;
   } catch {
     return trimmed;
   }
+}
+
+// ---------------------------------------------------------------------------
+// The status line
+// ---------------------------------------------------------------------------
+
+/** Older than this and the "live" dot would be a lie, so it is not drawn. */
+export const TELE_FRESH_MS = 6000;
+
+export interface Status {
+  live: boolean;
+  verb: string;
+  name: string;
+  detail: string | null;
+}
+
+export interface VideoStatusInput {
+  url: string;
+  loopEnabled: boolean;
+  loopEnd: number | null;
+  tele: { ts: number; stats?: TeleStats; title?: string | null } | null;
+  clipNames: ReadonlyMap<string, string>;
+  now: number;
+  /** True while a download for this exact link is in flight. */
+  downloading: boolean;
+  /** Has a display ever published anything on this origin? */
+  displaySeen: boolean;
+}
+
+interface TeleStats {
+  currentTime: number;
+  bufferedEnd: number;
+  held: boolean;
+}
+
+/**
+ * The line under the halo, in the present tense (design audit, F4).
+ *
+ * The old ladder had one rung — "Ready to play" — and it never left it in the
+ * configuration browser, because liveness required `tele.stats` from a running
+ * display and the audit's seeded telemetry never satisfied it. So the app spent
+ * its whole life describing something it was *about* to do.
+ *
+ * The rungs now, in order, each one a claim the app can actually support:
+ *
+ *  - **Playing / Holding** — telemetry is fresh. This is the display's own
+ *    clock, not ours, and `Holding` is what the video engine calls a pause it
+ *    performs without YouTube's overlay.
+ *  - **Downloading** — a job for this exact link is in flight in the other
+ *    window. The bytes are moving whether or not telemetry is.
+ *  - **Playing / Streaming** — a source is configured and a display has been
+ *    seen on this origin. A local clip plays; a link streams.
+ *  - **Ready to play** — and only here. Nothing is configured, or no display has
+ *    ever connected, which is the one case where nothing is genuinely happening.
+ */
+export function describeVideoStatus(input: VideoStatusInput): Status {
+  const { tele, now } = input;
+  const stats = tele !== null && now - tele.ts < TELE_FRESH_MS ? tele.stats : undefined;
+  const name = sourceName(input.url, input.clipNames, tele?.title);
+
+  if (stats !== undefined) {
+    const end = input.loopEnabled && input.loopEnd !== null ? input.loopEnd : stats.bufferedEnd;
+    const detail =
+      end > 0
+        ? `${formatSeconds(stats.currentTime)} / ${formatSeconds(end)}`
+        : formatSeconds(stats.currentTime);
+    return { live: !stats.held, verb: stats.held ? 'Holding' : 'Playing', name, detail };
+  }
+
+  if (input.downloading) return { live: false, verb: 'Downloading', name, detail: null };
+
+  const configured = input.url.trim() !== '';
+  if (configured && input.displaySeen) {
+    const local = LOCAL_CLIP_RE.test(input.url.trim());
+    return { live: false, verb: local ? 'Playing' : 'Streaming', name, detail: null };
+  }
+
+  return { live: false, verb: 'Ready to play', name, detail: null };
 }

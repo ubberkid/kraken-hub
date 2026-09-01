@@ -10,8 +10,17 @@
  * The prototype loads Schibsted Grotesk / Spline Sans Mono to make a design
  * document look like one; the shipped app loads no webfont at all, because a
  * font request is a network dependency on a page that must work offline, and
- * because native-feeling apps use the system face. `--kh-mono` is used only for
- * code-ish accents (the install URL, room codes, quiet labels).
+ * because native-feeling apps use the system face.
+ *
+ * `--kh-mono` is used for LITERAL MACHINE STRINGS and nothing else: the install
+ * URL and the JSON blocks (`.kh-code`) and the room code (`.kh-roomcard__code`).
+ * It used to set the navigation row, the footer, the `OPTIONS` header, the tile
+ * badges, the scrubber's times and the A/B handle labels — eight places, of
+ * which two were the app's own navigation. Setting navigation in a code font is
+ * the single loudest way a product says "engineered" when it meant to say
+ * "considered" (design audit, F8). Numbers that need to line up use
+ * `.kh-tnum` — `font-variant-numeric: tabular-nums` in the system face — which
+ * is what tabular figures are for.
  *
  * Invariant I8: the display page must never import src/ui. Everything here is
  * sized for a mouse and a real browser window, not for a 640 px LCD.
@@ -47,6 +56,18 @@ html.kh-config-mode body {
   min-height: 100%;
   overflow: visible;
   overscroll-behavior: auto;
+  /*
+   * The ground, painted on `html` as well as on `.kh-app`.
+   *
+   * index.html's critical CSS paints `html` BLACK, which is right for the LCD
+   * and wrong here: `.kh-app` is `#0C1017`, so anything the app does not cover
+   * — the strip above the content while a long page scrolls, an overscroll
+   * rubber-band — showed as a black band against a near-black page (F12). The
+   * literal is repeated rather than read from `--kh-ground`, because that token
+   * is declared on `.kh-app`, which is a DESCENDANT of these two: a custom
+   * property cannot travel upwards.
+   */
+  background: #0c1017;
 }
 
 html.kh-config-mode #root {
@@ -257,8 +278,21 @@ html.kh-config-mode .kh-app {
   border-top: 0;
 }
 
-.kh-field > label {
+.kh-field > label,
+.kh-field > .kh-field__lab {
   font-size: 0.88rem;
+}
+
+/*
+ * The house body-copy size. Scoped to `.kh-field` for years, which meant a
+ * `.kh-desc` used anywhere else — the downloader's lede inside the Advanced
+ * door — rendered at full paragraph size and shouted.
+ */
+.kh-desc {
+  margin: 0.15rem 0 0;
+  color: var(--kh-muted-2);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .kh-field .kh-desc {
@@ -386,14 +420,15 @@ html.kh-config-mode .kh-app {
   border-top: 1px solid var(--kh-line-soft);
   padding-top: 0.75rem;
   color: var(--kh-muted-3);
-  font-family: var(--kh-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
+  /* The system face, not `--kh-mono`: this is a line of prose with a version
+     number in it, and it is now the LINK to About/Diagnostics (F7/F8). */
+  font-size: 0.74rem;
 }
 
 .kh-footer a {
-  color: var(--kh-muted-2);
+  color: var(--kh-muted-3);
   text-decoration: none;
+  transition: color var(--kh-dur) var(--kh-ease);
 }
 
 .kh-footer a:hover {
@@ -673,6 +708,33 @@ html.kh-config-mode .kh-app {
   .kh-home {
     --kh-halo-size: 184;
     --kh-halo-inner: 170;
+
+    /*
+     * Vertically balanced, rather than stacked at the top with ~450 px of dead
+     * space under it (design audit, F11). `<main>` is the `1fr` row of
+     * `.kh-shell`'s grid, so on a tall phone it is already much taller than its
+     * content; centring inside it is what turns that surplus into margin at both
+     * ends instead of a hole at the bottom.
+     */
+    justify-content: center;
+    min-height: 100%;
+    padding: 0.75rem 0;
+  }
+
+  /* Breathing room: four chips edge-to-edge on a 390 px screen read as a
+     segmented control, which is not what they are. */
+  .kh-mods {
+    gap: 10px 12px;
+    padding: 0 0.25rem;
+  }
+
+  /*
+   * The long placeholder is swapped for a short one in `HomeView` (CSS cannot
+   * rewrite an attribute), and this is the belt to that pair of braces: any
+   * placeholder that still overflows ends in an ellipsis rather than mid-word.
+   */
+  .kh-paste__input {
+    text-overflow: ellipsis;
   }
 }
 
@@ -815,9 +877,10 @@ html.kh-config-mode .kh-app {
  *
  * The mirror deliberately does NOT run a second player: two YouTube embeds or
  * two decoders on one origin is double the work, double the network and — for
- * an embed — a second set of ads. The surface below is a stylized playing
- * field; the truth about what is on the LCD comes from the telemetry mirror in
- * the status line under it.
+ * an embed — a second set of ads. But it stopped being ONLY this gradient: the
+ * poster, the stored clip's thumbnail and the live position arc sit on top of
+ * it (`views/VideoHalo.tsx`), because the audit's F3 is that the one module the
+ * product exists for was the one module whose mirror showed nothing true.
  */
 .kh-halo__surface {
   position: absolute;
@@ -832,6 +895,56 @@ html.kh-config-mode .kh-app {
   to {
     transform: scale(1.25) rotate(6deg);
   }
+}
+
+/* The poster: a YouTube still, or the stored clip's own 320 px thumbnail. */
+.kh-halo__still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * No poster and no cheap first frame — a direct file, an HLS manifest. A card
+ * carrying the source's NAME, treated so it reads as deliberate rather than as
+ * a failed image load.
+ */
+.kh-halo__card {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18%;
+  text-align: center;
+}
+
+.kh-halo__card-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--kh-ink-2);
+  text-shadow: 0 1px 10px rgb(0 0 0 / 70%);
+  overflow-wrap: anywhere;
+}
+
+/* The position arc, on the same geometry as the remote's ring (`views/arc.ts`). */
+.kh-halo__arc {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.kh-halo__arc path {
+  stroke: var(--kh-accent);
+  opacity: 0.95;
+}
+
+.kh-halo__arc[data-held='true'] path {
+  stroke: var(--kh-muted);
 }
 
 /* ---- status line -------------------------------------------------------- */
@@ -1109,23 +1222,44 @@ html.kh-config-mode .kh-app {
   color: var(--kh-accent-ink);
 }
 
-/* ---- contextual options, in place --------------------------------------- */
+/* ---- contextual options, in place ---------------------------------------
+ *
+ * The strip under the chips is REAL CONTROLS now. It used to be three lines of
+ * text that looked like toggles and all opened the same 1,600 px settings wall,
+ * scroll-jumping 1,363 px into it (design audit, F2). Fit is a segmented
+ * control, Loop opens the A/B scrubber in place, and "Saved locally" is a
+ * readout. Nothing on this strip navigates.
+ * ------------------------------------------------------------------------- */
 .kh-ops {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 8px 16px;
+  align-items: center;
   justify-content: center;
-  margin-top: 16px;
-  font-size: 0.78rem;
+  margin-top: 14px;
+  font-size: 0.74rem;
   color: var(--kh-muted-2);
 }
 
 .kh-op {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.kh-op__lab {
+  color: var(--kh-muted-2);
+  white-space: nowrap;
+}
+
+/* Loop: the one item on the strip that opens something, so it looks like it. */
+.kh-op__btn {
   appearance: none;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
   background: none;
   border: 0;
-  /* The prototype's `#34405230` — a hint that the line is touchable, not a
-     dotted rule under every word. At 60% it read as a loud underline. */
   border-bottom: 1px dashed rgb(52 64 82 / 19%);
   border-radius: 0;
   padding: 0 0 2px;
@@ -1138,33 +1272,106 @@ html.kh-config-mode .kh-app {
     border-color var(--kh-dur) var(--kh-ease);
 }
 
-.kh-op:hover {
+.kh-op__btn:hover {
   color: var(--kh-ink-2);
   border-bottom-color: var(--kh-accent-line);
 }
 
-.kh-op:active {
+.kh-op__btn:active {
   transform: scale(0.96);
 }
 
-.kh-op b {
+.kh-op__btn b {
   color: var(--kh-ink-2);
   font-weight: 600;
 }
 
-.kh-op[aria-expanded='true'] {
+.kh-op__btn[aria-expanded='true'],
+.kh-op__btn[aria-expanded='true'] b {
   color: var(--kh-accent-ink);
   border-bottom-color: var(--kh-accent-line);
 }
 
-.kh-op[aria-expanded='true'] b {
+/* A status readout. Deliberately not shaped like anything you can press. */
+.kh-op__chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--kh-r-chip);
+  border: 1px solid var(--kh-line);
+  background: var(--kh-panel);
+  color: var(--kh-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.kh-op__chip--ok {
+  color: var(--kh-ok);
+  border-color: color-mix(in srgb, var(--kh-ok) 40%, transparent);
+}
+
+/* The A/B scrubber, revealed under the strip rather than on another page. */
+.kh-home__loop {
+  width: 100%;
+  max-width: 27rem;
+  margin: 12px auto 0;
+  animation: kh-rise var(--kh-dur) var(--kh-ease);
+}
+
+/* ---- segmented controls -------------------------------------------------
+ *
+ * The shape a short exclusive choice actually has. Replaces the `<select>`s
+ * whose options were sentences — 171 words of them (design audit, F9).
+ * ------------------------------------------------------------------------- */
+.kh-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-input);
+}
+
+.kh-seg__opt {
+  appearance: none;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  border-radius: calc(var(--kh-r-input) - 3px);
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--kh-muted);
+  white-space: nowrap;
+  transition:
+    color var(--kh-dur) var(--kh-ease),
+    background var(--kh-dur) var(--kh-ease);
+}
+
+.kh-seg__opt:hover {
+  color: var(--kh-ink);
+}
+
+.kh-seg__opt[aria-checked='true'] {
+  background: var(--kh-accent-bg);
   color: var(--kh-accent-ink);
+  box-shadow: inset 0 0 0 1px var(--kh-accent-line);
+}
+
+.kh-ops .kh-seg__opt {
+  padding: 3px 8px;
+  font-size: 0.74rem;
 }
 
 /*
- * The disclosure. The module's existing settings panel is rendered inside it
- * unchanged — stage 2 reskins the panels themselves; this frame only has to
- * hold them without looking borrowed.
+ * The contextual options panel.
+ *
+ * Opened by pressing the module chip that is already active — the audit's F1
+ * fix, because before it there was no button in the whole product called
+ * Settings, Options or Edit. It sits directly under the chips so the halo never
+ * leaves the screen, and it GROWS on the app's own spring rather than appearing
+ * instantly and teleporting the scroll position (F2, F12).
  */
 .kh-disclosure {
   width: 100%;
@@ -1174,29 +1381,103 @@ html.kh-config-mode .kh-app {
   background: var(--kh-panel-2);
   border: 1px solid var(--kh-line);
   border-radius: var(--kh-r-panel);
-  animation: kh-rise var(--kh-dur) var(--kh-ease);
+  animation: kh-open var(--kh-dur-slow) var(--kh-ease);
+  transform-origin: top center;
+}
+
+@keyframes kh-open {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * …and the way back out.
+ *
+ * A panel that grows on a spring and then vanishes on a hard cut is half a
+ * gesture (F12). React cannot animate an unmount, so `HomeView` keeps the node
+ * mounted for one beat with this modifier and takes it down on a timer.
+ */
+.kh-disclosure--closing {
+  animation: kh-close var(--kh-dur-slow) var(--kh-ease) forwards;
+  pointer-events: none;
+}
+
+@keyframes kh-close {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.94);
+  }
 }
 
 .kh-disclosure__head {
   display: flex;
   gap: 0.75rem;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   margin: 0 0 0.75rem;
 }
 
+/* Not `OPTIONS` in a code font any more: this is a word, not a machine string. */
 .kh-disclosure__head h2 {
   margin: 0;
-  font-size: 0.82rem;
-  font-weight: 500;
-  font-family: var(--kh-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--kh-muted-2);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--kh-ink);
 }
 
 .kh-disclosure .kh-panel {
   background: var(--kh-panel);
+}
+
+/* The × that closes it. A round target, not a button labelled "Done". */
+.kh-iconbtn {
+  appearance: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--kh-line);
+  background: var(--kh-panel);
+  color: var(--kh-muted);
+  font-size: 15px;
+  line-height: 1;
+  transition:
+    color var(--kh-dur) var(--kh-ease),
+    border-color var(--kh-dur) var(--kh-ease),
+    transform var(--kh-dur-fast) var(--kh-ease);
+}
+
+.kh-iconbtn:hover {
+  color: var(--kh-ink);
+  border-color: var(--kh-accent-line);
+}
+
+.kh-iconbtn:active {
+  transform: scale(0.92);
+}
+
+/* A heading inside a panel body — one step below `.kh-panel > h2`. */
+.kh-subhead3 {
+  margin: 0.9rem 0 0.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--kh-ink);
 }
 
 /* ---- the quiet way down ------------------------------------------------- */
@@ -1206,9 +1487,13 @@ html.kh-config-mode .kh-app {
   align-items: baseline;
   justify-content: center;
   margin-top: 18px;
-  font-family: var(--kh-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
+  /*
+    Not `--kh-mono`. This row IS the app's navigation, and setting navigation in
+    a code font is the single loudest way a product says "engineered" when it
+    meant to say "considered" (design audit, F8).
+  */
+  font-size: 0.8rem;
+  letter-spacing: 0;
   color: var(--kh-muted-3);
 }
 
@@ -1225,11 +1510,83 @@ html.kh-config-mode .kh-app {
 /* ==========================================================================
  * "Add to CAM" — first run, and then never again
  *
- * Two variants of one card (`views/CamSetupCard.tsx`): pinned to the top of the
- * home screen while no display has ever connected, and a plain panel under
- * `#/about` afterwards. The first-run variant earns an accent rim because it is,
- * for those four minutes, the only thing on the page that matters.
+ * Two shapes of one instruction (`views/CamSetupCard.tsx`): a slim BAND under
+ * the halo while no display has ever connected, and a plain panel under
+ * `#/about` afterwards.
+ *
+ * The band exists because the card did not fit. At CAM's real 866x537 window
+ * the first-run card filled the entire viewport and pushed the halo, the paste
+ * field and the chips below the fold — a page of prose and four competing
+ * buttons where the product should have been (design audit, F7). One line, one
+ * primary action, and everything else on a secondary line behind a reveal.
  * ========================================================================== */
+
+.kh-band {
+  width: 100%;
+  max-width: 34rem;
+  margin: 14px auto 0;
+  padding: 0.6rem 0.75rem;
+  background: linear-gradient(180deg, var(--kh-accent-bg), var(--kh-panel) 90%);
+  border: 1px solid var(--kh-accent-line);
+  border-radius: var(--kh-r-card);
+  animation: kh-rise var(--kh-dur) var(--kh-ease);
+}
+
+.kh-band__line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.7rem;
+  align-items: center;
+}
+
+.kh-band__text {
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--kh-ink-2);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.kh-band__text b {
+  color: var(--kh-ink);
+  font-weight: 600;
+}
+
+/* The secondary action: a link in weight, a button in hit area. */
+.kh-band__more {
+  appearance: none;
+  flex: none;
+  padding: 0.3rem 0.2rem;
+  border: 0;
+  background: none;
+  color: var(--kh-muted-2);
+  font: inherit;
+  font-size: 0.78rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-band__more:hover {
+  color: var(--kh-accent-ink);
+}
+
+.kh-band__reveal {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--kh-line-soft);
+  animation: kh-open var(--kh-dur) var(--kh-ease);
+}
+
+.kh-band__hint {
+  margin: 0;
+  color: var(--kh-muted-2);
+  font-size: 0.75rem;
+}
 
 .kh-setup {
   width: 100%;
@@ -1557,8 +1914,9 @@ html.kh-config-mode .kh-app {
   top: 0.4rem;
   padding: 0.1rem 0.45rem;
   border-radius: var(--kh-r-chip);
-  font-family: var(--kh-mono);
+  /* A word ("Clip", "On screen"), not a machine string — so, the system face. */
   font-size: 0.65rem;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   pointer-events: none;
@@ -1924,7 +2282,6 @@ html.kh-config-mode .kh-app {
   top: -15px;
   left: 50%;
   transform: translateX(-50%);
-  font-family: var(--kh-mono);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -1937,8 +2294,9 @@ html.kh-config-mode .kh-app {
   align-items: baseline;
   justify-content: space-between;
   margin: 0.25rem 0.1rem 0;
-  font-family: var(--kh-mono);
-  font-size: 0.68rem;
+  /* Tabular, so the digits do not jitter as the position ticks — but tabular in
+     the SYSTEM face (`.kh-tnum` in the markup), never a code font. */
+  font-size: 0.7rem;
   color: var(--kh-muted-3);
 }
 
@@ -2034,6 +2392,91 @@ html.kh-config-mode .kh-app {
   background: var(--kh-muted-3);
 }
 
+/* ==========================================================================
+ * The remote's compact essentials
+ *
+ * What survived "More controls" (design audit, F6): what to play, which module,
+ * how it is framed, what quality. Four controls with no Panel chrome, no hint
+ * paragraph each and no door in front of them — a remote, not a settings mirror.
+ * ========================================================================== */
+
+.kh-remote__ess {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem 0.35rem;
+  background: var(--kh-panel);
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-panel);
+}
+
+.kh-remote__src {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.kh-remote__src .kh-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-remote__src .kh-btn {
+  flex: none;
+}
+
+/* Two short controls side by side; one column the moment they cannot both fit. */
+.kh-remote__pair2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0 0.7rem;
+}
+
+/*
+ * `.kh-select`'s 12 rem floor is right in a full-width panel and wrong in a
+ * half-width column on a 390 px phone — two of them plus the gap overflow the
+ * viewport, and a phone that side-scrolls is the F11 bug in a new place. In
+ * here the label keeps its size and the control takes what is left.
+ */
+.kh-remote__pair2 > * {
+  min-width: 0;
+}
+
+.kh-remote__pair2 .kh-field {
+  flex-wrap: nowrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.kh-remote__pair2 .kh-select {
+  flex: 1;
+  min-width: 0;
+}
+
+/* `.kh-hint` is only styled inside `.kh-panel`, and there is no panel here. */
+.kh-remote__ess .kh-hint {
+  margin: 0.1rem 0 0.45rem;
+  color: var(--kh-muted-2);
+  font-size: 0.78rem;
+}
+
+/* The one link on the page, and the only way to everything it stopped copying. */
+.kh-remote__foot {
+  margin: 0.25rem 0 0;
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.kh-remote__foot a {
+  color: var(--kh-muted-3);
+  text-decoration: none;
+  transition: color var(--kh-dur) var(--kh-ease);
+}
+
+.kh-remote__foot a:hover {
+  color: var(--kh-accent-ink);
+}
+
 /* ---- pairing, as one card ---------------------------------------------- */
 .kh-roomcard {
   margin: 0 0 1rem;
@@ -2045,6 +2488,13 @@ html.kh-config-mode .kh-app {
 
 .kh-roomcard--open {
   padding: 1rem 1.15rem 1.15rem;
+}
+
+/* `.kh-hint` is only styled inside `.kh-panel`, and this card is not one. */
+.kh-roomcard .kh-hint {
+  margin: 0.35rem 0 0.8rem;
+  color: var(--kh-muted-2);
+  font-size: 0.82rem;
 }
 
 .kh-roomcard__head {

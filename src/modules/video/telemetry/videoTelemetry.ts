@@ -105,6 +105,16 @@ export interface TelePacket {
   provider?: string | null;
   urlHash?: string | null;
   message?: string;
+  /**
+   * The source's own title, when an adapter learned one.
+   *
+   * Optional and type-only for now: no adapter publishes it yet, and the field
+   * exists so the status line has somewhere to upgrade to. `sourceName()` names
+   * a source by its detected provider ("a YouTube video") and swaps in this
+   * string the moment one arrives — which is the whole of design-audit F4. A
+   * raw URL never travels on a shared channel; a title is not a URL.
+   */
+  title?: string | null;
   retryCount?: number;
   display?: { w: number; h: number; shape: string; targetFps: number };
   achievedFps?: number;

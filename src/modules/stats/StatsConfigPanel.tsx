@@ -2,7 +2,7 @@
  * The stats module's settings panel. Config-only code (invariant I8).
  */
 
-import { Disclosure, Field, Notice, Panel, Select, Toggle } from '../../ui';
+import { Disclosure, Field, GroupField, Panel, Segmented, Select, Toggle } from '../../ui';
 
 import {
   STATS_LAYOUTS,
@@ -19,15 +19,25 @@ import {
 
 import type { ModuleConfigProps } from '../types';
 
+/**
+ * One word each, with the sentence moved to the segment's tooltip — the design
+ * audit's F9 rule. A choice between three layouts does not need three clauses.
+ */
 const LAYOUT_LABELS: Readonly<Record<StatsLayout, string>> = {
-  single: 'Single dial — one metric, as large as the panel allows',
-  dual: 'Dual dial — CPU and GPU side by side',
-  grid: 'Compact grid — every reading at once, text only',
+  single: 'One dial',
+  dual: 'Two dials',
+  grid: 'Everything',
+};
+
+const LAYOUT_TITLES: Readonly<Record<StatsLayout, string>> = {
+  single: 'One metric, as large as the panel allows.',
+  dual: 'CPU and GPU side by side.',
+  grid: 'Every reading at once, text only.',
 };
 
 const UNIT_LABELS: Readonly<Record<StatsUnit, string>> = {
-  c: 'Celsius',
-  f: 'Fahrenheit',
+  c: '°C',
+  f: '°F',
 };
 
 const THEME_LABELS: Readonly<Record<StatsTheme, string>> = {
@@ -48,18 +58,23 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
   return (
     <Panel
       title="System stats"
-      hint="Readings come from NZXT CAM, once a second. Anything CAM does not report shows as “--” rather than as a zero."
+      hint="Readings come from NZXT CAM, once a second. Anything CAM does not report shows as “--” rather than as a zero — including pump speed, which CAM does not report at all."
     >
-      <Field label="Layout" htmlFor="stats-layout">
-        <Select
+      <GroupField label="Layout" id="stats-layout">
+        <Segmented
           id="stats-layout"
+          labelledBy="stats-layout-label"
           value={cfg.layout}
-          options={STATS_LAYOUTS.map((l) => ({ value: l, label: LAYOUT_LABELS[l] }))}
+          options={STATS_LAYOUTS.map((l) => ({
+            value: l,
+            label: LAYOUT_LABELS[l],
+            title: LAYOUT_TITLES[l],
+          }))}
           onChange={(value) => {
             onChange({ ...cfg, layout: asOneOf(value, STATS_LAYOUTS, cfg.layout) });
           }}
         />
-      </Field>
+      </GroupField>
 
       {cfg.layout === 'single' && (
         <Field
@@ -81,16 +96,17 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         </Field>
       )}
 
-      <Field label="Temperature unit" htmlFor="stats-unit">
-        <Select
+      <GroupField label="Degrees" id="stats-unit">
+        <Segmented
           id="stats-unit"
+          labelledBy="stats-unit-label"
           value={cfg.unit}
           options={STATS_UNITS.map((u) => ({ value: u, label: UNIT_LABELS[u] }))}
           onChange={(value) => {
             onChange({ ...cfg, unit: asOneOf(value, STATS_UNITS, cfg.unit) });
           }}
         />
-      </Field>
+      </GroupField>
 
       <Field label="Show labels" htmlFor="stats-labels">
         <Toggle
@@ -117,12 +133,6 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             }}
           />
         </Field>
-
-        <Notice tone="warn">
-          There is no pump-speed reading. CAM reports the cooler&apos;s liquid temperature and
-          nothing else, so this does not show a pump RPM — a plausible-looking invented number is
-          worse than an absent one on a screen people use to judge whether their loop is healthy.
-        </Notice>
       </Disclosure>
     </Panel>
   );

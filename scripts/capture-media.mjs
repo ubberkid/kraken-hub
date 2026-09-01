@@ -15,7 +15,7 @@
  * | `docs/assets/hero.png`   | the home screen's halo, running the real display page         |
  * | `docs/assets/config-ui.png` | the configuration UI a CAM Configuration Browser opens      |
  * | `docs/assets/remote.png` | the phone remote, at a phone viewport                         |
- * | `docs/assets/diag.png`   | the diagnostics page                                          |
+ * | `docs/assets/diag.png`   | the merged About & diagnostics page                           |
  * | `public/preview-640.png` | exactly 640x640 of the display surface (NZXT submission spec) |
  *
  * `public/preview-640.png` is the one with a hard external contract: NZXT's
@@ -257,10 +257,16 @@ async function captureRemote(browser) {
   return file;
 }
 
-/** The diagnostics page, with its probes finished. */
+/**
+ * The merged About/Diagnostics page, with its probes finished.
+ *
+ * `#/about` rather than `#/diag`: the two are one page now (design audit, F7),
+ * and `#/diag` reaches it by rewriting the hash — which would put a redirect in
+ * the middle of a screenshot run for no reason.
+ */
 async function captureDiag(browser) {
   const { context, page } = await freshPage(browser, { width: 1000, height: 880 }, DOC_SCALE);
-  await page.goto(`${ORIGIN}/#/diag`, { waitUntil: 'networkidle' });
+  await page.goto(`${ORIGIN}/#/about`, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'This browser' }).waitFor();
   // The codec/storage probes are async; give them a beat to fill in.
   await page.waitForTimeout(2500);

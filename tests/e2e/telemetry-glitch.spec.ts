@@ -79,7 +79,8 @@ test.describe('a telemetry packet is not a repaint', () => {
     await remote.goto(remoteUrl());
     await waitForTelemetry(remote);
 
-    await remote.getByTestId('more-controls').click();
+    // The module picker is one of the remote's compact essentials now, not
+    // something behind a "More controls" door (design audit, F6).
     await remote.locator('#remote-module').selectOption('clock');
 
     // The revert took about a second and arrived with a telemetry packet, so a
@@ -105,7 +106,6 @@ test.describe('a telemetry packet is not a repaint', () => {
     const remote = await context.newPage();
     await remote.goto(remoteUrl());
     await waitForTelemetry(remote);
-    await remote.getByTestId('more-controls').click();
 
     const quality = remote.locator(
       '.kh-remote [id="remote-quality"], [data-testid="remote-quality-readout"]',

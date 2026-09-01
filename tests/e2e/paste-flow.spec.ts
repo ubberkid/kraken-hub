@@ -150,7 +150,7 @@ function currentTime(display: Page): Promise<number> {
 }
 
 test.describe('pasting a link never produces an error for a video that plays', () => {
-  test('a YouTube link with no companion plays through the embed and OFFERS the downloader', async ({
+  test('a YouTube link with no companion plays through the embed, and the downloader is one door away', async ({
     context,
   }) => {
     const config = await context.newPage();
@@ -168,16 +168,24 @@ test.describe('pasting a link never produces an error for a video that plays', (
     // 2. No error card, then or later.
     await expect(errorCard(display)).toHaveCount(0);
 
-    // 3. The step-cards say what is true: it is playing, and a local copy is
-    //    one program away. An invitation, never a diagnosis.
+    // 3. The step-cards say what is true, and nothing more. The audit's F4/F10:
+    //    a first successful playback used to be answered with an orange
+    //    apology and a primary teal install pitch, so the app's first working
+    //    moment read as a failure. The cards are an acknowledgement now.
     await expect(flow(config)).toHaveAttribute('data-flow-stage', 'youtube-embed', {
       timeout: 15_000,
     });
     await expect(flow(config)).toContainText('Playing through YouTube');
     await expect(flow(config)).toContainText('On screen now');
-    await expect(config.locator('[data-testid="resolver-get"]')).toBeVisible();
+    await expect(config.locator('[data-testid="resolver-get"]')).toHaveCount(0);
+    await expect(flow(config)).not.toContainText('Get the downloader');
 
-    // The CTA opens the guided install, with the one button a CAM user can use.
+    // 4. …and it is still exactly one door away: the active chip opens the
+    //    module's options, and the downloader lives inside its one Advanced
+    //    door, where somebody who wants ad-free playback goes looking.
+    await config.click('[data-testid="module-chip-video"]');
+    await config.click('[data-testid="video-advanced"] summary');
+    await expect(config.locator('[data-testid="resolver-get"]')).toBeVisible();
     await config.click('[data-testid="resolver-get"]');
     const panel = config.locator('[data-testid="resolver-connect"]');
     await expect(panel).toBeVisible();

@@ -27,6 +27,218 @@ The one thing standing between this section and that rename is hardware:
 [`docs/hardware-checklist.md`](docs/hardware-checklist.md) H01–H23, and the list
 in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
+### Changed
+
+- **The Remote page is a remote control, and nothing else.** (Design audit wave B
+  — findings F5 remaining, F6, F7, F8, F10, F11, F12, and the census's
+  REMOTE 22 → 8 verdict.) The audit opened the remote's `More controls`
+  disclosure and found **a second complete copy of the app** behind it: fourteen
+  controls duplicating the configuration page in different words — the audit's
+  example is that home said "Fill · **Cover**", the remote said "Cover — fill the
+  panel, crop the **edges**" and the video panel said "crop the **overflow**" —
+  plus a clip picker, the room settings, a privacy disclosure nested inside
+  another disclosure with `SHA-256(code)` in it, and a hardware-report puller, on
+  a 390 px screen.
+  - **`More controls` is deleted.** What survives is on the page, with no door in
+    front of it and no `Panel` chrome around it: the source field, the module
+    picker, **Fit** and **Quality** — the four the census kept. Fit renders from
+    the same `FIT_SEGMENTS` list as the home screen and the video panel
+    (`src/ui/fitOptions.ts`), so the one setting is never learned three times.
+  - **Room settings live in exactly one place**, a new `Connection` section on
+    the merged About/Diagnostics page (`views/ConnectionSection.tsx`), together
+    with the transport-detail chips, the privacy note and the hardware-report
+    pull that used to sit on the remote. The remote reaches it by one quiet
+    _Connection & diagnostics_ link — the only navigation on the page.
+  - **Zoom, rotation and the clip picker left the remote.** Nudging and turning a
+    picture is setup, not remote control, and the clip shelf lives on the machine
+    running CAM, where the Library page manages it.
+  - A new e2e assertion counts what is on the paired remote and fails above ten
+    interactive controls outside the scrubber and the transport.
+- **Unpaired pairing is one state, and it never names a code that is not on
+  screen** (F5.4). The card used to read _"Point a camera at this code"_ above no
+  code at all and two paragraphs above an orange _"No code yet. Press Generate
+  code."_, with three equal-weight controls under it where one was the answer. It
+  is now one sentence and one primary **Create a code**; the moment a room
+  exists it is the QR, the room, and **Copy the link**. Typing a code read off a
+  monitor is still there, behind a _Type a code instead_ disclosure, because it
+  is the fallback rather than the flow.
+- **About and Diagnostics are one page** (F7). They were the same errand behind
+  two doors in two type styles — `Diagnostics` in the home screen's quiet row,
+  `About` alone in the footer. `#/about` renders the merged page (build, Add to
+  CAM, Connection, hardware report, local probes, the display's own report and
+  the H-checklist links, in that order); `#/diag` resolves to it by rewriting the
+  hash in page, never a navigation (invariants I1/I2), so every doc link and
+  bookmark still lands. The disclosure row under the halo is now exactly
+  **Remote · Library**, and the footer's version line — the exact string a bug
+  report asks you to quote — is the link to everything else.
+- **First run is a slim band under the halo, not a card over it** (F7). The old
+  card filled the whole 866×537 window CAM actually opens, putting the halo, the
+  paste field and the chips below the fold behind a page of prose and four
+  competing buttons. The band is one line and **one** primary `Open in CAM`; the
+  address, the CAM Beta channel and the CAM-detection readout sit on a secondary
+  line behind _Show the address_. The full two-step card is unchanged under
+  About, for a second machine. `Ordinary browser` — jargon that named a category
+  rather than telling anyone anything — is now `Not open inside CAM`.
+- **The type sweep finished** (F8). `--kh-mono` now sets **only** literal machine
+  strings: `.kh-code` and the room code. It has left the footer, the tile badges,
+  the scrubber's A/B handle labels and the scrubber's times — which stay tabular,
+  because that is what `.kh-tnum` and `font-variant-numeric` are for, in the
+  system face.
+- **Library copy tells the truth about who downloads** (F5.2, F5.3). Adding a
+  link used to answer _"Added. Your Kraken is fetching it — progress shows on its
+  tile"_ directly above _"Nothing saved yet"_, with no tile: the **display** does
+  the downloading, so a tile appears only once CAM picks the job up, and the
+  message says so. The empty card no longer says "Press **+** up there" either —
+  pressing that button turns it into an `×`, so the instruction named a control
+  that was no longer on screen.
+- **Warning colour is reserved for warnings** (F10). The storage caveat — _"May
+  be cleared if the disk fills up — pin the ones you care about"_ — was drawn in
+  orange next to `0.0 MB of 4096.0 MB used` on an **empty** library, where there
+  is nothing to pin and nothing to lose. It appears now only when something is
+  actually stored or the quota is over half used, and the false precision is
+  gone: nothing stored reads _"Nothing stored yet"_, and whole megabytes are
+  rendered whole.
+- **Motion and surfaces** (F12). The options panel now animates **out** as well
+  as in — React cannot animate an unmount, so the panel stays mounted for one
+  beat with a `--closing` modifier and a timer, which fires whether or not the
+  animation ran. `html` is painted with the ground colour in config mode, so the
+  black band above the content on a scrolling page (index.html's critical CSS
+  paints `html` black, correctly, for the LCD) is gone.
+- **The phone layout is a phone layout** (F11). The paste placeholder is short
+  below 700 px instead of truncating mid-word to `…YouTube, MP4, HI`; the module
+  chips get breathing room; and the home screen centres in `<main>` rather than
+  stacking at the top with ~450 px of dead space under it. The remote's two
+  side-by-side controls shrink instead of pushing a 390 px viewport into a
+  horizontal scroll.
+
+### Fixed
+
+- **A second `SyncService` in one document was silently deaf and mute.** Every
+  receiver dedupes on `(src, seq)`, and `src` is `clientId()` — deliberately one
+  value for the whole page load — but the sequence counter lived on the service
+  and restarted at zero for each one. So the second service to be constructed in
+  a page sent nothing but `(src, seq)` pairs the peer had already seen, and every
+  one was dropped as a replay while the connection cheerfully reported _online_.
+  Not hypothetical: it is exactly why **Request hardware report** stopped
+  answering once the pull moved from `#/remote` to `#/about`. The counter is now
+  per document, which is the scope its uniqueness claim was always about.
+
+### Added
+
+- **Options became contextual, and the ops strip became real controls.** (Design
+  audit wave A — findings F1, F2, F3, F4, F5, F9, F12.) The audit's verdict was
+  that the app "has no settings screen at all — it has a 2,121-pixel accordion
+  that detonates inside the home page", and everything below follows from
+  fixing that one thing.
+  - **The active module chip is the door.** Tapping a chip switches modules;
+    tapping the one that is already active reveals that module's options in an
+    animated panel directly under the chips, on the app's own spring curve. The
+    halo never leaves the viewport and the scroll position never moves. Before
+    this there was no button anywhere in the product called Settings, Options or
+    Edit, and `grep -rn "module/" src | grep href` returned **zero hits** — the
+    settings route had no inbound link in the entire app (F1).
+  - **The ops strip resolves in place.** `Loop Off`, `Fill · Cover` and
+    `Saved locally ✓` looked like three quick toggles and were three doors onto
+    the same 1,600 px wall: clicking `Loop Off` grew the home page to 2,121 px
+    and jumped `window.scrollY` to 1,363, leaving the halo, the paste row and the
+    chips off screen (F2). Fit is a segmented control now, Loop opens the A/B
+    scrubber under the halo, and "Saved locally" is a status chip rather than a
+    button that was never a button. The deep-link-and-focus machinery is gone.
+  - **Loop is the scrubber, everywhere.** `RemoteView`'s two-handle A/B scrubber
+    moved to `src/app/config/views/LoopScrubber.tsx` and is shared by the phone
+    remote and the home screen. The numeric `Start (seconds)` / `End (seconds)`
+    fields — the audit's "single most anti-Apple control in the app", and the
+    worst task in its task-speed test at five clicks and a 1,363 px scroll — are
+    deleted. On home the rail is a read-only position readout from telemetry,
+    because there is no live display to seek from that window.
+  - **The video halo shows something true** (`views/VideoHalo.tsx`, F3). Clock,
+    Stats and Image have always had a real live iframe in the bezel; video had
+    the same frozen blue-purple gradient before you pasted, after you pasted and
+    while it played. It still refuses to run a second decoder — and now shows the
+    YouTube poster from `i.ytimg.com`, or a stored clip's own thumbnail out of
+    IndexedDB, or a treated card naming the source, with the live position arc
+    over it whenever telemetry is flowing. The arc geometry moved to
+    `views/arc.ts` and is shared with the remote's ring rather than copied.
+  - **The status line is in the present tense** (`homeState.describeVideoStatus`,
+    F4). `sourceName()` took the last path segment, and every YouTube watch link
+    in the world ends in `/watch` — so the app's most common action was answered
+    with "Ready to play **watch**". It uses `detect()`'s provider now ("a YouTube
+    video"), and upgrades to the real title the moment telemetry carries one. The
+    verb ladder is Playing / Holding / Downloading / Streaming, with the
+    pre-flight rung reached only when nothing is genuinely happening.
+  - **Pasting an `.mp4` is acknowledged like pasting a YouTube link.** The same
+    gesture produced three step-cards for one and complete silence for the other
+    (F4). New `accepted` flow stage.
+  - **`Add anyway` exists.** `ingest.ts` has always told users to _"use 'Add
+    anyway' to store it as-is"_ when a file's metadata does not arrive in eight
+    seconds, and `grep -rn 'Add anyway' src/` returned exactly one hit: that
+    string (F5.1). `ingestBlob` already took `force`, so the Library now offers
+    the button the error names.
+  - **A segmented control and a `GroupField`** joined the UI kit
+    (`src/ui/index.tsx`), and fit/zoom/pan/rotate became one shared component
+    (`src/ui/Framing.tsx`) instead of two near-identical copies in different
+    words.
+
+### Changed
+
+- **The settings census.** (Design audit §2 — the per-control verdicts.) The
+  video panel alone carried **24 controls, 23 `<label>`s, 533 words of body copy
+  and 171 words living inside `<option>` elements**, and expanded to 2,963 px —
+  five and a half screens in the 866×537 window CAM actually opens. Opening the
+  video options now adds well under a screen, and the whole home page stays
+  under 1,100 px with them open (pinned by an e2e assertion).
+  - **Killed, and wired to the default the audit named:** Picture quality
+    (already governed by `fpsGovernor` and the perf promoter), Player size and
+    Width for vertical videos (compositor internals, and the latter's own help
+    text admitted its alternative was unverified on hardware), What "hold" does
+    (the alternative raises YouTube's suggested-video grid _inside_ the picture),
+    Hide the frame-rate warning (the warning is already conditional on measured
+    FPS), Fade across the join (already self-disabling under load, and a second
+    decoder when it is not), and the image module's Background colour (a
+    free-form hex field for the strip around a picture, on a device whose bezel
+    is black).
+  - **Moved behind ONE `Advanced` door per module, one level, never nested.** The
+    video panel had four disclosures, all four labelled the identical word
+    "Advanced"; it has one. It holds the shape override, nudge/turn, the local
+    downloader and its policy/port/token, and the last-resort proxy.
+  - **`<select>`s of sentences became segmented controls.** Fit, keep-a-copy,
+    video shape, clock face, hour format, stats layout, temperature unit,
+    downloader policy and slideshow. The 171 words inside `<option>` elements are
+    **zero**; what used to be the sentence is the segment's tooltip.
+  - **The shape override went from seven options to three** (Auto / Wide /
+    Tall). `detect()` already tells a Shorts link from a watch link, which is the
+    only distinction almost anyone needs; the other four were film-school trivia
+    in front of a paste box.
+  - **The video panel's link field is gone.** It sat two inches under the home
+    screen's paste row holding the same string. The paste row is the merge.
+  - **The downloader left the success path** (F10). A working YouTube video used
+    to be answered with an orange four-line paragraph and a primary teal `Get the
+downloader` button — an apology and an install pitch, for the first thing that
+    ever worked. The capability is untouched and lives in the module's Advanced
+    door, where somebody who wants ad-free playback goes looking for it.
+- **`#/module/<id>` is a redirect, not a page.** It resolves in place to home
+  with that module active and its options open, rewriting the hash underneath —
+  a hash rewrite, never a navigation (invariants I1/I2). Bookmarks, doc links and
+  forks still resolve. `ModuleSettingsView` now renders only inside the home
+  screen's contextual panel.
+- **State schema 5 → 6 — the settings census migration** (`state/migrations.ts`).
+  The first step that deletes user data, and every deletion is a value the user
+  can no longer reach: `video.perf`, `video.loop.mode`, `video.loop.crossfadeMs`,
+  `video.youtube.mode`, `video.youtube.portraitWidth`,
+  `video.youtube.pauseStrategy`, `image.background`, and a
+  `video.youtube.sourceAspect` holding one of the four ratios the three-segment
+  override can no longer display. Keys are **dropped rather than rewritten**, so
+  each module's own validator refills the default — which is precisely the answer
+  the audit named — and a document that never used any of them is returned
+  untouched. Fixture tests in `state/migrations.test.ts`.
+- **The navigation row is no longer set in a code font** (F8, partial). `.kh-more`
+  — `Remote · Library · Diagnostics` — is the app's entire navigation, and it was
+  `--kh-mono`. So was the `OPTIONS` panel header, which is now a word rather than
+  an all-caps machine string, with an `×` instead of a button labelled "Done".
+  The full type sweep is a separate pass.
+- **`TelePacket` gained an optional `title`**, type-only, so the status line has
+  somewhere to upgrade to when an adapter learns a source's real name.
+
 ### Added
 
 - **Quality: show what you're getting everywhere; offer control only where it's
@@ -34,9 +246,9 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
   different answer to "what resolution is on the panel, and can I change it?" —
   from _exact_ (hls.js hands us a level list with heights) to _nothing at all_
   (a cross-origin YouTube iframe will not tell us and will not be told). The new
-  **Quality** row on the video panel's primary surface, and the same control in
-  the remote's **More controls**, is built so the UI never has to guess which
-  case it is in.
+  **Quality** row on the video panel's primary surface, and the same control on
+  the remote page itself, is built so the UI never has to guess which case it is
+  in.
   - **The reading is unconditional.** "1080p · local", "Auto — 720p right now",
     "1080p (asked)" when a pin has not been confirmed yet. It never invents a
     number: a height we requested and a height the provider reported are

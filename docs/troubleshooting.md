@@ -9,7 +9,8 @@ Before anything else, two questions answer most reports:
 1. **Is the CAM frame-rate slider up?** It ships at 1 FPS. See
    [below](#video-plays-as-a-slideshow-one-frame-per-second).
 2. **What does the version footer say?** Every configuration page ends with
-   `kraken-hub v… · <sha> · built …`. Quote it — it names the exact deploy.
+   `kraken-hub v… · <sha> · built …`. Quote it — it names the exact deploy. It is
+   also a link: it opens the About page, which is where the diagnostics live.
 
 ---
 
@@ -30,9 +31,9 @@ be. CAM's own images still work.
 
 **Getting the diagnostics off a panel you cannot copy text from:** open the
 display with `?kraken=1&diag=1`. It publishes a full `DiagReport` through
-`localStorage` every five seconds, and the configuration page's **Diagnostics** page —
-followed from the row under the halo — renders it as copyable JSON. That is the intended path — do not photograph
-the LCD and transcribe it.
+`localStorage` every five seconds, and the configuration page's **About** page —
+reached by clicking the version line in the footer — renders it as copyable JSON.
+That is the intended path — do not photograph the LCD and transcribe it.
 
 ## Video plays as a slideshow, one frame per second
 
@@ -234,7 +235,7 @@ GitHub account. Details and the design correction are in
 ## Still stuck
 
 Open the display with `?kraken=1&diag=1`, copy the JSON from the configuration
-page's **Diagnostics** page, and
+page's **About** page (the version line in the footer), and
 [file an issue](https://github.com/ubberkid/kraken-hub/issues/new/choose) with
 it attached. That report contains the device identity, the Chromium version, the
 codec matrix, storage persistence, the state-delivery counters and the frame

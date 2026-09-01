@@ -130,7 +130,9 @@ test.describe('quality', () => {
       timeout: 10_000,
     });
 
-    await remote.getByTestId('more-controls').click();
+    // No "More controls" door any more (design audit, F6): the quality picker
+    // is one of the four compact essentials, on the page.
+    await expect(remote.getByTestId('more-controls')).toHaveCount(0);
     const picker = remote.locator('#remote-quality');
     await expect(picker).toBeVisible({ timeout: 10_000 });
 
@@ -162,7 +164,6 @@ test.describe('quality', () => {
 
     const remote = await context.newPage();
     await remote.goto(remoteUrl());
-    await remote.getByTestId('more-controls').click();
 
     await expect(remote.getByTestId('remote-quality-readout')).toContainText('nothing to choose');
     await expect(remote.locator('#remote-quality')).toHaveCount(0);

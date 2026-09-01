@@ -59,7 +59,7 @@ steps above can reach the report at all.
 Pair a room once, and then pull it over the network instead:
 
 1. **On the PC, once.** Open kraken-hub's configuration page → **Remote** →
-   **Generate code**. Nothing else on the PC ever needs touching again.
+   **Create a code**. Nothing else on the PC ever needs touching again.
 2. **On any other browser** — laptop, phone, whatever — open the same site,
    go to **Remote**, and type the code into **Room code → Join**. Wait for the
    status chip to say `online`.

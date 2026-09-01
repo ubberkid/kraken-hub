@@ -48,7 +48,9 @@ test.describe('sub-page navigation', () => {
    */
   for (const [hash, title] of [
     ['#/library', 'Library'],
-    ['#/diag', 'Diagnostics'],
+    // About and Diagnostics are ONE page now (design audit, F7): `#/diag`
+    // rewrites to `#/about` and therefore carries the same name.
+    ['#/diag', 'About'],
     ['#/about', 'About'],
     ['#/remote', 'Remote'],
   ] as const) {
@@ -93,11 +95,26 @@ test.describe('sub-page navigation', () => {
 });
 
 test.describe('the library shows your library, and nothing else', () => {
-  test('an empty library is a friendly card pointing at the +', async ({ page }) => {
+  test('an empty library is a friendly card that stays true when the add panel opens', async ({
+    page,
+  }) => {
     await page.goto('/#/library');
     await expect(page.getByTestId('library')).toBeVisible();
     await expect(page.getByTestId('library-empty')).toContainText('Nothing saved yet');
     await expect(page.getByTestId('library-add')).toBeVisible();
+
+    /*
+     * It must not point at a "+" that is not there.
+     *
+     * The card used to read "Press + up there…" — and pressing + turns that
+     * button into an ×, so with the add panel open the instruction named a
+     * control that was no longer on screen (design audit, F5.2).
+     */
+    await expect(page.getByTestId('library-empty')).not.toContainText('Press +');
+    await openAddPanel(page);
+    await expect(page.getByTestId('library-empty')).not.toContainText('Press +');
+    await page.getByTestId('library-add').click();
+    await expect(page.getByTestId('library-add-panel')).toHaveCount(0);
 
     // The sections that were not the library are gone: no paste panel, no
     // separate "add a file by hand" block, no "Downloading now" list.

@@ -76,6 +76,30 @@ export const DEDUP_MAX = 256;
 export const DECRYPT_ALARM_WINDOW_MS = 30_000;
 export const DECRYPT_ALARM_COUNT = 10;
 
+/**
+ * The sequence counter is per DOCUMENT, not per service — and that is a fix, not
+ * a shortcut.
+ *
+ * Every receiver dedupes on the pair `(src, seq)` (see `remember`), and `src` is
+ * `clientId()`, which is deliberately one value for the whole page load. So the
+ * uniqueness `seq` has to provide is uniqueness *within a document*, and a
+ * counter that lived on the service restarted at zero every time a second
+ * service was constructed — at which point every message it ever sent carried a
+ * `(src, seq)` the peer had already seen, and was silently dropped as a replay.
+ *
+ * Not hypothetical: the config page starts a service on `#/remote` and another
+ * on the merged About/Diagnostics page, so a user who walked from one to the
+ * other had a connection that reported "online" and could not deliver a single
+ * command — which is exactly how "Request hardware report" stopped answering
+ * when the pull moved pages.
+ */
+let documentSeq = 0;
+
+function nextSeq(): number {
+  documentSeq += 1;
+  return documentSeq;
+}
+
 export interface SyncServiceOptions {
   role: Role;
   clientId: string;
@@ -284,7 +308,6 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
   let network: SyncTransport | null = null;
   /** Which rung of `ladder` the network slot currently holds. */
   let rungIndex = 0;
-  let seq = 0;
   let started = false;
   let reconnecting = false;
   const backoff = createBackoff();
@@ -667,7 +690,7 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
     },
 
     publishState(body, opts) {
-      seq += 1;
+      const seq = nextSeq();
       const env: Envelope<SyncStateBody> = {
         v: PROTOCOL_VERSION,
         ch: 'state',
@@ -693,7 +716,6 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
       const previous = lastCmdAt.get(op) ?? 0;
       if (now - previous < PUBLISH_THROTTLE_MS) return;
       lastCmdAt.set(op, now);
-      seq += 1;
       publishEnvelope(
         {
           v: PROTOCOL_VERSION,
@@ -701,7 +723,7 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
           ts: now,
           src: clientId,
           role,
-          seq,
+          seq: nextSeq(),
           body: arg === undefined ? { op } : { op, arg },
         },
         'cmd',
@@ -712,9 +734,8 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
       const now = Date.now();
       if (now - lastTeleAt < PUBLISH_THROTTLE_MS) return;
       lastTeleAt = now;
-      seq += 1;
       publishEnvelope(
-        { v: PROTOCOL_VERSION, ch: 'tele', ts: now, src: clientId, role, seq, body },
+        { v: PROTOCOL_VERSION, ch: 'tele', ts: now, src: clientId, role, seq: nextSeq(), body },
         'tele',
       );
     },

@@ -17,7 +17,8 @@ up for — and the broker in the middle cannot read a single thing you send.
 1. On the machine running CAM, open kraken-hub's configuration page (the one CAM
    opens for you, or the same URL in any browser) and follow **Remote** in the
    row under the halo.
-2. Press **Generate code**. You get eight characters, like `H4KM7Q2V`.
+2. Press **Create a code**. You get eight characters, like `H4KM7Q2V`, and the
+   pairing card turns into a QR.
 3. Point your phone's camera at the QR on the pairing card. **That is the whole
    step** — the phone opens the remote and joins before the card first paints.
    Nothing to type, no Join button, no account.
@@ -32,8 +33,9 @@ QR is generated **on your own machine** (`src/app/config/qr.ts`), never fetched
 from a QR service, because the room code is the only secret in this design.
 
 If the camera route is not available — a desktop second browser, a locked-down
-phone — the same card has a **Room code → Join** field. Typing is the fallback,
-not the flow.
+phone — the same card has a **Type a code instead** disclosure holding a
+**Room code → Join** field. Typing is the fallback, so it sits behind a door
+rather than competing with the thing that works.
 
 ### Unpairing
 
@@ -65,17 +67,29 @@ each other forever.
 ## What the remote can and cannot do
 
 **Can:** play and hold, seek, drag an A–B loop, set the source URL (with the same
-validation the config page uses), change fit / zoom / rotation, switch modules,
-pick from the clip library, watch live telemetry — position, achieved frame rate,
-the last error — and **pull a hardware report off the machine running CAM**, from
-any browser, without touching that machine.
+validation the config page uses), switch modules, change how the picture is
+framed, choose a quality, and watch live telemetry — position, achieved frame
+rate, the last error.
 
 The remote's surface is a **media remote**, not a settings mirror: a mini-halo, a
-title, the scrubber with its two loop handles, three transport buttons and one
-pairing card. Everything in the list above that is not transport — the source
-field, the quality control, the module picker, framing, the clip list, the room
-settings — is intact one level down, under **More controls**, with the plumbing
-under **Diagnostics** beside the hardware-report pull.
+title, the scrubber with its two loop handles, three transport buttons, **four
+compact essentials** and one pairing card. The four are the source field, the
+module picker, Fit and Quality — and they are on the page, not behind a door.
+
+There used to be a `More controls` disclosure holding a second complete copy of
+the app: fourteen controls duplicating the configuration page in different words,
+a clip picker, the room settings and a nested privacy note, on a 390 px screen.
+It is gone. **Room settings, the transport internals and the hardware-report pull
+now live in exactly one place** — the `Connection` section of the merged
+About/Diagnostics page, which the remote reaches by the single quiet
+_Connection & diagnostics_ link at the bottom of the page, and which the
+configuration page reaches by clicking the version line in its footer.
+
+Two things the remote deliberately no longer does: it does not pick from the clip
+library (the shelf lives on the machine running CAM, and the Library page is
+where you manage it), and it does not nudge, zoom or rotate the picture — those
+are setup, not remote control, and they live under the module's own options on
+the home screen.
 
 ### The ring is a live replica, not a picture of one
 
@@ -121,7 +135,7 @@ extrapolated locally from `posSec + posAtTs`.
 
 ### Quality
 
-**More controls → Quality.** The same control as the CAM panel, with the same
+**Quality**, on the remote page itself. The same control as the CAM panel, with the same
 words, because it is the same code (`src/modules/video/quality.ts`). It always
 shows what the display is actually getting; whether it offers a _choice_ depends
 entirely on the provider, and it says which case you are in:
@@ -186,9 +200,15 @@ Three things about it are worth knowing:
   gives up after 20 seconds with _display did not answer — is it online and
   paired?_
 
-The same-machine route (`#/diag` in CAM's own Configuration Browser, fed through
-`localStorage`) is unchanged and remains the alternative when both windows are
-on one computer. See [the hardware checklist](hardware-checklist.md).
+The pull itself lives on the merged About/Diagnostics page — `#/about`, which
+`#/diag` still resolves to — under **Hardware report**. Any paired browser can
+press it, including the phone: follow _Connection & diagnostics_ at the bottom of
+the remote.
+
+The same-machine route (the display report the configuration browser reads back
+through `localStorage`, on the same page) is unchanged and remains the
+alternative when both windows are on one computer. See
+[the hardware checklist](hardware-checklist.md).
 
 ### Commands versus state
 
@@ -377,8 +397,9 @@ link cannot silently repoint somebody's LCD forever.
 
 ## Running your own broker
 
-Both endpoints are user-overridable — **Remote → Room settings → Use my own
-broker** — and both defaults live in exactly one file, `src/sync/endpoints.ts`,
+Both endpoints are user-overridable — the footer's version line → **Connection →
+Use my own broker** — and both defaults live in exactly one file,
+`src/sync/endpoints.ts`,
 so a fork can change them once.
 
 - **MQTT**: any broker with a WebSocket listener works. Mosquitto with

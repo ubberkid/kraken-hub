@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
 import { startReplica, type ReplicaDisplayInfo, type ReplicaInput } from '../replica';
 
+import { arcPath } from './arc';
+
 import type { RenderSettings } from '../../../state/schema';
 import type { MonitorSnapshot } from '../../../sync/monitorSnapshot';
 
@@ -34,10 +36,6 @@ import type { MonitorSnapshot } from '../../../sync/monitorSnapshot';
 /** The ring's diameter in CSS px, matching `.kh-minihalo` in `ui.css`. */
 const RING_PX = 132;
 const ARC_STROKE = 3;
-const FULL_TURN = 360;
-const HALF_TURN = 180;
-const QUARTER_TURN = 90;
-const RADIANS = Math.PI / HALF_TURN;
 
 export interface RemoteRingProps {
   moduleId: string;
@@ -53,23 +51,6 @@ export interface RemoteRingProps {
   /** 0–1 through the clip, or `null` when there is no known duration. */
   progress: number | null;
   held: boolean;
-}
-
-/** The SVG arc path for a fraction of the ring, starting at twelve o'clock. */
-function arcPath(fraction: number, radius: number, cx: number, cy: number): string {
-  const clamped = Math.max(0, Math.min(1, fraction));
-  // A full turn cannot be drawn as one arc — start and end coincide and the
-  // renderer draws nothing at all. Stopping a hair short is invisible and is
-  // the standard fix.
-  const sweep = Math.min(clamped, 0.9999) * FULL_TURN;
-  const start = -QUARTER_TURN;
-  const end = start + sweep;
-  const x1 = cx + radius * Math.cos(start * RADIANS);
-  const y1 = cy + radius * Math.sin(start * RADIANS);
-  const x2 = cx + radius * Math.cos(end * RADIANS);
-  const y2 = cy + radius * Math.sin(end * RADIANS);
-  const large = sweep > HALF_TURN ? 1 : 0;
-  return `M ${String(x1)} ${String(y1)} A ${String(radius)} ${String(radius)} 0 ${String(large)} 1 ${String(x2)} ${String(y2)}`;
 }
 
 export function RemoteRing(props: RemoteRingProps) {

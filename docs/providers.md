@@ -46,7 +46,7 @@ _your_ loop is seamless rather than guessing.
 
 ### What the Quality control does, per provider
 
-The **Quality** row on the video panel (and in the remote's More controls) is not
+The **Quality** row on the video panel (and on the remote page itself) is not
 the same control everywhere, because "change the resolution" is not the same
 operation everywhere. It shows what you are getting in all four cases, and it
 offers control only where control is real:

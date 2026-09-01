@@ -167,7 +167,7 @@ export function DiagView({ runtime }: { runtime: ConfigRuntime }) {
         hint="Open the display with ?kraken=1&diag=1 — it publishes its report here every 5 seconds. Every field maps to an H-id in docs/hardware-checklist.md."
       >
         <Row>
-          <Chip tone={display === null ? 'warn' : 'ok'}>
+          <Chip tone={display === null ? 'warn' : 'ok'} testId="diag-display-chip">
             {display === null
               ? 'no report yet'
               : `captured ${new Date(display.capturedAt).toLocaleTimeString()}`}

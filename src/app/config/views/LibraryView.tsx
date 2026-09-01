@@ -69,10 +69,24 @@ const PCT = 100;
 const PCT_DECIMALS = 0;
 const BYTES_PER_MB = 1_048_576;
 const MB_DECIMALS = 1;
+/** Below this a tenth of a megabyte is real information; above it, it is noise. */
+const TENTHS_BELOW_MB = 10;
+/** The quota warning earns its orange above this much of the budget in use. */
+const QUOTA_WARN_PCT = 50;
 const POLL_MS = 1000;
 
+/**
+ * Megabytes, without inventing a decimal place that means nothing.
+ *
+ * An empty library reported "0.0 MB of 4096.0 MB used" — false precision in
+ * both halves (design audit, F10). Nothing stored says *nothing*, and a whole
+ * number of megabytes is rendered as one.
+ */
 function mb(bytes: number): string {
-  return `${(bytes / BYTES_PER_MB).toFixed(MB_DECIMALS)} MB`;
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'nothing';
+  if (bytes < BYTES_PER_MB) return 'under 1 MB';
+  const value = bytes / BYTES_PER_MB;
+  return `${value < TENTHS_BELOW_MB ? value.toFixed(MB_DECIMALS) : String(Math.round(value))} MB`;
 }
 
 /**
@@ -131,6 +145,18 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   const [addOpen, setAddOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [message, setMessage] = useState<Message | null>(null);
+  /**
+   * The file behind an "Add anyway" offer.
+   *
+   * `ingest.ts` has always said *"use 'Add anyway' to store it as-is"* when a
+   * file's metadata does not arrive inside eight seconds, and for the whole of
+   * the design audit that button did not exist anywhere in the product (F5.1):
+   * a real error naming an unreachable remedy. `ingestBlob` already takes
+   * `force`, so the remedy was one button away — and storing as-is is genuinely
+   * useful, because a file whose duration `<video>` refuses to report usually
+   * plays perfectly well.
+   */
+  const [forceable, setForceable] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -270,21 +296,36 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
     if (outcome.accepted) {
       setDraft('');
       setAddOpen(false);
+      /*
+       * Truthful about WHO does the fetching, and therefore about when a tile
+       * appears.
+       *
+       * The old line — "progress shows on its tile" — was printed directly above
+       * "Nothing saved yet", with no tile anywhere (design audit, F5.3). It was
+       * not a race: the DISPLAY does the downloading, because CAM's two browser
+       * windows share one storage partition and the copy has to land in the one
+       * the LCD reads. So if CAM is not running there is no tile, and there will
+       * not be one, and the message has to say so.
+       */
       setMessage({
         tone: 'ok',
-        text: 'Added. Your Kraken is fetching it — progress shows on its tile.',
+        text: 'Sent to your Kraken. It does the downloading, so a tile appears here once CAM picks it up.',
       });
     }
   };
 
-  const addFiles = (files: FileList | null): void => {
+  const addFiles = (files: FileList | null, opts: { force?: boolean } = {}): void => {
     if (files === null || files.length === 0) return;
     setMessage(null);
+    setForceable(null);
     void (async () => {
       for (const file of [...files]) {
-        const result = await ingestFile(file);
+        const result = await ingestFile(file, opts.force === true ? { force: true } : {});
         if (!result.ok) {
           setMessage({ tone: 'error', text: result.message ?? 'That file could not be added.' });
+          // The one failure the user can overrule: no metadata arrived, which
+          // is not the same as "this is not a video".
+          if (result.failure === 'probe-timeout') setForceable(file);
         } else if (result.warnings.length > 0) {
           setMessage({ tone: 'warn', text: result.warnings[0]?.message ?? '' });
         } else {
@@ -292,13 +333,35 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         }
       }
       await publishClipIndex();
-      setAddOpen(false);
+      if (opts.force !== true) setAddOpen(false);
       refresh();
     })();
   };
 
+  /** The remedy the error message has always named. */
+  const addAnyway = (): void => {
+    const file = forceable;
+    if (file === null) return;
+    setForceable(null);
+    const bag = new DataTransfer();
+    bag.items.add(file);
+    addFiles(bag.files, { force: true });
+  };
+
   const quotaPct =
     quota === null || quota.quotaBytes <= 0 ? null : (quota.usageBytes / quota.quotaBytes) * PCT;
+
+  /*
+   * When the storage warning is worth showing at all.
+   *
+   * "May be cleared if the disk fills up — pin the ones you care about" is a
+   * true sentence about browser storage, and it was rendered in warning orange
+   * next to "0.0 MB of 4096.0 MB used" on an EMPTY library, where there is
+   * nothing to pin and nothing to lose (design audit, F10). The claim only
+   * becomes actionable once something is actually stored, or once the quota is
+   * genuinely under pressure — so that is when it is drawn.
+   */
+  const quotaMatters = tiles.length > 0 || (quotaPct !== null && quotaPct > QUOTA_WARN_PCT);
 
   return (
     <section className="kh-library" data-testid="library">
@@ -417,12 +480,31 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
 
       {message !== null && <Notice tone={message.tone}>{message.text}</Notice>}
 
+      {forceable !== null && (
+        <div className="kh-row">
+          <button
+            type="button"
+            className="kh-btn"
+            data-testid="library-add-anyway"
+            onClick={addAnyway}
+          >
+            Add anyway
+          </button>
+        </div>
+      )}
+
       {tiles.length === 0 ? (
         <div className="kh-empty" data-testid="library-empty">
           <p className="kh-empty__title">Nothing saved yet</p>
+          {/*
+            No "press + up there": while the add panel is open that button is an
+            ×, so the instruction pointed at a control that was not on screen
+            (design audit, F5.2). The card describes what the shelf is for
+            instead, which is true in both states.
+          */}
           <p className="kh-hint">
-            Press <b>+</b> up there to paste a link or drop a file. Whatever you add lands here and
-            keeps playing with the network unplugged.
+            Add a link or a file with the button in the corner. Whatever lands here keeps playing
+            with the network unplugged.
           </p>
         </div>
       ) : (
@@ -449,14 +531,19 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           label={
             quota === null || quota.quotaBytes <= 0
               ? 'space in use — unknown'
-              : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
+              : quota.usageBytes <= 0
+                ? `Nothing stored yet — ${mb(quota.quotaBytes)} available`
+                : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
           }
         />
-        <Chip tone={quota?.persisted === true ? 'ok' : 'warn'}>
-          {quota?.persisted === true
-            ? 'Kept for good'
-            : 'May be cleared if the disk fills up — pin the ones you care about'}
-        </Chip>
+        {quotaMatters &&
+          (quota?.persisted === true ? (
+            <Chip tone="ok">Kept for good</Chip>
+          ) : (
+            <Chip tone="warn">
+              May be cleared if the disk fills up — pin the ones you care about
+            </Chip>
+          ))}
       </div>
     </section>
   );

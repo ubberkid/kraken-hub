@@ -287,7 +287,8 @@ test.describe('the shipped resolver companion', () => {
       const flow = config.locator('[data-testid="paste-flow"]');
       await expect(flow).toHaveAttribute('data-flow-stage', 'stored', { timeout: 20_000 });
       await expect(flow).toContainText('kept in your library');
-      // With a companion running, the "get the downloader" offer must not appear.
+      // The success path never carries an install pitch at all any more
+      // (design audit F10) — with or without a companion running.
       await expect(config.locator('[data-testid="resolver-get"]')).toHaveCount(0);
 
       expect(await clipCount(page)).toBe(1);
@@ -412,6 +413,10 @@ test.describe('the shipped resolver companion', () => {
       'youtube-embed',
       { timeout: 20_000 },
     );
+    // The downloader lives behind the module's one Advanced door now, not next
+    // to a working video (design audit F10).
+    await config.click('[data-testid="module-chip-video"]');
+    await config.click('[data-testid="video-advanced"] summary');
     await config.click('[data-testid="resolver-get"]');
     await expect(config.locator('[data-testid="resolver-connect"]')).toBeVisible();
 

@@ -7,6 +7,7 @@ import { removeRaw, writeRaw } from '../../platform/storage';
 import {
   LOW_FPS_THRESHOLD,
   describeFlow,
+  describeVideoStatus,
   failureLine,
   formatSeconds,
   isLowFps,
@@ -210,15 +211,25 @@ describe('describeFlow', () => {
     );
   });
 
-  it('offers the downloader for YouTube only while no companion is answering', () => {
+  it('names the embed path for YouTube only while no companion is answering', () => {
     expect(describeFlow({ url: YT, entries: [], ...noCompanion })?.stage).toBe('youtube-embed');
-    // With one running, the display is about to publish a real job — inviting
-    // the user to install what they already installed would be a lie.
-    expect(describeFlow({ url: YT, entries: [], resolverHealthy: true })).toBeNull();
+    // With one running, the display is about to publish a real job — telling the
+    // user it is playing through YouTube's own player would be a lie.
+    expect(describeFlow({ url: YT, entries: [], resolverHealthy: true })?.stage).toBe('accepted');
   });
 
-  it('says nothing for a plain link with no job, and nothing for a cancelled one', () => {
-    expect(describeFlow({ url: MP4, entries: [], ...noCompanion })).toBeNull();
+  /**
+   * The same gesture gets the same response.
+   *
+   * Design audit F4: a YouTube link produced three step-cards and an `.mp4`
+   * produced *nothing at all* — the primary action, answered with silence. A
+   * recognised link with no job yet is `accepted`, which is an acknowledgement
+   * rather than a download story.
+   */
+  it('acknowledges a plain link with no job, and says nothing for a cancelled one', () => {
+    expect(describeFlow({ url: MP4, entries: [], ...noCompanion })?.stage).toBe('accepted');
+    // A job the user cancelled: a card explaining what they just did to
+    // themselves is noise, so this one stays silent.
     expect(
       describeFlow({ url: MP4, entries: [entry({ state: 'aborted' })], ...noCompanion }),
     ).toBeNull();
@@ -254,5 +265,123 @@ describe('sourceName', () => {
 
   it('calls an empty source what it is', () => {
     expect(sourceName('   ', names)).toBe('the demo clip');
+  });
+});
+
+/**
+ * Design audit F4 — the app's most common action, answered by name.
+ *
+ * `sourceName` used to take the last path segment unconditionally, and every
+ * YouTube watch link in the world ends in `/watch`, so pasting one produced
+ * "Ready to play **watch**". A Shorts link produced the raw video id.
+ */
+describe('sourceName — the provider, not the path', () => {
+  const names = new Map<string, string>();
+
+  it('names YouTube links by the site, never by the word "watch"', () => {
+    for (const url of [
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      'https://youtu.be/dQw4w9WgXcQ',
+      'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+    ]) {
+      expect(sourceName(url, names)).toBe('a YouTube video');
+    }
+  });
+
+  it('names the other providers the way a person would', () => {
+    expect(sourceName('https://vimeo.com/123456789', names)).toBe('a Vimeo video');
+    expect(sourceName('https://www.twitch.tv/somestreamer', names)).toBe('a Twitch stream');
+  });
+
+  it('upgrades to the real title the moment telemetry carries one', () => {
+    expect(sourceName('https://www.youtube.com/watch?v=dQw4w9WgXcQ', names, 'Sunset loop')).toBe(
+      'Sunset loop',
+    );
+    // Blank is not a title. Falling back is better than an empty bold word.
+    expect(sourceName('https://www.youtube.com/watch?v=dQw4w9WgXcQ', names, '  ')).toBe(
+      'a YouTube video',
+    );
+  });
+
+  it('still uses a path segment when it is genuinely a filename', () => {
+    expect(sourceName('https://example.test/clips/dunes.mp4?sig=xyz', names)).toBe('dunes.mp4');
+  });
+});
+
+/**
+ * Design audit F4 — the verb ladder.
+ *
+ * The old line had one rung and never left it: liveness required `tele.stats`
+ * from a running display, so in the configuration browser the status was
+ * permanently "Ready to play", describing something the app was *about* to do.
+ */
+describe('describeVideoStatus', () => {
+  const YT_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  const base = {
+    url: YT_URL,
+    loopEnabled: false,
+    loopEnd: null,
+    tele: null,
+    clipNames: new Map<string, string>(),
+    now: 10_000,
+    downloading: false,
+    displaySeen: true,
+  };
+
+  function stats(over: Partial<{ currentTime: number; bufferedEnd: number; held: boolean }> = {}) {
+    return { currentTime: 84, bufferedEnd: 182, held: false, ...over };
+  }
+
+  it('says Playing, with the display’s own clock, while telemetry is fresh', () => {
+    const s = describeVideoStatus({ ...base, tele: { ts: 9000, stats: stats() } });
+    expect(s.verb).toBe('Playing');
+    expect(s.live).toBe(true);
+    expect(s.detail).toBe('1:24 / 3:02');
+  });
+
+  it('says Holding — and drops the live dot — for a held player', () => {
+    const s = describeVideoStatus({ ...base, tele: { ts: 9000, stats: stats({ held: true }) } });
+    expect(s.verb).toBe('Holding');
+    expect(s.live).toBe(false);
+  });
+
+  it('uses the title telemetry carried, over the detected provider', () => {
+    const s = describeVideoStatus({
+      ...base,
+      tele: { ts: 9000, stats: stats(), title: 'lofi hip hop radio' },
+    });
+    expect(s.name).toBe('lofi hip hop radio');
+  });
+
+  it('says Downloading while bytes are moving in the other window', () => {
+    expect(describeVideoStatus({ ...base, downloading: true }).verb).toBe('Downloading');
+  });
+
+  it('says Streaming for a configured link once a display has been seen', () => {
+    expect(describeVideoStatus(base).verb).toBe('Streaming');
+    expect(
+      describeVideoStatus({
+        ...base,
+        url: 'kraken-hub-clip:abcd1234',
+        clipNames: new Map([['abcd1234', 'sunset loop']]),
+      }),
+    ).toMatchObject({ verb: 'Playing', name: 'sunset loop' });
+  });
+
+  it('is pre-flight only when nothing is genuinely happening', () => {
+    // Nothing configured…
+    expect(describeVideoStatus({ ...base, url: '' })).toMatchObject({
+      verb: 'Ready to play',
+      name: 'the demo clip',
+    });
+    // …or no Kraken has ever connected on this origin, which is the one case
+    // where claiming "Streaming" would be a guess.
+    expect(describeVideoStatus({ ...base, displaySeen: false }).verb).toBe('Ready to play');
+  });
+
+  it('goes quiet again when the telemetry mirror goes stale', () => {
+    const s = describeVideoStatus({ ...base, tele: { ts: 1, stats: stats() }, now: 100_000 });
+    expect(s.verb).toBe('Streaming');
+    expect(s.live).toBe(false);
   });
 });

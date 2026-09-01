@@ -1,31 +1,29 @@
-import { Suspense, lazy, useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import { Footer } from './Footer';
 import { currentHash, parseRoute, subscribeRoute } from './router';
 import { AboutView } from './views/AboutView';
-import { CamSetupCard } from './views/CamSetupCard';
 import { HomeView } from './views/HomeView';
 import { LibraryView } from './views/LibraryView';
-import { ModuleSettingsView } from './views/ModuleSettingsView';
 import { RemoteView } from './views/RemoteView';
 
 import type { ConfigRuntime } from './runtime';
 import type { ReactNode } from 'react';
 
-/** Diagnostics probe a lot of APIs; keep them off the first paint. */
-const DiagView = lazy(async () => {
-  const m = await import('../../diag/DiagView');
-  return { default: m.DiagView };
-});
-
 /**
- * The two renamed routes, resolved in place.
+ * The three renamed routes, resolved in place.
+ *
+ * (Four now, counting `#/diag`.)
  *
  * `#/preview` folded into the home screen's mirror in stage 1; `#/sources`
  * became `#/library` in stage 2, because "sources" is a word from the
- * architecture and "library" is the word for a shelf of clips. Old links must
- * not 404 — a bookmark, a doc link, a fork's deep link — so both render the new
- * screen immediately and rewrite the hash underneath.
+ * architecture and "library" is the word for a shelf of clips. `#/module/<id>`
+ * joined them after the design audit: it was a settings page with **zero
+ * inbound links anywhere in the product** (F1) and no way back, and options are
+ * contextual now — so it lands on home with that module active and its panel
+ * open, which is where its content actually lives. Old links must not 404 — a
+ * bookmark, a doc link, a fork's deep link — so all three render the new screen
+ * immediately and rewrite the hash underneath.
  *
  * A hash rewrite, never a navigation (invariant I1/I2). `location.replace` is
  * not used precisely because it IS a navigation API; assigning the hash leaves
@@ -52,7 +50,11 @@ const SUBPAGE_TITLE: Readonly<Record<string, string>> = {
   library: 'Library',
   sources: 'Library',
   remote: 'Remote',
-  diag: 'Diagnostics',
+  // About and Diagnostics are ONE page now (F7): `#/diag` rewrites to `#/about`
+  // and renders the same screen, so it has to carry the same name — a title
+  // that said "Diagnostics" over a page called About would be the split all
+  // over again, in the one place the user can see both.
+  diag: 'About',
   about: 'About',
 };
 
@@ -80,6 +82,20 @@ function SubPageHeader({ route, title }: { route: string; title: string }) {
       <h2 className="kh-subhead__title">{title}</h2>
     </nav>
   );
+}
+
+/**
+ * Which `<main>` element a route belongs to.
+ *
+ * Two routes are redirects that render the screen they redirect TO, so they
+ * must not get a key of their own: a changed key remounts the screen a tick
+ * after it mounted, which replays the rise animation and throws away whatever
+ * the deep link had just opened.
+ */
+function mainKey(name: string): string {
+  if (name === 'module') return 'home';
+  if (name === 'diag') return 'about';
+  return name;
 }
 
 export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
@@ -114,9 +130,33 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
           rise. Nothing here holds state across routes — each branch below is
           already mounted and unmounted by the route it belongs to.
         */}
-        <main key={route.name}>
-          {route.name === 'home' && <HomeView runtime={runtime} />}
-          {route.name === 'module' && <ModuleSettingsView runtime={runtime} id={route.id} />}
+        {/*
+          `module` shares HOME's key on purpose. The redirect below rewrites the
+          hash to `#/` one tick after mount, and a changed key would tear the
+          home screen down and rebuild it — throwing away the very panel the
+          deep link just opened. Same screen, same element, one animation.
+        */}
+        {/*
+          `diag` shares ABOUT's key for the same reason `module` shares home's:
+          the redirect below rewrites the hash one tick after mount, and a
+          changed key would tear the merged page down and rebuild it — replaying
+          the rise animation and re-running every probe on it.
+        */}
+        <main key={mainKey(route.name)}>
+          {/*
+            Home and `#/module/<id>` are the SAME element in the same slot, so
+            the redirect's hash rewrite does not remount the screen and throw
+            away the panel the deep link just opened. `HashRedirect` is inert
+            unless the current route is the one it names.
+          */}
+          {(route.name === 'home' || route.name === 'module') && (
+            <HashRedirect from="module" to="#/">
+              <HomeView
+                runtime={runtime}
+                openModule={route.name === 'module' ? route.id : undefined}
+              />
+            </HashRedirect>
+          )}
           {route.name === 'library' && <LibraryView runtime={runtime} />}
           {route.name === 'sources' && (
             <HashRedirect from="sources" to="#/library">
@@ -136,16 +176,15 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
             machine looks under About; nobody with a working cooler should be
             shown step one again.
           */}
-          {route.name === 'about' && (
-            <>
+          {/*
+            About and Diagnostics are one page (F7). Same element in the same
+            slot for both routes, so the redirect's hash rewrite does not
+            remount it.
+          */}
+          {(route.name === 'about' || route.name === 'diag') && (
+            <HashRedirect from="diag" to="#/about">
               <AboutView runtime={runtime} />
-              <CamSetupCard runtime={runtime} variant="quiet" />
-            </>
-          )}
-          {route.name === 'diag' && (
-            <Suspense fallback={<p className="kh-hint">Running probes…</p>}>
-              <DiagView runtime={runtime} />
-            </Suspense>
+            </HashRedirect>
           )}
         </main>
 

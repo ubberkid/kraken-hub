@@ -29,7 +29,13 @@ test('the display publishes a DiagReport that the config page can read', async (
   const config = await context.newPage();
   await config.goto('/#/diag');
   await expect(config.getByRole('heading', { name: 'The display' })).toBeVisible();
-  await expect(config.locator('.kh-chip--ok')).toContainText('captured', { timeout: 5000 });
+  // Addressed by test id rather than by `.kh-chip--ok`: `#/diag` is the merged
+  // About/Diagnostics page now (design audit, F7), so several other healthy
+  // chips share that class on it.
+  await expect(config.getByTestId('diag-display-chip')).toHaveClass(/kh-chip--ok/, {
+    timeout: 5000,
+  });
+  await expect(config.getByTestId('diag-display-chip')).toContainText('captured');
   await expect(config.locator('.kh-code').last()).toContainText('"schemaVersion": 1');
 });
 

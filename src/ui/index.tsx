@@ -48,6 +48,113 @@ export function Field({
   );
 }
 
+/**
+ * `Field`, for a control that is not a single labelable element.
+ *
+ * A `<label for>` may only point at a form control, so a radiogroup — which is
+ * a `<div>` with buttons inside — needs its name carried by `aria-labelledby`
+ * instead. Same visual row, same description slot; the only difference is which
+ * accessibility mechanism names the thing.
+ */
+export function GroupField({
+  label,
+  id,
+  description,
+  children,
+}: {
+  label: string;
+  /** The id of the group being named. `${id}-label` names the caption. */
+  id: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="kh-field">
+      <span className="kh-field__lab" id={`${id}-label`}>
+        {label}
+      </span>
+      {children}
+      {description !== undefined && <p className="kh-desc">{description}</p>}
+    </div>
+  );
+}
+
+/**
+ * A segmented control — the shape a short, exclusive choice actually has.
+ *
+ * The design audit's F9 counted **171 words living inside `<option>` elements**:
+ * a `<select>` whose choices are sentences is a control that has given up on
+ * being understood at a glance. Every one of those choices was between two,
+ * three or four things, which is exactly what a segment row is for — all the
+ * options visible at once, one press to change, no popup, no reading.
+ *
+ * `role="radio"` on `<button>`s rather than real radio inputs: the pressed
+ * state has to be styled as a filled segment, and a radio group's roving
+ * tabindex (one tab stop for the group, arrows to move within it) is the
+ * behaviour a segmented control should have anyway.
+ */
+export function Segmented({
+  id,
+  value,
+  options,
+  onChange,
+  labelledBy,
+  ariaLabel,
+}: {
+  id: string;
+  value: string;
+  options: readonly { value: string; label: string; title?: string }[];
+  onChange: (next: string) => void;
+  /** Usually `${id}-label`, from the `GroupField` wrapping this. */
+  labelledBy?: string | undefined;
+  ariaLabel?: string | undefined;
+}) {
+  const move = (delta: number): void => {
+    const at = options.findIndex((o) => o.value === value);
+    const from = at === -1 ? 0 : at;
+    const next = options[(from + delta + options.length) % options.length];
+    if (next !== undefined) onChange(next.value);
+  };
+
+  return (
+    <div
+      className="kh-seg"
+      id={id}
+      role="radiogroup"
+      aria-labelledby={labelledBy}
+      aria-label={ariaLabel}
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          className="kh-seg__opt"
+          aria-checked={o.value === value}
+          // Roving tabindex: the group is one tab stop, arrows move inside it.
+          tabIndex={o.value === value ? 0 : -1}
+          title={o.title ?? ''}
+          data-testid={`${id}-${o.value}`}
+          onClick={() => {
+            onChange(o.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              move(1);
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              move(-1);
+            }
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TextInput({
   id,
   value,
@@ -187,9 +294,22 @@ export function Disclosure({
   );
 }
 
-export function Chip({ tone, children }: { tone: 'ok' | 'warn' | 'neutral'; children: ReactNode }) {
+export function Chip({
+  tone,
+  children,
+  testId,
+}: {
+  tone: 'ok' | 'warn' | 'neutral';
+  children: ReactNode;
+  /** For the rare chip a suite has to address directly rather than by class. */
+  testId?: string;
+}) {
   const cls = tone === 'neutral' ? 'kh-chip' : `kh-chip kh-chip--${tone}`;
-  return <span className={cls}>{children}</span>;
+  return (
+    <span className={cls} data-testid={testId}>
+      {children}
+    </span>
+  );
 }
 
 /**

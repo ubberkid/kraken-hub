@@ -115,12 +115,16 @@ test.describe('a local change is not rolled back', () => {
     await display.goto(displayUrl());
 
     const config = await context.newPage();
+    // `#/module/video` is a redirect now — options are contextual, so it lands
+    // on home with the video panel already open (design audit, F1).
     await config.goto(`/?room=${ROOM}&transport=fake#/module/video`);
-    const fit = config.locator('#video-fit');
-    await expect(fit).toBeVisible();
+    // The panel's Fit control, not the home strip's: this is the one that used
+    // to be a `<select>` of sentences and is now a segmented control.
+    const contain = config.getByTestId('video-fit-contain');
+    await expect(contain).toBeVisible();
 
-    await fit.selectOption('contain');
+    await contain.click();
     await holdsFor(async () => storedFit(config), 'contain');
-    await expect(fit).toHaveValue('contain');
+    await expect(contain).toHaveAttribute('aria-checked', 'true');
   });
 });
