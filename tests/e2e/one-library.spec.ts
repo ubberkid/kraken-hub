@@ -239,6 +239,20 @@ test.describe('no window offers what it cannot do', () => {
     await page.getByTestId('library-add').click();
     await expect(page.getByTestId('library-add-panel')).toBeVisible();
     await expect(page.getByTestId('library-browse')).toBeVisible();
+
+    /*
+      The meter needs something to measure (round 6's minors).
+
+      Round 2's rule — a quota claim is only actionable once something is
+      actually stored — was wired to the persistence chip alone, so the bar and
+      its label stood over an empty shelf reading "13 kB of 4.0 GB used"
+      directly under **Nothing kept here**. It gates the block now, so this
+      half of the surface assertion puts a row on the shelf first. The claim is
+      unchanged: the gate removed these controls from the wrong surface, not
+      from the product.
+    */
+    await page.locator('[data-testid="clip-file-input"]').setInputFiles(FIXTURE_PATH);
+    await expect(tiles(page)).toHaveCount(1, { timeout: 20_000 });
     await expect(page.getByTestId('library-quota')).toBeVisible();
   });
 

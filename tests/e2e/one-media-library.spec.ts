@@ -209,6 +209,8 @@ test.describe('one grid, both kinds', () => {
     await expect(tiles(page)).toHaveCount(1, { timeout: 20_000 });
 
     await tiles(page).first().getByTestId('tile-delete').click();
+    // Both shelves ask before a destructive act (round 6, CAM parity).
+    await page.getByTestId('library-confirm-delete-yes').click();
     await expect(tiles(page)).toHaveCount(0, { timeout: 20_000 });
 
     await page.reload();

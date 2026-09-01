@@ -185,11 +185,26 @@ test.describe('the remote ring', () => {
   test('renders the real clock module, ticking', async ({ context }) => {
     await seed(context, 'clock', { face: 'digital', showSeconds: true });
 
+    /*
+      A display first — round 6's C4.
+
+      A replica needs the panel's REPORTED geometry, because every module scales
+      its type and its dials off `geometry()` rather than off its container.
+      Until the first monitor packet arrives there is no geometry, and the ring
+      used to mount the renderer anyway at `RING_PX` and `scale(1)`: a 640 px
+      module cropped to the top-left corner of a 132 px circle, drawn
+      confidently, on the one surface whose promise is that it shows what the
+      panel shows. So the walk starts a display, exactly as the stats test
+      below does, and the no-geometry case is asserted in its own test.
+    */
+    const display = await context.newPage();
+    await display.goto(displayUrl());
+
     const remote = await context.newPage();
     await remote.goto(remoteUrl());
 
     const ring = remote.getByTestId('remote-mirror');
-    await expect(ring).toHaveAttribute('data-mode', 'replica');
+    await expect(ring).toHaveAttribute('data-mode', 'replica', { timeout: 20_000 });
     await expect(ring).toHaveAttribute('data-module', 'clock');
 
     const time = remote.locator('[data-testid="ring-replica"] .kh-clock__time');
@@ -203,32 +218,61 @@ test.describe('the remote ring', () => {
 
   /**
    * The stats ring is the REAL stats renderer, fed the compact monitoring
-   * snapshot off the telemetry channel. Before any packet arrives it shows the
-   * module's own "waiting" card rather than a wall of zeroes — an absent sensor
-   * and a sensor reading zero are different facts, and the module already knows
-   * how to say so.
+   * snapshot off the telemetry channel.
+   *
+   * It used to assert that before any packet arrived the ring showed the
+   * module's own "waiting" card rather than a wall of zeroes. Round 6's C4
+   * moved that boundary: a replica is not mounted at all until the panel's
+   * geometry has been REPORTED, because a module laid out against a guessed
+   * panel is a confident picture of something nobody has described — the same
+   * class of lie, one level up from a wall of zeroes. The no-feed state gets
+   * the treated placeholder card instead, asserted in the test below; what
+   * remains here is the claim that made the ring worth building.
    */
-  test('renders the real stats module, and says so when there is no feed', async ({ context }) => {
+  test('renders the real stats module once the panel has been described', async ({ context }) => {
     await seed(context, 'stats', { layout: 'dual', primary: 'cpuTemp' });
 
     const remote = await context.newPage();
     await remote.goto(remoteUrl());
 
-    const ring = remote.locator('[data-testid="ring-replica"]');
-    // With no display paired yet there is no snapshot, so the module's own
-    // waiting card is what the ring shows.
-    await expect(ring.locator('.kh-stats__waiting')).toBeVisible({ timeout: 10_000 });
-
-    // Now bring a display up: `?sim=elite` runs the monitoring generator, so
-    // real packets start flowing over the fake transport.
+    // Bring a display up: `?sim=elite` runs the monitoring generator, so real
+    // packets — geometry included — start flowing over the fake transport.
     const display = await context.newPage();
     await display.goto(displayUrl());
 
+    const ring = remote.locator('[data-testid="ring-replica"]');
+    await expect(ring).toBeVisible({ timeout: 20_000 });
     const value = ring.locator('.kh-stats__value').first();
     await expect(value).toBeVisible({ timeout: 20_000 });
     // A real reading, not the `--` placeholder the module shows for an absent
     // sensor. This is the injected snapshot, decoded and rendered.
     await expect.poll(async () => value.textContent(), { timeout: 20_000 }).toMatch(/\d/);
+  });
+
+  /**
+   * C4 — the ring never draws a module at a panel size nobody reported.
+   *
+   * The reproduction, as a passing test: a remote opened into a room with no
+   * display in it, on a module that CAN be replicated. `RemoteRing` fell back
+   * to `RING_PX` for both dimensions and `scale(1)` while `replica.ts` fell
+   * back to `0 × 0` for the geometry, so the ring mounted a real renderer at
+   * 1:1 inside a 132 px box. The honest answer is the treated card the picture
+   * modules already use — the same fallback language the home screen's halo
+   * speaks — which says "nothing has been reported" instead of showing the
+   * corner of something.
+   */
+  test('shows the placeholder card rather than a module at a guessed size', async ({ context }) => {
+    await seed(context, 'stats', { layout: 'dual', primary: 'cpuTemp' });
+
+    const remote = await context.newPage();
+    await remote.goto(remoteUrl());
+    await expect(remote.getByTestId('remote-mirror')).toBeVisible();
+
+    // No display anywhere in this test, so no monitor packet and no geometry.
+    await expect(remote.getByTestId('ring-empty')).toBeVisible({ timeout: 10_000 });
+    await expect(remote.getByTestId('ring-replica')).toHaveCount(0);
+    // …and it names the module, so the card is an answer rather than a hole.
+    await expect(remote.getByTestId('ring-empty')).toContainText('Stats');
   });
 
   /**

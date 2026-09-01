@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ytPosterUrls } from '../../../config/knownHosts';
-import { LINK_RECEIPT } from '../../../config/vocabulary';
 import { localImageId, validateImageConfig } from '../../../modules/image/schema';
 import { listModules } from '../../../modules/registry';
 import { detect } from '../../../modules/video/routing/detect';
@@ -29,6 +28,7 @@ import {
 } from '../../../ui';
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
 import { RECEIPT_LINGER_MS, sourceName } from '../homeState';
+import { PRESENCE_FRESH_MS, linkReceipt, panelPresence, playingLine } from '../panelPresence';
 import { pasteAction, type PasteIssue } from '../pasteLink';
 import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
 import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom';
@@ -92,10 +92,13 @@ const LOOP_WRITE_THROTTLE_MS = 200;
 const SEEK_WRITE_THROTTLE_MS = 200;
 /**
  * Older than this and "linked" would be a lie, so the transport greys out.
- * Telemetry is 0.5 Hz (0.2 Hz in performance mode), so this is six missed
- * packets at the slow rate — long enough never to flicker on a busy display.
+ *
+ * It is `panelPresence.PRESENCE_FRESH_MS` now, not a second twelve seconds.
+ * This file had its own copy of the freshness rule while `HomeView` had another
+ * and the download ladder had none, which is precisely how four surfaces came
+ * to disagree about one panel (round 6). One number, one derivation.
  */
-const DISPLAY_ONLINE_MS = 12_000;
+const DISPLAY_ONLINE_MS = PRESENCE_FRESH_MS;
 
 /**
  * "1080p local" — the sub-line's badge, and only the badge.
@@ -356,9 +359,29 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    * pressing Play three times on a dead link concludes the app is broken, not
    * that CAM is closed. Freshness rather than the socket's own `online`, because
    * a connected broker with nobody listening is exactly as useless.
+   *
+   * This used to be its own inline freshness test, which made it the third
+   * private answer to "is a Kraken there" on one screen. It is `presence` now.
+   *
+   * A phone shares nothing with the Kraken but a room, so "ever seen" is simply
+   * whether a packet has ever arrived on this connection: there is no latch to
+   * read and a `localStorage` key on the phone would be a fact about a
+   * different machine. `lastTele.at` is stamped on THIS device's clock, which
+   * is the clock `now` samples.
    */
-  const displayOnline =
-    sync.lastTele !== null && (now === 0 || now - sync.lastTele.at < DISPLAY_ONLINE_MS);
+  const presence = panelPresence(
+    { everSeen: sync.lastTele !== null, lastSeenAt: sync.lastTele?.at ?? null },
+    now,
+    DISPLAY_ONLINE_MS,
+  );
+  const displayOnline = presence === 'live';
+  /**
+   * The sub-line, or `null` when the app must not make one.
+   *
+   * `held` is decided a few lines above, off the same telemetry — so the two
+   * halves of "is it playing, and is it paused" come from one packet.
+   */
+  const playing = playingLine(presence, held);
 
   /*
    * The library packet, used for the whole shelf rather than one string.
@@ -376,7 +399,33 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   }, [wireLibrary]);
 
   const clipNames = useMemo(() => new Map(clips.map((c) => [c.id, c.name])), [clips]);
-  const title = sourceName(videoCfg.url, clipNames);
+
+  /**
+   * Is the panel actually showing video? — round 6's C3.
+   *
+   * `state.activeModuleId` is the SYNCED document, which is the same value the
+   * display resolves its module from, so this is the panel's own answer rather
+   * than this page's assumption. It was assumed: the remote mounted a video
+   * title, a scrubber, A-B loop handles, ±10 and a quality picker whatever was
+   * on the LCD, so a paired phone in front of a running clock offered to seek
+   * it and reported its "1080p" quality.
+   */
+  const isVideo = state.activeModuleId === VIDEO_ID;
+
+  /**
+   * What the instrument is ABOUT — the source's name, or the module's.
+   *
+   * `sourceName` answers a question about a video URL, and it was asked
+   * unconditionally: with Clock on the panel the heading read `demo.mp4`, which
+   * is the name of something the Kraken is demonstrably not showing. The module
+   * registry is the one place a module's name lives (R11), so a module added
+   * later is named here for free.
+   */
+  const moduleName = useMemo(() => {
+    const found = listModules().find((m) => m.id === state.activeModuleId);
+    return found === undefined ? 'this module' : (found.chipName ?? found.name);
+  }, [state.activeModuleId]);
+  const title = isVideo ? sourceName(videoCfg.url, clipNames) : moduleName;
 
   const quality = tele?.['quality'] as
     { height?: number | null; label?: string | null } | undefined;
@@ -579,6 +628,21 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    *
    * So the transport, the scrubber and the essentials are gated on a live room.
    * What is left before one exists is the ring, one sentence and one button.
+   *
+   * ## Round 6's C3: a room is not the only question
+   *
+   * `const live = paired` was the whole rule, and the name was the tell — it
+   * called one thing "live" and used it for three different questions:
+   *
+   *  - **is there a room?** — which is what it actually tested, and what the
+   *    essentials, the shelf and the pairing card genuinely turn on;
+   *  - **is the video module on the panel?** — never asked, so the video
+   *    instrument mounted over a clock;
+   *  - **is the Kraken saying anything?** — never asked either, so the sub-line
+   *    claimed playback into silence.
+   *
+   * The three are separate now: `paired` below, `isVideo` further down, and
+   * `presence` from the one derivation every surface reads.
    */
   const live = paired;
 
@@ -652,9 +716,14 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         display={sync.monitor?.display ?? null}
         monitor={sync.monitor?.snapshot ?? null}
         monitorAt={sync.monitor?.at ?? 0}
-        posterUrl={posterUrl}
-        sourceUrl={videoCfg.url}
-        name={title}
+        posterUrl={isVideo ? posterUrl : null}
+        /*
+          The name the ring's fallback card carries, or `''` for "nothing to
+          name". Video with no source is the one case that must stay blank: the
+          status line already says "Ready to play the demo clip", and the card
+          printing the same four words six pixels away is round 2's R11.
+        */
+        name={isVideo && videoCfg.url.trim() === '' ? '' : title}
         progress={ringProgress}
         held={held}
       />
@@ -673,83 +742,108 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         two vocabularies. The sub-line is about what is PLAYING, so it only
         appears when something is; the link status owns the other case alone.
       */}
-          {displayOnline && (
+          {/*
+            The sentence, from the one place that decides whether it may be said
+            (round 6, C3). `playingLine` returns `null` for anything but fresh
+            telemetry, so this cannot be rendered greyed-out or hopeful — and
+            the words themselves are `vocabulary.ts`'s, shared with the home
+            screen's ladder, which used to carry its own copy of them.
+          */}
+          {isVideo && playing !== null && (
             <p className="kh-remote__sub" data-testid="remote-sub">
-              {held ? 'Holding on your Kraken · ' : 'Playing on your Kraken · '}
+              {`${playing} · `}
               <span className="kh-tnum">{badge}</span>
             </p>
           )}
 
-          <LoopScrubber
-            max={scrubMax}
-            durationKnown={durationSec !== null && durationSec > 0}
-            positionSec={seekBarValue}
-            loop={videoCfg.loop}
-            onLoopChange={publishLoop}
-            onSeek={(next) => {
-              /*
-               * The echo guard.
-               *
-               * React delivers BOTH `input` and `change` for a controlled range, and
-               * by the time the second one runs the component has already re-rendered
-               * with the telemetry-anchored position — so the echo arrives carrying
-               * the value the bar snapped back to, not the one the user chose. Acting
-               * on it seeks the display back to where it already was.
-               *
-               * The tolerance is half a step, not exact equality, because the two
-               * numbers are not the same number: the bar renders a continuous
-               * `3.503996` and the input reports the grid value `3.5`. Half a step is
-               * also exactly the widest a real gesture can never be.
-               */
-              if (Math.abs(next - seekBarValue) < SEEK_SLIDER_STEP_SEC / 2) return;
-              sync.sendCmd('seekTo', next);
-              publishSeek(next);
-            }}
-          />
+          {/*
+            The instrument is the VIDEO module's, so it mounts for the video
+            module — C3.
 
-          <div className="kh-transport" role="group" aria-label="Playback">
-            <button
-              type="button"
-              className="kh-tbtn"
-              data-testid="transport-back"
-              aria-label="Back 10 seconds"
-              disabled={!displayOnline}
-              onClick={() => {
-                seek(-SEEK_STEP_SEC);
-              }}
-            >
-              −10
-            </button>
-            <button
-              type="button"
-              className="kh-tbtn kh-tbtn--big"
-              data-testid="transport-hold"
-              /*
-               * "Hold", never "Pause". YouTube's real pause raises a
-               * suggested-video grid inside the picture, where cropping cannot
-               * reach it, so the display micro-loops instead (§2.6).
-               */
-              aria-label={held ? 'Play' : 'Hold'}
-              disabled={!displayOnline}
-              onClick={() => {
-                sync.sendCmd(held ? 'play' : 'pause');
-              }}
-            >
-              <span aria-hidden="true">{held ? '▶' : '❙❙'}</span>
-            </button>
-            <button
-              type="button"
-              className="kh-tbtn"
-              data-testid="transport-forward"
-              aria-label="Forward 10 seconds"
-              disabled={!displayOnline}
-              onClick={() => {
-                seek(SEEK_STEP_SEC);
-              }}
-            >
-              +10
-            </button>
-          </div>
+            All of this addresses one module: a position, an A-B loop, ±10
+            seconds and a stream quality are video's vocabulary and nothing
+            else's. It mounted regardless, so a phone paired to a Kraken showing
+            a clock offered a scrubber for it, greyed transport buttons under a
+            heading naming an `.mp4`, and a quality picker whose readout was the
+            last video packet the room had ever carried. Clock, Stats and Image
+            have their own compact controls on this page already — the Showing
+            row, Fit, and the module-aware link field above — and what they do
+            NOT get is somebody else's transport.
+          */}
+          {isVideo && (
+            <>
+              <LoopScrubber
+                max={scrubMax}
+                durationKnown={durationSec !== null && durationSec > 0}
+                positionSec={seekBarValue}
+                loop={videoCfg.loop}
+                onLoopChange={publishLoop}
+                onSeek={(next) => {
+                  /*
+                   * The echo guard.
+                   *
+                   * React delivers BOTH `input` and `change` for a controlled range, and
+                   * by the time the second one runs the component has already re-rendered
+                   * with the telemetry-anchored position — so the echo arrives carrying
+                   * the value the bar snapped back to, not the one the user chose. Acting
+                   * on it seeks the display back to where it already was.
+                   *
+                   * The tolerance is half a step, not exact equality, because the two
+                   * numbers are not the same number: the bar renders a continuous
+                   * `3.503996` and the input reports the grid value `3.5`. Half a step is
+                   * also exactly the widest a real gesture can never be.
+                   */
+                  if (Math.abs(next - seekBarValue) < SEEK_SLIDER_STEP_SEC / 2) return;
+                  sync.sendCmd('seekTo', next);
+                  publishSeek(next);
+                }}
+              />
+
+              <div className="kh-transport" role="group" aria-label="Playback">
+                <button
+                  type="button"
+                  className="kh-tbtn"
+                  data-testid="transport-back"
+                  aria-label="Back 10 seconds"
+                  disabled={!displayOnline}
+                  onClick={() => {
+                    seek(-SEEK_STEP_SEC);
+                  }}
+                >
+                  −10
+                </button>
+                <button
+                  type="button"
+                  className="kh-tbtn kh-tbtn--big"
+                  data-testid="transport-hold"
+                  /*
+                   * "Hold", never "Pause". YouTube's real pause raises a
+                   * suggested-video grid inside the picture, where cropping cannot
+                   * reach it, so the display micro-loops instead (§2.6).
+                   */
+                  aria-label={held ? 'Play' : 'Hold'}
+                  disabled={!displayOnline}
+                  onClick={() => {
+                    sync.sendCmd(held ? 'play' : 'pause');
+                  }}
+                >
+                  <span aria-hidden="true">{held ? '▶' : '❙❙'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="kh-tbtn"
+                  data-testid="transport-forward"
+                  aria-label="Forward 10 seconds"
+                  disabled={!displayOnline}
+                  onClick={() => {
+                    seek(SEEK_STEP_SEC);
+                  }}
+                >
+                  +10
+                </button>
+              </div>
+            </>
+          )}
 
           <LinkStatus sync={sync} now={now} online={displayOnline} />
 
@@ -776,6 +870,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
             activeModuleId={state.activeModuleId}
             videoUrl={videoCfg.url}
             imageId={localImageId(validateImageConfig(state.modules['image']?.cfg).url)}
+            presence={presence}
             /*
               Adding, from the window that cannot hold the bytes.
 
@@ -785,7 +880,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
               pipeline CAM's own drop target uses, so the sentence is retired and
               the control that makes it untrue stands where it stood.
             */
-            add={<RemoteAdd runtime={runtime} sync={sync} />}
+            add={<RemoteAdd runtime={runtime} sync={sync} presence={presence} />}
           />
 
           {/*
@@ -837,6 +932,8 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                   id="remote-src"
                   inputRef={pasteRef}
                   value={urlValue}
+                  /* The spine's fingerprint — see `pasteLink.ts` and C1. */
+                  pasteField={action.moduleId}
                   placeholder={action.placeholder}
                   onChange={(next) => {
                     setUrlDraft(next);
@@ -854,9 +951,19 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                 {urlIssue.message}
               </Notice>
             )}
+            {/*
+              …and the receipt only promises what presence supports — C5.
+
+              It said "Sent to your Kraken. It fetches the file and keeps a
+              copy, so a tile appears here shortly." into a room with nobody
+              listening in it: a phone paired to a Kraken that is switched off
+              got a green tick and a promise about a tile that was not coming.
+              `linkReceipt` is the same chooser CAM's Library and the phone's
+              Add panel print through.
+            */}
             {receipt && urlIssue === null && (
               <p className="kh-hint" data-testid="remote-receipt">
-                {LINK_RECEIPT}
+                {linkReceipt(presence)}
               </p>
             )}
 
@@ -898,12 +1005,14 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
               </GroupField>
             </div>
 
-            <RemoteQuality
-              cfg={videoCfg}
-              tele={tele}
-              fallbackProvider={ytMatch.provider}
-              onChange={setQuality}
-            />
+            {isVideo && (
+              <RemoteQuality
+                cfg={videoCfg}
+                tele={tele}
+                fallbackProvider={ytMatch.provider}
+                onChange={setQuality}
+              />
+            )}
           </section>
         </>
       )}
@@ -1080,11 +1189,48 @@ function PairingCard({
     );
   };
 
+  /**
+   * Join, from the field as well as from the button.
+   *
+   * Round 6's minors: the box was a `<Row>` rather than a form, so pressing
+   * Enter on an eight-character code did nothing at all — on the one screen
+   * whose entire job at that moment is to accept eight characters, typed by
+   * somebody reading them off a monitor across the room.
+   */
+  const submitCode = (): void => {
+    if (normalizeRoomCode(draft) === null) {
+      setBadCode(true);
+      return;
+    }
+    setBadCode(false);
+    onJoin(draft);
+  };
+
   /** The by-hand path: type a code somebody read off a monitor. */
   const codeField = (
-    <Field label="Room code" htmlFor="remote-room" description={ROOM_CODE_HINT}>
-      <Row>
-        {/*
+    /*
+      The rule is stated ONCE — round 6's minors.
+
+      `ROOM_CODE_HINT` was the field's permanent description AND the text of the
+      error, so a refused code printed the same sentence twice, 20 px apart, one
+      of them in red. Saying a rule louder is not saying a second thing. The
+      description carries it while it is advice; the Notice takes it over while
+      it is a complaint, and the description reverts the moment the field is
+      touched.
+    */
+    <Field
+      label="Room code"
+      htmlFor="remote-room"
+      {...(badCode ? {} : { description: ROOM_CODE_HINT })}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitCode();
+        }}
+      >
+        <Row>
+          {/*
           The box filters as you type (S5).
 
           `normalizeRoomCode` has always folded `I`/`L` → `1` and `O` → `0` at
@@ -1095,32 +1241,22 @@ function PairingCard({
           to fold into, simply cannot be entered rather than failing eight
           characters later.
         */}
-        <TextInput
-          id="remote-room"
-          value={draft}
-          placeholder="ABCD1234"
-          invalid={badCode}
-          describedBy={badCode ? 'remote-room-bad' : undefined}
-          onChange={(next) => {
-            setDraft(filterRoomCodeInput(next));
-            setBadCode(false);
-          }}
-        />
-        <Button
-          primary
-          testId="pair-join"
-          onClick={() => {
-            if (normalizeRoomCode(draft) === null) {
-              setBadCode(true);
-              return;
-            }
-            setBadCode(false);
-            onJoin(draft);
-          }}
-        >
-          Join
-        </Button>
-      </Row>
+          <TextInput
+            id="remote-room"
+            value={draft}
+            placeholder="ABCD1234"
+            invalid={badCode}
+            describedBy={badCode ? 'remote-room-bad' : undefined}
+            onChange={(next) => {
+              setDraft(filterRoomCodeInput(next));
+              setBadCode(false);
+            }}
+          />
+          <button type="submit" className="kh-btn kh-btn--primary" data-testid="pair-join">
+            Join
+          </button>
+        </Row>
+      </form>
       {badCode && (
         <div id="remote-room-bad" data-testid="pair-code-error">
           {/*

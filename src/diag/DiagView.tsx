@@ -242,9 +242,18 @@ export function DiagView({
         that clause was pointing at, and the reader's question — does opening
         this drawer phone home? — is answered by the first clause alone.
       */}
+      {/*
+        "not even", never "including" — round 6's minors.
+
+        The sentence had been inverted for a wave: *"Nothing here contacts the
+        network, including X and Y"* parses as a list of things it DOES contact,
+        which is the exact opposite of the promise, printed inside the drawer
+        somebody opened to check whether the app phones home. A privacy claim
+        that reads backwards is worse than no claim at all.
+      */}
       <p className="kh-hint">
-        Nothing here contacts the network, including{' '}
-        {NETWORK_TARGETS.map((t) => t.label).join(' and ')}.
+        Nothing here contacts the network, not even{' '}
+        {NETWORK_TARGETS.map((t) => t.label).join(' or ')}.
       </p>
     </>
   );

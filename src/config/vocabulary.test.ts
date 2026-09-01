@@ -238,6 +238,76 @@ describe('the app has one vocabulary', () => {
     });
   }
 
+  /**
+   * ── SPINE 2, enumerated ───────────────────────────────────────────────────
+   *
+   * The vocabulary rules above answer *what do we call this* and *who may say
+   * it*. Round 6 needed a third question — **what did you check before saying
+   * it?** — because four surfaces asserted the state of the LCD panel without
+   * ever asking whether a panel had been heard from: the download ladder's
+   * *"On screen now — Playing on your Kraken"* on a first-run window, the
+   * remote's video transport over a room whose display had never spoken, the
+   * ring's replica at a guessed geometry, and a link receipt promising a tile
+   * into an empty room.
+   *
+   * Fixing four strings buys one round. So the rule is mechanical and it FINDS
+   * violations rather than listing them: any file that renders a claim about
+   * the panel must consume `panelPresence`, the one derivation that answers the
+   * question. The claim is detected by the words themselves — the "on your
+   * Kraken" / "On screen" family — over the comment-stripped source, so a
+   * sentence typed inline next month is caught exactly as an imported constant
+   * is.
+   *
+   * ## Why the display graph is excluded, and why that is not a hand-list
+   *
+   * `src/modules`, `src/render` and `src/diag` render ON the Kraken. Invariant
+   * I8 forbids them importing `src/app/config` at all, so they *cannot* consume
+   * the spine — and they do not need to: a page running on the panel does not
+   * have to wonder whether the panel is there. The exclusion is the architecture
+   * saying so, not somebody's memory of which files were fine.
+   */
+  const PANEL_CLAIM_RE = /on your Kraken|On screen/;
+
+  /** The one derivation. A file that claims must name it. */
+  const SPINE = 'panelPresence';
+
+  /** Rendered by the DISPLAY, which is the panel — invariant I8. */
+  const ON_THE_PANEL = /^(modules|render|diag|platform|state|sync|transfer|lib|boot)\//;
+
+  it('finds panel claims to check at all', () => {
+    // The regex silently matching nothing would make the rule below vacuous —
+    // the exact way an enumeration test stops enumerating.
+    const claiming = FILES.filter((f) => PANEL_CLAIM_RE.test(f.text));
+    expect(claiming.length).toBeGreaterThan(0);
+  });
+
+  it('every claim about the panel is made through panelPresence', () => {
+    const unwired = FILES.filter(
+      (f) =>
+        !ON_THE_PANEL.test(f.rel) &&
+        f.rel !== 'app/config/panelPresence.ts' &&
+        PANEL_CLAIM_RE.test(f.text) &&
+        !f.text.includes(SPINE),
+    ).map((f) => f.rel);
+    expect(
+      unwired,
+      'these say what the panel is showing without asking — import from app/config/panelPresence.ts',
+    ).toEqual([]);
+  });
+
+  /**
+   * …and the derivation itself is reachable from both apps.
+   *
+   * A spine only one screen consults is the bug this round is about, one level
+   * up. CAM's home screen and the phone's remote are the two roots, and both
+   * have to be in the set that names it.
+   */
+  it('both apps consume the presence spine', () => {
+    const consumers = FILES.filter((f) => f.text.includes(SPINE)).map((f) => f.rel);
+    expect(consumers).toContain('app/config/views/HomeView.tsx');
+    expect(consumers).toContain('app/config/views/RemoteView.tsx');
+  });
+
   it('composes the destination into every phrase that names one', () => {
     expect(KEEPING_A_COPY_NOW).toContain(COPY_HOME);
     expect(KEPT_A_COPY).toContain(COPY_HOME);

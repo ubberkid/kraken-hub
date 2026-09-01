@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { middleEllipsis } from '../../../lib/text';
 import { startReplica, type ReplicaDisplayInfo, type ReplicaInput } from '../replica';
 
 import { arcPath } from './arc';
@@ -30,11 +31,37 @@ import type { MonitorSnapshot } from '../../../sync/monitorSnapshot';
  * PANEL's pixel dimensions and scaled down with a transform. Sizing it to the
  * ring instead would produce a picture that looks plausible and is wrong —
  * every module scales its type and dials off `geometry()`, not off its box.
+ *
+ * ## …which is exactly why a replica needs a REPORTED panel — round 6's C4
+ *
+ * The scale trick has one input, and it was allowed to be missing. With no
+ * monitor packet yet, `props.display` is `null` and this component fell back to
+ * `RING_PX` for both dimensions and `scale(1)`, while `replica.ts` fell back to
+ * `0 × 0` for the geometry the module lays itself out against. So a ring with
+ * unknown geometry mounted a real renderer at 1:1 inside a 132 px box: a
+ * 640 px stats dial cropped to its top-left corner, drawn confidently, on a
+ * screen whose whole promise is *what you see is what the panel is showing*.
+ * The fallback made a guess look like a report.
+ *
+ * A replica therefore requires geometry, full stop. Without it the ring shows
+ * the treated placeholder card — the same fallback language the home screen's
+ * halo uses for a source with no poster, and the same one the picture modules
+ * get here. A card that says "nothing has been reported yet" is a true
+ * statement; a clipped module is a false one.
  */
 
 /** The ring's diameter in CSS px, matching `.kh-minihalo` in `ui.css`. */
 const RING_PX = 132;
 const ARC_STROKE = 3;
+/**
+ * How much of a name fits across the ring before it has to be shortened.
+ *
+ * The ring is 132 px with a 12 % inset and the card's type is 0.66 rem, which
+ * is roughly sixteen characters. `text-overflow: ellipsis` was set on this
+ * element and did nothing, because nothing stopped the text wrapping first —
+ * see `middleEllipsis` for why the ellipsis goes in the MIDDLE.
+ */
+const RING_NAME_MAX = 16;
 
 export interface RemoteRingProps {
   moduleId: string;
@@ -45,15 +72,18 @@ export interface RemoteRingProps {
   monitorAt: number;
   /** A `data:image/webp` thumbnail the display shipped, or a public poster URL. */
   posterUrl: string | null;
-  /** The video source, so the ring can tell a local clip from a stream. */
-  sourceUrl: string;
   /**
-   * What the status line above calls this source, or `''` for nothing chosen.
+   * What the card should be called, or `''` for "nothing to name".
    *
    * The ring used to print `NO PREVIEW` in uppercase machine type — an
    * engineering non-answer, in a place the home screen's halo solves with a
    * treated card and the source's own name (round 2, R4/R7). Same treatment
    * here: the surface, and the name only when there is one.
+   *
+   * The caller decides what the name IS, which is round 6's C3 arriving here:
+   * this used to be gated on a `sourceUrl` prop — the VIDEO url — so a clock
+   * ring with no geometry had nothing to print, because the thing it would have
+   * been named after was a video the panel was not showing.
    */
   name: string;
   /** 0–1 through the clip, or `null` when there is no known duration. */
@@ -68,12 +98,20 @@ export function RemoteRing(props: RemoteRingProps) {
   /**
    * Which rings run a real renderer.
    *
-   * `image` and `video` are excluded deliberately: their renderers reach into
-   * IndexedDB for blobs that live in CAM's browser profile, which this phone
-   * can never read, so mounting them here would produce an empty box and a
-   * pointless database open. They get the still below instead.
+   * Two conditions, and both are about honesty rather than about capability:
+   *
+   *  - `image` and `video` are excluded deliberately: their renderers reach
+   *    into IndexedDB for blobs that live in CAM's browser profile, which this
+   *    phone can never read, so mounting them here would produce an empty box
+   *    and a pointless database open. They get the still below instead.
+   *  - **the panel's geometry must have been REPORTED** (C4). Every module
+   *    scales its type and its dials off `geometry()`, so a renderer mounted
+   *    before the first monitor packet is a module laid out for a panel nobody
+   *    has described — and the old fallback laid it out at 1:1 in a 132 px box,
+   *    which crops a 640 px dial to its corner. No report, no replica.
    */
-  const replicated = props.moduleId === 'clock' || props.moduleId === 'stats';
+  const replicated =
+    (props.moduleId === 'clock' || props.moduleId === 'stats') && props.display !== null;
 
   // Everything the replica reads, in one object, so the update effect below has
   // a single dependency and cannot half-apply a change.
@@ -120,24 +158,32 @@ export function RemoteRing(props: RemoteRingProps) {
       data-module={props.moduleId}
       data-mode={replicated ? 'replica' : 'still'}
     >
-      {replicated ? (
+      {replicated && props.display !== null ? (
         <div
           className="kh-minihalo__scale"
           data-testid="ring-replica"
           ref={hostRef}
           style={{
-            // The panel's own pixel box, scaled to the ring. `null` geometry
-            // means no packet has arrived yet; the fallback keeps the element
-            // square rather than collapsing it to nothing.
-            width: `${String(props.display?.w ?? RING_PX)}px`,
-            height: `${String(props.display?.h ?? RING_PX)}px`,
-            transform: `scale(${String(RING_PX / (props.display?.w ?? RING_PX))})`,
+            /*
+              The panel's own pixel box, scaled to the ring.
+
+              No `??` fallback any more, and the narrowing above is what makes
+              that safe: `replicated` already required a report, so there is no
+              longer a branch in which this element has to invent a size. That
+              fallback WAS the bug (C4) — `RING_PX` and `scale(1)` are a
+              plausible-looking lie about a panel nobody has described.
+            */
+            width: `${String(props.display.w)}px`,
+            height: `${String(props.display.h)}px`,
+            transform: `scale(${String(RING_PX / props.display.w)})`,
           }}
         />
       ) : props.posterUrl === null ? (
         <div className="kh-minihalo__card" data-testid="ring-empty">
-          {props.sourceUrl.trim() !== '' && (
-            <span className="kh-minihalo__card-name">{props.name}</span>
+          {props.name.trim() !== '' && (
+            <span className="kh-minihalo__card-name">
+              {middleEllipsis(props.name, RING_NAME_MAX)}
+            </span>
           )}
         </div>
       ) : (

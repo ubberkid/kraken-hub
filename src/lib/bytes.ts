@@ -27,24 +27,39 @@
 
 export const BYTES_PER_KB = 1024;
 export const BYTES_PER_MB = 1_048_576;
+export const BYTES_PER_GB = 1_073_741_824;
 
 /** One decimal above a megabyte — enough to see a download move, not enough to read as precision. */
 const MB_DECIMALS = 1;
 
 /**
- * Kilobytes below a megabyte, megabytes above it.
+ * Bytes, kilobytes, megabytes, gigabytes — four rungs, and each one earns its
+ * place by having produced a wrong number without it.
  *
  * A fixed `MB` unit renders a 32 kB clip and an empty one identically as
  * "0.0 MB", which is the tile telling the user their file has no size — and at
  * `MB_DECIMALS = 0`, which is what the home screen shipped, a 400 kB download
  * counts up as "0 MB", "0 MB", "0 MB".
  *
- * Zero, negative and non-finite all render as an em dash rather than "0 kB":
+ * Round 6 found the same class at both ends of the range:
+ *
+ *  - **below a kilobyte** the kB rung rounds toward zero, so a 70-byte file
+ *    rendered as **"0 kB"** — the app telling a user their file has no size, in
+ *    the exact words this function exists to prevent. It is bytes down there,
+ *    which is also the only unit that needs no decimal.
+ *  - **above a gigabyte** there was no rung at all, so the Library's quota
+ *    meter read **"4096.0 MB"** — a number no file manager, browser or
+ *    settings page in the world would print, and one the reader has to divide
+ *    by 1024 in their head to compare against the storage figure they know.
+ *
+ * Zero, negative and non-finite all render as an em dash rather than "0 B":
  * they mean *not known*, and every one of them reaches here from a size that
- * was never reported.
+ * was never reported. That is a different fact from "small".
  */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+  if (bytes < BYTES_PER_KB) return `${String(Math.round(bytes))} B`;
   if (bytes < BYTES_PER_MB) return `${String(Math.round(bytes / BYTES_PER_KB))} kB`;
-  return `${(bytes / BYTES_PER_MB).toFixed(MB_DECIMALS)} MB`;
+  if (bytes < BYTES_PER_GB) return `${(bytes / BYTES_PER_MB).toFixed(MB_DECIMALS)} MB`;
+  return `${(bytes / BYTES_PER_GB).toFixed(MB_DECIMALS)} GB`;
 }

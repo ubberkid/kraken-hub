@@ -358,6 +358,27 @@ html.kh-config-mode .kh-app {
   border-color: var(--kh-accent-line);
 }
 
+/*
+ * A refusal the eye can see — round 6's minors.
+ *
+ * Round 5's S5 gave a rejected room code `aria-invalid`, `aria-describedby` and
+ * a red `Notice` underneath, which is a complete answer for a screen reader and
+ * nothing at all for the eye: the box that refused the text looked exactly like
+ * the box next to it, so the one element the reader is actually looking at while
+ * they press Join was the only one that said nothing. The ring is the token
+ * palette's own danger colour, and it is a `box-shadow` rather than a wider
+ * border so the field does not resize and shove the Join button when it fails.
+ *
+ * Keyed on `[aria-invalid]`, not on a class: the accessibility state and the
+ * visible state are then the same fact, and a field cannot be styled as broken
+ * without also announcing it.
+ */
+.kh-input[aria-invalid='true'],
+.kh-input[aria-invalid='true']:hover {
+  border-color: var(--kh-danger);
+  box-shadow: 0 0 0 2px rgb(255 138 138 / 22%);
+}
+
 .kh-btn {
   padding: 0.5rem 0.9rem;
   color: var(--kh-ink);
@@ -1408,12 +1429,30 @@ html.kh-config-mode .kh-app {
 }
 
 .kh-halo__card-name {
+  max-width: 100%;
+  overflow: hidden;
   font-size: 0.8rem;
   font-weight: 600;
   line-height: 1.35;
+
+  /*
+   * One line, never a broken word — round 6's minors.
+   *
+   * This was `overflow-wrap: anywhere`, which is the correct rule for a URL and
+   * the wrong one for a filename: at the compact halo's 64 px the bezel drew
+   * `demo.mp4` as "dem / o.mp / 4". The shortening itself is done in the render
+   * (`lib/text.middleEllipsis`), because a middle ellipsis is not something CSS
+   * can express and the two halo sizes have very different budgets.
+   */
+  white-space: nowrap;
+  overflow-wrap: normal;
   color: var(--kh-ink-2);
   text-shadow: 0 1px 10px rgb(0 0 0 / 70%);
-  overflow-wrap: anywhere;
+}
+
+.kh-home[data-compact='true'] .kh-halo__card-name {
+  font-size: 0.62rem;
+  line-height: 1.2;
 }
 
 /* The position arc, on the same geometry as the remote's ring (`views/arc.ts`). */
@@ -2910,11 +2949,20 @@ main > .kh-panel .kh-setup {
 }
 
 .kh-minihalo__card-name {
+  max-width: 100%;
   overflow: hidden;
   font-size: 0.66rem;
   line-height: 1.25;
+
+  /*
+   * `text-overflow: ellipsis` was already here and had never once fired:
+   * nothing stopped the text wrapping first, so it never overflowed on one
+   * line. The name is shortened in the render instead — in the MIDDLE, so a
+   * filename keeps its extension (`lib/text.middleEllipsis`).
+   */
+  white-space: nowrap;
+  overflow-wrap: normal;
   text-align: center;
-  text-overflow: ellipsis;
   color: var(--kh-muted-2);
 }
 

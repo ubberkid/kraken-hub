@@ -61,6 +61,82 @@ export const KEPT_A_COPY = `kept ${COPY_HOME}`;
 export const LINK_RECEIPT =
   'Sent to your Kraken. It fetches the file and keeps a copy, so a tile appears here shortly.';
 
+/**
+ * The same act, said by a window that has never met a Kraken — round 6's C5.
+ *
+ * `LINK_RECEIPT` makes two claims a window with no display on the other end
+ * cannot support: that the link was *sent* somewhere, and that a tile will turn
+ * up *shortly*. On a phone paired to a room nobody is listening in — and in a
+ * CAM window on a machine where the LCD page has never booted — both are
+ * guesses. What is true either way is that the choice is written down and
+ * retained, and that the Kraken acts on it the moment it connects.
+ *
+ * Which of the two is printed is not a decision any surface makes for itself:
+ * `app/config/panelPresence.ts` owns the question, and all three link fields
+ * ask it.
+ */
+export const LINK_RECEIPT_UNSEEN =
+  'Saved to the library — your Kraken picks it up when it connects.';
+
+// ---------------------------------------------------------------------------
+// What is on the panel — the words, in one place
+// ---------------------------------------------------------------------------
+
+/**
+ * The receipt's last step, and the sub-line under it.
+ *
+ * Round 6's C2. The download ladder's third card said **On screen now —
+ * Playing on your Kraken** the moment the story settled, on a first-run window
+ * where no display had ever published anything: the app describing a panel it
+ * had never heard from. The sentence is true when a Kraken has been seen and
+ * false when one has not, so it is two sentences, and
+ * `panelPresence.settledReceipt()` is the only thing that chooses between them.
+ *
+ * `PLAYING_ON_KRAKEN` and `HOLDING_ON_KRAKEN` are shared with the remote's
+ * sub-line, which said the same words in its own copy of them.
+ */
+export const ON_SCREEN_NOW = 'On screen now';
+export const PLAYING_ON_KRAKEN = 'Playing on your Kraken';
+export const HOLDING_ON_KRAKEN = 'Holding on your Kraken';
+
+/** The honest headline for a source committed to a Kraken nobody has seen. */
+export const SAVED_HEADLINE = 'Saved';
+
+/** …and its sub-line. The promise the app CAN keep: the state is retained. */
+export const PLAYS_WHEN_CONNECTED = 'Plays when your Kraken connects';
+
+/**
+ * The badge on the tile the panel is showing — and the one on the tile it is
+ * merely going to show.
+ *
+ * "On screen" was typed into both shelves independently, which is the ordinary
+ * duplication this file exists to end; it was also a claim about a panel
+ * neither shelf had checked, which is round 6's C2 wearing a 10 px uppercase
+ * label. A shelf on a window that has never heard from a Kraken knows exactly
+ * one thing about the highlighted tile: it is the one queued up.
+ */
+export const ON_SCREEN_BADGE = 'On screen';
+export const NEXT_UP_BADGE = 'Next up';
+
+/**
+ * The Library's receipt for playing something, in its two honest forms.
+ *
+ * Composed with the tile's name by `panelPresence.showingTile`, so neither
+ * half can be printed without the question being asked.
+ */
+export const IS_ON_YOUR_KRAKEN = 'is on your Kraken.';
+export const IS_NEXT_UP = 'is next up — your Kraken shows it when it connects.';
+
+/**
+ * The ladder's middle card, for a link that has been handed over.
+ *
+ * `SENT_TO_KRAKEN` is a claim about a hand-off to a machine on the other end of
+ * something; with no machine ever seen there has been no hand-off, only a
+ * decision written down.
+ */
+export const SENT_TO_KRAKEN = 'Sent to your Kraken';
+export const SAVED_FOR_KRAKEN = 'Saved for your Kraken';
+
 // ---------------------------------------------------------------------------
 // The library's one verb
 // ---------------------------------------------------------------------------

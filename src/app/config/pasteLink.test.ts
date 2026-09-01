@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { defaultAppState } from '../../state/defaults';
 
-import { pasteAction, submitVideoLink } from './pasteLink';
+import { pasteAction } from './pasteLink';
 
 import type { ConfigRuntime } from './runtime';
 import type { AppState } from '../../state/schema';
@@ -41,7 +41,25 @@ function stubRuntime(initial: AppState = defaultAppState()): {
   };
 }
 
-describe('submitVideoLink', () => {
+/**
+ * The video half of the mapping — reached the way every surface reaches it.
+ *
+ * These assertions used to call `submitVideoLink` directly, which was also how
+ * two of the app's four link fields called it: round 6's C1 found `RemoteAdd`
+ * and `LibraryView` committing `modules.video.cfg.url` unconditionally, so a
+ * picture pasted into either Add panel landed in the video module, silently
+ * switched the active module and printed a success receipt. Both submitters are
+ * module-private now — the ONLY door is `pasteAction`, which is a compiler
+ * guarantee rather than a review one — and this suite goes through the same
+ * door as the screens.
+ */
+function submitVideoLink(runtime: ConfigRuntime, raw: string) {
+  const action = pasteAction(runtime, 'video');
+  if (action === null) throw new Error('video must always have a paste action');
+  return action.submit(raw);
+}
+
+describe('pasteAction, for a video link', () => {
   it('makes a valid link the video source and activates the video module', () => {
     const stub = stubRuntime();
     const result = submitVideoLink(stub.runtime, '  https://example.test/clip.mp4  ');

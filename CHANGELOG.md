@@ -29,6 +29,99 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **Design audit round 6 — two missing spines, and the enumerations that keep
+  them.** Every previous round named a class, fixed the instances somebody had
+  photographed, and watched the class survive on the surfaces nobody had. Round
+  6's findings all orbit two absences, so the work is the two absences rather
+  than the six screenshots — plus two tests that FIND violations instead of
+  asserting a list of known ones.
+
+  - **One paste mechanism (C1).** `pasteAction` — the mapping that decides
+    whether a link field is the _video_ field or the _picture_ field, based on
+    what is actually on the panel — reached two of the app's four link fields.
+    `RemoteAdd` and `LibraryView` still called `submitVideoLink`
+    unconditionally, so a picture pasted into either **Add** panel landed in
+    `modules.video.cfg.url`, silently switched the active module to video and
+    printed a success receipt: the exact three lies round 5 removed from the
+    remote's other field. Both panels go through the mapping now — module-aware
+    label, placeholder, submit verb and validator, with the quiet _"Play
+    something"_ for Clock and Stats — while their file halves keep their own
+    kind-routing, because what a file IS is a question about its bytes.
+
+    The door is shut behind them: `submitVideoLink` and `submitImageLink` are
+    module-private, so `pasteAction` is the only way to commit a pasted link and
+    the compiler enforces it. `tests/e2e/paste-spine.spec.ts` is the other half —
+    it walks every route in every module state, asks the DOM which text inputs
+    accept a URL, and requires each one to carry `data-paste-field`. A link field
+    added later fails that test **by existing**; a URL that is a _setting_ (a
+    broker address, a proxy base) declares itself at the field with
+    `<TextInput settingUrl>` rather than being listed inside the test.
+
+  - **One presence truth (C2, C3, C4, C5).** Four surfaces asserted the state of
+    the LCD panel without ever asking whether a panel had been heard from, and
+    each had its own private notion of "connected" — `paired`, `displaySeen`,
+    `displayOnline`, `sync.monitor !== null`. `app/config/panelPresence.ts` is
+    the one derivation: **never-seen**, **quiet** (seen once, not lately) and
+    **live** (telemetry is fresh), from two injected facts, with no clock and no
+    storage of its own. Every claim about the panel is routed through it.
+
+    - **C2** — the download ladder settled on _"On screen now — Playing on your
+      Kraken"_ on a first-run window, at the same moment and on the same screen
+      as the band explaining how to install CAM. With nothing ever seen it says
+      what is true: **Saved — plays when your Kraken connects**. The status line
+      under the halo consumes the same signal, so the two cannot disagree about
+      one panel eighteen pixels apart, and the same question now gates the
+      Library's _"is on your Kraken"_ receipt, both shelves' **On screen** badge
+      (**Next up**, when nothing has been seen) and the ladder's _"Sent to your
+      Kraken"_ card.
+    - **C3** — the remote mounted the video instrument (title, scrubber, A-B
+      handles, ±10, quality) whatever the synced state said was on the panel, so
+      a phone paired to a Kraken showing a clock was offered a scrubber for it
+      under a heading naming an `.mp4`. `const live = paired` was one name doing
+      three jobs; it is `paired`, `isVideo` and `presence` now. Clock, Stats and
+      Image keep their own compact controls — the Showing row, Fit, the
+      module-aware link field and the shelf — and get no transport. The
+      sub-line is `playingLine`, which returns nothing at all unless telemetry
+      is fresh.
+    - **C4** — `RemoteRing` mounted a real module renderer with `props.display`
+      still `null`, falling back to `RING_PX` and `scale(1)` while `replica.ts`
+      fell back to a `0 × 0` geometry: a 640 px dial cropped to the top-left
+      corner of a 132 px circle, drawn confidently, on the one surface whose
+      promise is that it shows what the panel shows. A replica now requires
+      reported geometry; without it the ring draws the treated placeholder card,
+      named after the module.
+    - **C5** — the remote's _"Sent to your Kraken… a tile appears here shortly"_
+      was printed into rooms with nobody listening in them. All three link
+      fields print `linkReceipt(presence)`, which says **Saved to the library —
+      your Kraken picks it up when it connects** when nothing has been seen.
+
+    The enumeration is in `src/config/vocabulary.test.ts`, extended from the
+    "one voice" sweep: it reads the comment-stripped tree for the
+    "on your Kraken" / "On screen" claim family and requires every file making
+    one to consume `panelPresence`. The display graph is excluded because
+    invariant I8 forbids it importing config code at all — a page running on the
+    panel does not have to wonder whether the panel is there.
+
+  - **The minors.** The room-code rule was printed twice on a refusal — as the
+    field's description and again as the error — and now moves between the two
+    rather than being said louder; **Enter** in that field joins, which it never
+    did; an `aria-invalid` field gets a visible ring in the palette's danger
+    colour, keyed off the ARIA state so the announced and the visible answer
+    cannot come apart. `formatBytes` gained a bytes rung and a gigabytes rung, so
+    a 70-byte file is no longer **"0 kB"** and a browser quota is no longer
+    **"4096.0 MB"**. The Library's quota meter honours the round-2 rule it was
+    written for and hides over an empty shelf, instead of reading
+    "13 kB of 4.0 GB used" under **Nothing kept here**. A filename in the halo is
+    shortened with a middle ellipsis (`lib/text.ts`) rather than broken mid-word
+    — the compact bezel drew `demo.mp4` as "dem / o.mp / 4". `DiagView`'s privacy
+    sentence read _"Nothing here contacts the network, including X and Y"_, which
+    parses as a list of things it does contact; it says **not even** now. CAM's
+    tile **Delete** gets the same confirm sheet the phone's batch delete has had
+    since wave 3 — `views/ConfirmSheet`, mounted by both shelves — because it was
+    the last unconfirmed destructive act in a product with no undo. Two stale
+    docstrings (`LibraryView`'s add-panel note, `remote-control.md`'s
+    delete-confirm section) match the code again.
+
 - **Design audit round 5 — the app saying something it does not know to be
   true.** Six findings and a batch of minors, and they are one class rather than
   six: a surface asserting a fact it had not checked, could not check, or had

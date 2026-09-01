@@ -256,6 +256,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           >
             <TextInput
               id="video-proxy-base"
+              settingUrl
               value={cfg.proxyBase}
               placeholder="your proxy's base URL, ending in ?url="
               onChange={(proxyBase) => {

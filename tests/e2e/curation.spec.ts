@@ -247,15 +247,25 @@ test.describe('the phone curates the one library', () => {
 
 test.describe('the owning window keeps its own directness', () => {
   /**
-   * CAM does NOT get the confirm.
+   * CAM asks, and then does it ITSELF.
    *
-   * The two-tap answer exists because a phone is deleting something on a screen
-   * in another room, over an eventually-consistent link, with no undo. In CAM
-   * the row, the finger and the shelf that redraws from the database are all in
-   * one place — a confirm there is a tax on the surface that has the least need
-   * of one.
+   * This test used to assert that CAM had no confirm at all: the two-tap answer
+   * existed because a phone deletes something on a screen in another room, over
+   * an eventually-consistent link, and in CAM the row, the finger and the shelf
+   * are in one place. Round 6 found the flaw in that: the thing the two surfaces
+   * genuinely share is that there is NO UNDO, and CAM's Delete was the last
+   * unconfirmed destructive act in the product. Both shelves mount
+   * `views/ConfirmSheet` now.
+   *
+   * What is still CAM's own directness, and is what this test is actually for,
+   * is everything after the confirm: the delete happens against a database this
+   * window can read, so there is no optimistic removal, no command with no
+   * acknowledgement and no reconciliation — the remote's confirm sheet is not
+   * even mounted here.
    */
-  test('CAM deletes on the press, and renames in place', async ({ page }) => {
+  test('CAM confirms, then deletes against its own database, and renames in place', async ({
+    page,
+  }) => {
     await page.goto('/?cam=1#/library');
     await page.getByTestId('library-add').click();
     await page.locator('[data-testid="clip-file-input"]').setInputFiles(FIXTURE_PATH);
@@ -267,8 +277,23 @@ test.describe('the owning window keeps its own directness', () => {
     await tile.getByTestId('tile-rename-save').click();
     await expect(tile).toContainText('A better name', { timeout: 10_000 });
 
+    /*
+      CAM asks too, now — round 6's CAM parity.
+
+      This assertion used to be that CAM deleted on the press and mounted no
+      confirm at all, on the argument that here the row and the finger are in
+      the same room. Round 6 retired the argument: there is no undo anywhere in
+      the product and the bytes go from the one database the LCD can read, so
+      the last unconfirmed destructive act in the app got the sheet the phone's
+      batch delete has had since wave 3. What is still true — and is what this
+      test was really about — is that the delete then happens HERE, against a
+      database this window can read, rather than as a command with no
+      acknowledgement: no optimistic tile, no reconciliation, gone.
+    */
     await tile.getByTestId('tile-delete').click();
     await expect(page.getByTestId('remote-confirm-delete')).toHaveCount(0);
+    await expect(page.getByTestId('library-confirm-delete')).toBeVisible();
+    await page.getByTestId('library-confirm-delete-yes').click();
     await expect(tiles(page)).toHaveCount(0, { timeout: 10_000 });
   });
 });

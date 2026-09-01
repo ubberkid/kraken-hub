@@ -254,6 +254,8 @@ export function TextInput({
   describedBy,
   ariaLabel,
   testId,
+  pasteField,
+  settingUrl,
 }: {
   id: string;
   value: string;
@@ -274,6 +276,25 @@ export function TextInput({
   /** For a field whose visible label is somewhere the markup cannot reach. */
   ariaLabel?: string | undefined;
   testId?: string | undefined;
+  /**
+   * The module this field is currently the LINK FIELD for — round 6's C1.
+   *
+   * Set from `pasteAction.moduleId` and from nowhere else. It is what
+   * `tests/e2e/paste-spine.spec.ts` walks the app looking for: every input that
+   * accepts a URL must declare which side of the line it is on, so a new link
+   * field cannot quietly re-hard-wire itself to the video module.
+   */
+  pasteField?: string | undefined;
+  /**
+   * …and the other side of that line: a URL that is a SETTING.
+   *
+   * A broker address and a proxy base take a URL and are not a way of handing
+   * the panel something to show — nothing about them depends on which module is
+   * active. They declare that here rather than being listed inside the test,
+   * because a declaration lives next to the field and a list lives next to
+   * whoever remembered to update it.
+   */
+  settingUrl?: boolean | undefined;
 }) {
   return (
     <input
@@ -287,6 +308,8 @@ export function TextInput({
       aria-describedby={describedBy}
       aria-label={ariaLabel}
       data-testid={testId}
+      data-paste-field={pasteField}
+      data-url-field={settingUrl === true ? 'setting' : undefined}
       onChange={(e) => {
         onChange(e.target.value);
       }}

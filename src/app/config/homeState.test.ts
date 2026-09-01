@@ -329,7 +329,7 @@ describe('describeVideoStatus', () => {
     clipNames: new Map<string, string>(),
     now: 10_000,
     downloading: false,
-    displaySeen: true,
+    presence: 'quiet' as const,
     streamingOnly: false,
   };
 
@@ -385,8 +385,8 @@ describe('describeVideoStatus', () => {
     });
     // …or no Kraken has ever connected on this origin, which is the one case
     // where claiming "Streaming" would be a guess.
-    expect(describeVideoStatus({ ...base, displaySeen: false }).verb).toBe('Ready to play');
-    expect(describeVideoStatus({ ...base, displaySeen: false, streamingOnly: true }).verb).toBe(
+    expect(describeVideoStatus({ ...base, presence: 'never-seen' }).verb).toBe('Ready to play');
+    expect(describeVideoStatus({ ...base, presence: 'never-seen', streamingOnly: true }).verb).toBe(
       'Ready to play',
     );
   });

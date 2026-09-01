@@ -168,7 +168,9 @@ test.describe('the library shows your library, and nothing else', () => {
     await tile.getByTestId('tile-show').click();
     await expect(tile.getByTestId('tile-active')).toBeVisible();
 
+    // Delete asks first on both shelves now (round 6, CAM parity).
     await tile.getByTestId('tile-delete').click();
+    await page.getByTestId('library-confirm-delete-yes').click();
     await expect(tiles(page)).toHaveCount(0, { timeout: 10_000 });
     await expect(page.getByTestId('library-empty')).toBeVisible();
   });

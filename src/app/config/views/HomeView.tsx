@@ -43,6 +43,13 @@ import {
   type FlowState,
   type Status,
 } from '../homeState';
+import {
+  handoffHeadline,
+  panelIsKnown,
+  panelPresence,
+  settledReceipt,
+  type PanelPresence,
+} from '../panelPresence';
 import { pasteAction, type PasteAction, type PasteIssue } from '../pasteLink';
 import { ownsBytes } from '../surface';
 import { PHONE_QUERY, useNarrow } from '../useNarrow';
@@ -439,6 +446,17 @@ export function HomeView({
         })
       : null;
 
+  /**
+   * What this window knows about the panel — the ONE derivation (round 6).
+   *
+   * `setupDone` is the latch (`displaySeen.ts`); the telemetry mirror's own
+   * timestamp is the freshness. Both were already read on this screen, and both
+   * were being interpreted separately by the status line and the download
+   * ladder, which is how the two ended up disagreeing with each other about the
+   * same panel eighteen pixels apart. One signal, every claim.
+   */
+  const presence = panelPresence({ everSeen: setupDone, lastSeenAt: tele?.ts ?? null }, now);
+
   const status = describeStatus({
     activeId,
     tele,
@@ -446,7 +464,7 @@ export function HomeView({
     clipNames,
     now,
     downloading: flow?.stage === 'downloading',
-    displaySeen: setupDone,
+    presence,
     // One voice: "Streaming" is claimed only when nothing is being kept — the
     // user asked for stream-only, or the server refused the copy (R5).
     streamingOnly: videoCfg.downloadMode === 'stream-only' || flow?.stage === 'streaming',
@@ -602,6 +620,7 @@ export function HomeView({
                 name={status.name}
                 progress={haloProgress}
                 held={liveStats?.held === true}
+                compact={compact}
               />
             ) : (
               <iframe
@@ -681,6 +700,17 @@ export function HomeView({
             type="text"
             value={draft}
             data-testid="paste-input"
+            /*
+              The spine's fingerprint — round 6's C1.
+
+              Every url-accepting field in the product carries the module it is
+              currently the field FOR, put there by `pasteAction` and by nothing
+              else. `tests/e2e/paste-spine.spec.ts` walks every route and state,
+              finds the fields by role, and fails on one that has no such
+              attribute — so a link field added later cannot quietly reintroduce
+              the hard-wiring `RemoteAdd` and `LibraryView` shipped with.
+            */
+            data-paste-field={action.moduleId}
             aria-label={action.label}
             placeholder={action.placeholder}
             onChange={(e) => {
@@ -700,7 +730,9 @@ export function HomeView({
         </div>
       )}
 
-      {flow !== null && <DownloadFlow flow={flow} url={videoCfg.url} gone={!receiptUp} />}
+      {flow !== null && (
+        <DownloadFlow flow={flow} url={videoCfg.url} gone={!receiptUp} presence={presence} />
+      )}
 
       <div className="kh-mods" role="group" aria-label="What's on the screen">
         {modules.map((m) => {
@@ -1090,7 +1122,18 @@ function OpsStrip({
  * that is configured RIGHT NOW. The mirror is a ring nobody prunes, so a job
  * from a link three pastes ago is not this link's story.
  */
-function DownloadFlow({ flow, url, gone }: { flow: FlowState; url: string; gone: boolean }) {
+function DownloadFlow({
+  flow,
+  url,
+  gone,
+  presence,
+}: {
+  flow: FlowState;
+  url: string;
+  gone: boolean;
+  /** What the app is allowed to claim about the panel — round 6's C2. */
+  presence: PanelPresence;
+}) {
   const { stage, entry } = flow;
   const pct = entry === null ? null : progressPct(entry);
   // Everything except an in-flight download is finished business: the video is
@@ -1167,12 +1210,14 @@ function DownloadFlow({ flow, url, gone }: { flow: FlowState; url: string; gone:
             ↓
           </span>
           <span className="kh-step__text">
-            <b>{secondHeadline(stage)}</b>
+            <b>{secondHeadline(stage, presence)}</b>
             <small>
               {stage === 'streaming'
                 ? 'This server does not allow saving a copy, so your Kraken is playing it straight from the web.'
                 : stage === 'accepted'
-                  ? 'Your Kraken picks it up straight away.'
+                  ? panelIsKnown(presence)
+                    ? 'Your Kraken picks it up straight away.'
+                    : 'Your Kraken picks it up as soon as it connects.'
                   : stage === 'unsaved'
                     ? failureLine(entry)
                     : entry === null
@@ -1184,17 +1229,31 @@ function DownloadFlow({ flow, url, gone }: { flow: FlowState; url: string; gone:
         </li>
       )}
 
-      <li className={settled ? 'kh-step kh-step--on' : 'kh-step'}>
+      {/*
+        The last card asks before it claims a screen — round 6's C2.
+
+        It said "On screen now — Playing on your Kraken" the instant the story
+        settled, including on a first-run window where nothing had ever
+        published anything, directly above the band explaining how to install
+        CAM. The page was simultaneously telling the user their video was
+        playing and telling them their Kraken was not connected yet.
+
+        `settledReceipt` is the whole rule, and it is the same rule the status
+        line six pixels away consumes. The `stored` sub-line survives as the
+        one exception that is a fact about the COPY rather than about the panel:
+        the bytes really did land, whether or not anybody has seen the LCD.
+      */}
+      <li className={settled ? 'kh-step kh-step--on' : 'kh-step'} data-presence={presence}>
         <span className="kh-step__ic" aria-hidden="true">
           ✓
         </span>
         <span className="kh-step__text">
-          <b>On screen now</b>
+          <b>{settledReceipt(presence).headline}</b>
           <small>
             {stage === 'stored'
               ? // One destination phrase, app-wide — `config/vocabulary.ts` (F7).
                 `${KEPT_A_COPY.charAt(0).toUpperCase()}${KEPT_A_COPY.slice(1)}`
-              : 'Playing on your Kraken'}
+              : settledReceipt(presence).sub}
           </small>
         </span>
       </li>
@@ -1210,9 +1269,11 @@ function DownloadFlow({ flow, url, gone }: { flow: FlowState; url: string; gone:
  * The ladder says the same words the status line says, in the same order:
  * *keeping a copy of it*, then *playing it*.
  */
-function secondHeadline(stage: FlowState['stage']): string {
+function secondHeadline(stage: FlowState['stage'], presence: PanelPresence): string {
   if (stage === 'stored' || stage === 'downloading') return KEEPING_A_COPY;
-  if (stage === 'accepted') return 'Sent to your Kraken';
+  // "Sent to your Kraken" names a hand-off, and a hand-off needs somebody to
+  // hand it TO. `handoffHeadline` is the same question the card below asks.
+  if (stage === 'accepted') return handoffHeadline(presence);
   return 'Streaming from the link';
 }
 
@@ -1287,7 +1348,7 @@ function describeStatus(input: {
   clipNames: ReadonlyMap<string, string>;
   now: number;
   downloading: boolean;
-  displaySeen: boolean;
+  presence: PanelPresence;
   streamingOnly: boolean;
 }): Status {
   if (input.activeId !== videoModule.id) {
@@ -1309,7 +1370,7 @@ function describeStatus(input: {
     clipNames: input.clipNames,
     now: input.now,
     downloading: input.downloading,
-    displaySeen: input.displaySeen,
+    presence: input.presence,
     streamingOnly: input.streamingOnly,
   });
 }

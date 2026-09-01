@@ -177,10 +177,12 @@ Three properties are load-bearing, and all three are in
 - **Idempotent by id.** Applying a delete twice is applying it once. That is what
   makes it safe for this channel to have no acknowledgement.
 
-Deleting from the remote asks once, in a confirm, because it is destructive and
-the screen it affects is in another room. CAM deletes on the press: there, the
-row, the finger and the shelf that redraws from the database are all in one
-place.
+Deleting asks once, in a confirm, on **both** shelves. The remote had one first,
+because the screen it affects is in another room; CAM deleted on the press, on
+the argument that there the row, the finger and the shelf that redraws from the
+database are all in one place. That argument was about the shelf and not about
+the act — there is no undo anywhere in the product and the bytes go from the one
+database the LCD can read — so both windows mount the same sheet now.
 
 The remote removes the tile **optimistically** and then reconciles against the
 next library packet. If the Kraken turns out to still have the row — it was
@@ -192,7 +194,17 @@ _"Your Kraken did not change …"_. Nothing is silently pretended.
 The **Add** button above the shelf offers two things.
 
 **Paste a link** commits the URL as the source, exactly as the home screen's
-paste row does; your Kraken fetches it and keeps a copy.
+paste row does; your Kraken fetches it and keeps a copy. The field is the field
+for **whatever is on the panel**: with Image showing it asks for a picture link
+and hands it to the picture module, and with Clock or Stats showing — neither of
+which has anything to be handed — it steps aside for a quiet _Play something_
+instead. Every link field in the product reads that one mapping.
+
+The receipt says what is true of your room. Paired to a Kraken that has been
+heard from, it is _"Sent to your Kraken… a tile appears here shortly"_; paired to
+one that has not said anything yet, it is _"Saved to the library — your Kraken
+picks it up when it connects"_, because the tile is not on its way until
+something is listening.
 
 **Send a file** hands the Kraken a photo or a video **straight from the phone**,
 peer to peer over your network. This is the one genuinely device-local thing left

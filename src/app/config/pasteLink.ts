@@ -1,18 +1,34 @@
 /**
- * "A link was pasted" — the one code path, shared by the two places a link can
+ * "A link was pasted" — the one code path, shared by all four places a link can
  * be pasted.
  *
- * The home screen's row under the halo and the Library page's **+** panel are
- * different surfaces with the same meaning: validate the link, and if it is not
- * blocked, make it the video source. Everything after that — resolver, download,
+ * The home screen's row under the halo, the remote's source row, the Library
+ * page's **+** panel and the phone's **Add** panel are four surfaces with one
+ * meaning: validate the link, and if it is not blocked, hand it to the module
+ * the panel is currently showing. Everything after that — resolver, download,
  * quota, the local copy — is the display's download-first pipeline reacting to
- * the committed state, exactly as it does for a link set from the phone.
+ * the committed state.
+ *
+ * ## Why the submitters are private
  *
  * This existed twice before, and the copies had drifted: the Library page called
  * `downloadToClip()` directly, which skipped `validateUrl`'s `config` context
  * (the http → https upgrade, §7.1 `mixed-content-http`) and skipped
- * `downloadMode` entirely, so "Never store anything" was honoured on one surface
- * and ignored on the other.
+ * `downloadMode` entirely. Round 5 fixed that by giving the two *home* surfaces
+ * `pasteAction`; round 6 (C1) found the bill for stopping there — `RemoteAdd`
+ * and `LibraryView` were still calling `submitVideoLink` unconditionally, so a
+ * `.jpg` pasted into either **Add** panel while Image was on the panel landed
+ * in `modules.video.cfg.url`, silently switched the active module to video, and
+ * printed a success receipt. The same three lies round 5 removed from the
+ * remote's other field.
+ *
+ * So `submitVideoLink` and `submitImageLink` are module-private. There is no
+ * door into this file except `pasteAction`, which means "the field is for
+ * whatever is on the panel" is a property of the type system rather than of
+ * whoever reviews the next link field. `tests/e2e/paste-spine.spec.ts`
+ * enumerates the rendered fields and pins the other half: every url-accepting
+ * input in the product carries `data-paste-field`, so one that bypasses the
+ * mapping fails a test by existing.
  */
 
 import { imageModule } from '../../modules/image';
@@ -45,7 +61,7 @@ export interface LinkSubmission {
   accepted: boolean;
 }
 
-export function submitVideoLink(runtime: ConfigRuntime, raw: string): LinkSubmission {
+function submitVideoLink(runtime: ConfigRuntime, raw: string): LinkSubmission {
   const trimmed = raw.trim();
   if (trimmed === '') return { issue: null, accepted: false };
 
@@ -79,7 +95,7 @@ export function submitVideoLink(runtime: ConfigRuntime, raw: string): LinkSubmis
  * now, and for Image it *is* the picture field: same validation, same commit,
  * one string, one place.
  */
-export function submitImageLink(runtime: ConfigRuntime, raw: string): LinkSubmission {
+function submitImageLink(runtime: ConfigRuntime, raw: string): LinkSubmission {
   const trimmed = raw.trim();
   if (trimmed === '') return { issue: null, accepted: false };
 

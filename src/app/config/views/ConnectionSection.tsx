@@ -129,6 +129,7 @@ export function ConnectionSection({
           <Field label="MQTT address" htmlFor="room-mqtt">
             <TextInput
               id="room-mqtt"
+              settingUrl
               value={state.sync.mqttUrl}
               placeholder={DEFAULT_MQTT_URL}
               onChange={(mqttUrl) => {
@@ -139,6 +140,7 @@ export function ConnectionSection({
           <Field label="ntfy address" htmlFor="room-ntfy">
             <TextInput
               id="room-ntfy"
+              settingUrl
               value={state.sync.ntfyBase}
               placeholder={DEFAULT_NTFY_BASE}
               onChange={(ntfyBase) => {

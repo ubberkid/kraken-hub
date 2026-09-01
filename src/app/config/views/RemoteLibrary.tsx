@@ -11,9 +11,11 @@ import {
   type Pending,
 } from '../curationOptimistic';
 import { buildLibraryTiles, tileDetail } from '../libraryItems';
+import { nowShowingBadge, type PanelPresence } from '../panelPresence';
 import { activeTileKey, showTile } from '../showTile';
 import { libraryFromWire } from '../wireLibrary';
 
+import { ConfirmSheet } from './ConfirmSheet';
 import { RemoteTileArt } from './TileArt';
 
 import type { Store } from '../../../state/store';
@@ -61,11 +63,13 @@ import type { ReactNode } from 'react';
  *     does not, in which case the tile comes back with a sentence saying so
  *     (`curationOptimistic.ts` is that arithmetic, tested as arithmetic).
  *
- * Delete is the only one behind a confirm, and only here. CAM's own shelf
- * deletes on the press, because in CAM the row and the finger are in the same
- * room; from a sofa, over an eventually-consistent link, "did I just delete the
- * wrong thing on a screen I cannot see" is a real question and a two-tap answer
- * is cheap.
+ * Delete is behind a confirm. It was behind one only HERE for a wave — CAM's
+ * shelf deleted on the press, on the theory that in CAM the row and the finger
+ * are in the same room — and round 6 retired that theory: there is no undo
+ * anywhere in the product, the bytes go from the one database the LCD can read,
+ * and it was the last unconfirmed destructive act in the app. The sheet is
+ * `./ConfirmSheet` now and both shelves mount the same one, so the answer to
+ * "does deleting ask?" stops depending on which window you are standing in.
  */
 
 /**
@@ -107,6 +111,15 @@ export interface RemoteLibraryProps {
   imageId: string | null;
   /** The Add control, rendered by the surface that owns the layout. */
   add?: ReactNode;
+  /**
+   * What this window may claim about the panel — round 6, the C2 family.
+   *
+   * The highlighted tile's badge said **On screen** on the strength of the
+   * configured module and source, which is what the panel *will* show. On a
+   * phone paired into a room whose Kraken is switched off it is a caption on a
+   * screen nobody has ever heard from.
+   */
+  presence: PanelPresence;
 }
 
 export function RemoteLibrary({
@@ -118,6 +131,7 @@ export function RemoteLibrary({
   videoUrl,
   imageId,
   add,
+  presence,
 }: RemoteLibraryProps) {
   const [pending, setPending] = useState<readonly Pending[]>(NO_PENDING);
   const [selecting, setSelecting] = useState(false);
@@ -328,6 +342,7 @@ export function RemoteLibrary({
               key={tile.key}
               tile={tile}
               active={tile.key === activeKey}
+              activeLabel={nowShowingBadge(presence)}
               selecting={selecting}
               selected={tile.id !== null && selected.has(tile.id)}
               renamingDraft={renaming !== null && renaming.id === tile.id ? renaming.draft : null}
@@ -386,43 +401,31 @@ export function RemoteLibrary({
       )}
 
       {/*
-        The confirm, and why only this surface has one.
+        The confirm — the SAME sheet CAM's shelf mounts (round 6, CAM parity).
 
-        CAM deletes on the press: the row and the finger are in the same room and
-        the shelf redraws from a database this window can read. From a sofa the
-        shelf is the last packet that happened to arrive, the delete is a command
-        with no acknowledgement, and "did I just delete the wrong thing on a
-        screen I cannot see" is a real question. Two taps is a cheap answer to it.
+        From a sofa the shelf is the last packet that happened to arrive and the
+        delete is a command with no acknowledgement, which is why this surface
+        got one first. What round 6 established is that the reason was never
+        specific to this surface: there is no undo on either side.
       */}
       {confirming !== null && (
-        <div className="kh-confirm" data-testid="remote-confirm-delete" role="alertdialog">
-          <p className="kh-confirm__q">
-            {confirming.ids.length === 1
+        <ConfirmSheet
+          testId="remote-confirm-delete"
+          question={
+            confirming.ids.length === 1
               ? `Delete “${confirming.names[0] ?? ''}” from your library?`
-              : `Delete ${String(confirming.ids.length)} things from your library?`}
-          </p>
-          <div className="kh-confirm__row">
-            <Button
-              testId="remote-confirm-delete-no"
-              title="Leave it alone"
-              onClick={() => {
-                setConfirming(null);
-              }}
-            >
-              Keep
-            </Button>
-            <Button
-              primary
-              testId="remote-confirm-delete-yes"
-              title="Delete it from your Kraken"
-              onClick={() => {
-                remove(confirming.ids);
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        </div>
+              : `Delete ${String(confirming.ids.length)} things from your library?`
+          }
+          confirmLabel="Delete"
+          confirmTitle="Delete it from your Kraken"
+          keepTitle="Leave it alone"
+          onConfirm={() => {
+            remove(confirming.ids);
+          }}
+          onCancel={() => {
+            setConfirming(null);
+          }}
+        />
       )}
     </section>
   );
@@ -439,6 +442,7 @@ export function RemoteLibrary({
 function RemoteTile({
   tile,
   active,
+  activeLabel,
   selecting,
   selected,
   renamingDraft,
@@ -452,6 +456,8 @@ function RemoteTile({
 }: {
   tile: LibraryTile;
   active: boolean;
+  /** What the badge says — see `RemoteLibraryProps.presence`. */
+  activeLabel: string;
   selecting: boolean;
   selected: boolean;
   /** The in-progress new name, or `null` when this tile is not being renamed. */
@@ -491,7 +497,10 @@ function RemoteTile({
             <span className="kh-sr">
               {selecting
                 ? `${selected ? 'Deselect' : 'Select'} “${tile.name}”`
-                : `Show “${tile.name}” on your Kraken`}
+                : /* The same words CAM's shelf uses for the same button — it is
+                     an instruction, not a claim, and "on the display" says what
+                     it does without asserting that anything is there. */
+                  `Show “${tile.name}” on the display`}
             </span>
           </button>
         )}
@@ -502,7 +511,7 @@ function RemoteTile({
         )}
         {!selecting && active && (
           <span className="kh-tile__on" data-testid="tile-active">
-            On screen
+            {activeLabel}
           </span>
         )}
       </div>

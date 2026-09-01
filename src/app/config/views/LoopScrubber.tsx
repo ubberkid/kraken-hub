@@ -174,7 +174,14 @@ export function LoopScrubber({
           max={max}
           step={SEEK_SLIDER_STEP_SEC}
           disabled={onSeek === undefined}
-          title={onSeek === undefined ? 'Position on your Kraken' : ''}
+          /*
+            Not "Position on your Kraken" — round 6, the C2 family.
+
+            The tooltip asserted the panel's current position on a control that
+            is read-only precisely BECAUSE nothing has reported one. What is
+            true is where the last packet said the player was.
+          */
+          title={onSeek === undefined ? 'Position, as last reported' : ''}
           onChange={(e) => {
             onSeek?.(Number(e.target.value));
           }}

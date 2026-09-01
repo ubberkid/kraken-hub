@@ -29,6 +29,8 @@ import { LOCAL_CLIP_RE } from '../../modules/video/routing/patterns';
 import { readTeleMirror } from '../../modules/video/telemetry/videoTelemetry';
 import { DEVICE_PRESETS, type DevicePresetId } from '../../platform/devicePresets';
 
+import { panelIsKnown, type PanelPresence } from './panelPresence';
+
 import type { FlowStage } from './flowStages';
 import type { DownloadEntry } from '../../modules/video/local/downloadManager';
 
@@ -402,8 +404,16 @@ export interface VideoStatusInput {
   now: number;
   /** True while a download for this exact link is in flight. */
   downloading: boolean;
-  /** Has a display ever published anything on this origin? */
-  displaySeen: boolean;
+  /**
+   * What this window knows about the panel — the ONE signal (round 6, C2).
+   *
+   * It was `displaySeen: boolean`, read straight off `displaySeen.ts` by the
+   * one caller that happened to import it, which is how the download ladder
+   * ended up making a *different* claim about the same panel eighteen pixels
+   * below this line. The status line and the ladder consume one derivation now;
+   * see `panelPresence.ts` for the three states and why there are three.
+   */
+  presence: PanelPresence;
   /**
    * True only when nothing is being kept: the user asked for stream-only, or the
    * server refused the cross-origin read so no copy is possible.
@@ -466,7 +476,7 @@ export function describeVideoStatus(input: VideoStatusInput): Status {
   if (input.downloading) return { live: false, verb: `${KEEPING_A_COPY} of`, name, detail: null };
 
   const configured = input.url.trim() !== '';
-  if (configured && input.displaySeen) {
+  if (configured && panelIsKnown(input.presence)) {
     // A local clip is never streamed, whatever the mode says; everything else is
     // streaming only when no copy is being kept.
     const local = LOCAL_CLIP_RE.test(input.url.trim());

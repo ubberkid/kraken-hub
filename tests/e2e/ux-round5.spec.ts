@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { LINK_RECEIPT } from '../../src/config/vocabulary';
+import { LINK_RECEIPT_UNSEEN } from '../../src/config/vocabulary';
 import { ROOM_CODE_HINT } from '../../src/sync/roomCode';
 
 /**
@@ -156,8 +156,18 @@ test.describe('S1 — the remote asks for what the panel can use', () => {
     await page.locator('#remote-src').fill(PICTURE_URL);
     await page.getByTestId('remote-play').click();
 
-    // First, because the receipt is a receipt now: it lingers and goes (S4).
-    await expect(page.getByTestId('remote-receipt')).toContainText(LINK_RECEIPT);
+    /*
+      First, because the receipt is a receipt now: it lingers and goes (S4).
+
+      …and round 6's C5 made it tell the truth about THIS room. Nothing is
+      running on the other end of this pairing — no display page is open in the
+      whole test — so the old wording, *"Sent to your Kraken… a tile appears
+      here shortly"*, promised a hand-off that had not happened and a tile that
+      was not coming. What is true is that the choice is saved and retained.
+      The assertion that matters is unchanged: a receipt appears, and the
+      picture went to the picture module.
+    */
+    await expect(page.getByTestId('remote-receipt')).toContainText(LINK_RECEIPT_UNSEEN);
 
     await expect.poll(async () => moduleUrl(await readState(page), 'image')).toBe(PICTURE_URL);
     expect(moduleUrl(await readState(page), 'video')).toBe('');
@@ -344,6 +354,20 @@ test.describe('S3 — an unknown percentage is never drawn as a finished bar', (
       });
     });
     await page.goto('/?cam=1#/library');
+    /*
+      One row on the shelf, because the meter is gated on there being something
+      to measure (round 6's minors).
+
+      Round 2 established that rule — a quota warning is only actionable once
+      something is stored — and wired it to the persistence chip alone, so the
+      bar and its label stayed mounted over an empty library and rendered
+      "13 kB of 4.0 GB used" directly under **Nothing kept here**. The rule now
+      gates the block. What this test is about is untouched: an UNKNOWN
+      percentage draws no fill.
+    */
+    await seedPicture(page, 'quota-pic', 'wallpaper.png');
+    await page.reload();
+    await expect(page.locator('[data-testid="library-tile"]')).toHaveCount(1, { timeout: 20_000 });
     const quota = page.getByTestId('library-quota');
     await expect(quota).toBeVisible();
     await expect(quota.locator('.kh-meter')).toHaveAttribute('data-known', 'false');
@@ -378,6 +402,8 @@ test.describe('S4 — receipts expire, and they invalidate', () => {
     await expect(notice).toContainText('wallpaper.png');
 
     await page.getByTestId('tile-delete').first().click();
+    // Both shelves ask before a destructive act (round 6, CAM parity).
+    await page.getByTestId('library-confirm-delete-yes').click();
     await expect(tile).toHaveCount(0);
     // Gone with the thing it was about, not four seconds later.
     await expect(notice).toHaveCount(0, { timeout: 2000 });
@@ -428,6 +454,38 @@ test.describe('S5 — a bad room code is answered, not swallowed', () => {
       await expect(error).toContainText(ROOM_CODE_HINT);
       // The field names its own error, so a screen reader reaches it.
       await expect(field).toHaveAttribute('aria-describedby', 'remote-room-bad');
+
+      /*
+        …and the eye gets an answer too — round 6's minors.
+
+        S5 gave the refusal `aria-invalid`, a described-by and a red notice,
+        which is a complete answer for a screen reader and nothing at all for
+        the one element the reader is actually looking at while they press
+        Join. `ui.css` keys the treatment off `[aria-invalid]` itself, so the
+        visible state and the announced state cannot come apart.
+      */
+      // `expect.poll`, because `--kh-line` → danger is a 200 ms transition and a
+      // single read lands mid-interpolation.
+      await expect
+        .poll(async () => field.evaluate((el) => getComputedStyle(el).borderTopColor), {
+          timeout: 5000,
+        })
+        .toBe('rgb(255, 138, 138)');
+
+      /*
+        The rule is stated ONCE.
+
+        `ROOM_CODE_HINT` was the field's permanent description AND the text of
+        the error, so a refusal printed the same sentence twice, 20 px apart,
+        one of them in red. Saying a rule louder is not saying a second thing —
+        the Notice takes it over while it is a complaint, and the description
+        comes back the moment the field is touched.
+      */
+      const said = (await page.getByTestId('pairing-card').innerText()).split(ROOM_CODE_HINT);
+      expect(said.length - 1, 'the room-code rule is printed twice').toBe(1);
+      await field.fill('ABCD2345');
+      await expect(page.locator('.kh-desc')).toContainText(ROOM_CODE_HINT);
+      await expect(page.getByTestId('pair-code-error')).toHaveCount(0);
       // And nothing was joined on the strength of a code that is not one.
       await expect(page.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
     });
@@ -460,6 +518,35 @@ test.describe('S5 — a bad room code is answered, not swallowed', () => {
 
     await expect(page.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'true');
     await expect(page.getByTestId('pair-code-error')).toHaveCount(0);
+  });
+
+  /**
+   * Enter joins — round 6's minors.
+   *
+   * The box was a `<Row>` rather than a form, so pressing Enter on eight
+   * correctly typed characters did nothing whatsoever, on the one screen whose
+   * entire job at that moment is to accept eight characters read off a monitor
+   * across the room. Somebody typing a code has both hands on the keyboard.
+   */
+  test('Enter in the room-code field joins, without reaching for the button', async ({ page }) => {
+    await openCodeField(page);
+    await page.locator('#remote-room').fill('BCDF5678');
+    await page.locator('#remote-room').press('Enter');
+
+    await expect(page.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'true');
+    await expect(page.getByTestId('paired-summary')).toContainText('BCDF 5678');
+  });
+
+  /** …and Enter refuses a bad code exactly as the button does, not silently. */
+  test('Enter on a bad code is refused the same way the button refuses it', async ({ page }) => {
+    await openCodeField(page);
+    const field = page.locator('#remote-room');
+    await field.fill('ABCD');
+    await field.press('Enter');
+
+    await expect(field).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByTestId('pair-code-error')).toBeVisible();
+    await expect(page.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
   });
 });
 

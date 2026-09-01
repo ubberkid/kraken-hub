@@ -120,6 +120,8 @@ test.describe('a change made in CAM reaches a phone that is already looking', ()
      * offers a row the Kraken no longer has, and pressing it plays nothing.
      */
     await tiles(cam).first().getByTestId('tile-delete').click();
+    // Both shelves ask before a destructive act (round 6, CAM parity).
+    await cam.getByTestId('library-confirm-delete-yes').click();
     await expect(tiles(cam)).toHaveCount(0, { timeout: 20_000 });
     await expect(tiles(phone)).toHaveCount(0, { timeout: LIVE_MS });
     await expect(phone.getByTestId('remote-library-empty')).toBeVisible();

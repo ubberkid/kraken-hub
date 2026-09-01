@@ -32,6 +32,7 @@
 import { useEffect, useState } from 'react';
 
 import { ytPosterUrls } from '../../../config/knownHosts';
+import { middleEllipsis } from '../../../lib/text';
 import { getClip } from '../../../modules/video/local/clipStore';
 import { detect } from '../../../modules/video/routing/detect';
 import { LOCAL_CLIP_RE } from '../../../modules/video/routing/patterns';
@@ -40,6 +41,22 @@ import { arcPath } from './arc';
 
 /** The arc is drawn in a unit box and scaled by the halo's own size. */
 const BOX = 100;
+
+/**
+ * How much of a name the bezel holds, at each of the halo's two sizes.
+ *
+ * Round 6's minors, photographed: the card set its name with
+ * `overflow-wrap: anywhere`, so at the compact size — 64 px of bezel, which the
+ * options panel and the receipt both shrink the halo to — `demo.mp4` was drawn
+ * as `dem / o.mp / 4`, three lines of broken word inside a circle. The rule is
+ * right for a URL and wrong for a name somebody chose.
+ *
+ * The numbers are the box: ~128 px of text room at the full size and ~41 px at
+ * the compact one, against a 0.8 rem and a 0.62 rem face. `middleEllipsis`
+ * explains why the cut is in the middle rather than at the tail.
+ */
+const NAME_MAX = 18;
+const NAME_MAX_COMPACT = 7;
 const ARC_STROKE = 2.2;
 const ARC_INSET = 1.6;
 
@@ -47,6 +64,15 @@ export interface VideoHaloProps {
   url: string;
   /** The name the status line is using, for the fallback card. */
   name: string;
+  /**
+   * Whether the halo has yielded the floor and is drawing at thumb size.
+   *
+   * The home screen already knows — it is the same `compact` that decides
+   * whether the options panel, the loop scrubber or the receipt has the floor —
+   * and the name's budget is a fact about how much room the bezel has, which
+   * CSS cannot compute for a middle ellipsis.
+   */
+  compact?: boolean;
   /** 0–1 through the clip, or `null` when no duration is known. */
   progress: number | null;
   held: boolean;
@@ -61,7 +87,7 @@ function posterCandidates(url: string): readonly string[] {
   return [];
 }
 
-export function VideoHalo({ url, name, progress, held }: VideoHaloProps) {
+export function VideoHalo({ url, name, progress, held, compact }: VideoHaloProps) {
   const trimmed = url.trim();
   const candidates = posterCandidates(trimmed);
   const clipId = LOCAL_CLIP_RE.exec(trimmed)?.[1] ?? null;
@@ -132,7 +158,11 @@ export function VideoHalo({ url, name, progress, held }: VideoHaloProps) {
           sentence; the halo shows the surface and gets out of its way.
         */
         <div className="kh-halo__card" data-testid="halo-card">
-          {trimmed !== '' && <span className="kh-halo__card-name">{name}</span>}
+          {trimmed !== '' && (
+            <span className="kh-halo__card-name">
+              {middleEllipsis(name, compact === true ? NAME_MAX_COMPACT : NAME_MAX)}
+            </span>
+          )}
         </div>
       )}
       {progress !== null && (

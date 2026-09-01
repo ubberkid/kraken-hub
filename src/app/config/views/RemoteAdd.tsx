@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { LINK_RECEIPT, SAME_NETWORK_NOTE } from '../../../config/vocabulary';
+import { SAME_NETWORK_NOTE } from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
 import { Button, Meter, Notice } from '../../../ui';
 import { RECEIPT_LINGER_MS } from '../homeState';
-import { submitVideoLink } from '../pasteLink';
+import { linkReceipt, type PanelPresence } from '../panelPresence';
+import { pasteAction } from '../pasteLink';
 
 import type { SendStatus, TransferSendHandle } from '../../../transfer/send';
 import type { ConfigRuntime } from '../runtime';
@@ -26,6 +27,22 @@ import type { SyncHandle } from '../useSync';
  * They sit behind ONE **Add** button because they are one intention. Two
  * separate controls would be the shape of the transport showing through the
  * shape of the shelf, which is the failure this whole arc is about.
+ *
+ * ## The link half is the field for whatever is on the panel
+ *
+ * Round 6's C1. This panel called `submitVideoLink` unconditionally, under the
+ * words *"Paste a link"* and a button that said **Add**: with **Image** on the
+ * panel a pasted `.jpg` went into `modules.video.cfg.url`, the picture module
+ * stayed empty, the active module silently flipped to video — and the receipt
+ * underneath said it had been sent. Exactly the three lies round 5 removed from
+ * the remote's *other* link field, surviving here because that fix listed its
+ * callers instead of closing the door.
+ *
+ * The door is closed now: `pasteAction` is the only way into `pasteLink.ts`,
+ * and this panel reads the same object the home row and the remote's source row
+ * read. The FILE half keeps its own kind-routing — a picture and a video are
+ * told apart by their bytes, which is a different question from what the panel
+ * is showing.
  *
  * ## What it refuses to say
  *
@@ -69,12 +86,52 @@ function failureLine(status: SendStatus): string {
   }
 }
 
-export function RemoteAdd({ runtime, sync }: { runtime: ConfigRuntime; sync: SyncHandle }) {
+export function RemoteAdd({
+  runtime,
+  sync,
+  presence,
+}: {
+  runtime: ConfigRuntime;
+  sync: SyncHandle;
+  /**
+   * What the window may claim about the Kraken — round 6's C5.
+   *
+   * The link receipt used to promise *"a tile appears here shortly"* into a
+   * room with nobody listening in it. Passed down rather than derived here,
+   * because the surface above already owns the sync handle this is computed
+   * from, and two derivations of one fact is how the fact stops being one.
+   */
+  presence: PanelPresence;
+}) {
+  const state = runtime.store.getSnapshot();
+  /**
+   * The link row, in the ACTIVE module's own noun — the one mapping (C1).
+   *
+   * `null` for Clock and Stats, which have nothing to be handed; the row
+   * becomes the same quiet switch the other two surfaces show, rather than a
+   * field asking a sofa for a video link while a clock is on the panel.
+   */
+  const action = pasteAction(runtime, state.activeModuleId);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(() =>
+    action === null || action.clearOnAccept ? '' : action.value,
+  );
   const [linkNote, setLinkNote] = useState<{ tone: 'error' | 'warn' | 'ok'; text: string } | null>(
     null,
   );
+  /**
+   * The field belongs to the module it is the field FOR.
+   *
+   * The home screen's `draftOwner` rule, on the third surface. Switching modules
+   * must not carry a picture URL into the video field, and arriving on a module
+   * whose field keeps what it committed (Image) shows what that module holds.
+   */
+  const [draftOwner, setDraftOwner] = useState(state.activeModuleId);
+  if (draftOwner !== state.activeModuleId) {
+    setDraftOwner(state.activeModuleId);
+    setDraft(action === null || action.clearOnAccept ? '' : action.value);
+    setLinkNote(null);
+  }
   const [status, setStatus] = useState<SendStatus | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const transfer = useRef<TransferSendHandle | null>(null);
@@ -114,7 +171,8 @@ export function RemoteAdd({ runtime, sync }: { runtime: ConfigRuntime; sync: Syn
   );
 
   const addLink = (): void => {
-    const outcome = submitVideoLink(runtime, draft);
+    if (action === null) return;
+    const outcome = action.submit(draft);
     if (outcome.issue !== null) {
       setLinkNote({
         tone: outcome.issue.severity === 'error' ? 'error' : 'warn',
@@ -124,15 +182,15 @@ export function RemoteAdd({ runtime, sync }: { runtime: ConfigRuntime; sync: Syn
       setLinkNote(null);
     }
     if (outcome.accepted) {
-      setDraft('');
-      setLinkNote({ tone: 'ok', text: LINK_RECEIPT });
+      if (action.clearOnAccept) setDraft('');
+      setLinkNote({ tone: 'ok', text: linkReceipt(presence) });
     }
   };
 
   /**
    * The receipts here retire too — round 5's S4.
    *
-   * *"Added to your library."* and `LINK_RECEIPT` are claims about a moment,
+   * *"Added to your library."* and the link receipt are claims about a moment,
    * and both used to stand for the rest of the session: a phone left on a sofa
    * kept asserting a completed transfer for a file somebody had since deleted
    * in CAM. A failure is deliberately NOT retired — it names a remedy, and a
@@ -200,34 +258,55 @@ export function RemoteAdd({ runtime, sync }: { runtime: ConfigRuntime; sync: Syn
 
       {open && (
         <div className="kh-addpanel" id="kh-remote-add" data-testid="remote-add-panel">
-          <form
-            className="kh-addpanel__row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              addLink();
-            }}
-          >
-            <input
-              className="kh-input"
-              id="remote-add-link"
-              data-testid="remote-add-link"
-              type="text"
-              value={draft}
-              aria-label="Paste a link"
-              placeholder="Paste a link"
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setLinkNote(null);
+          {action === null ? (
+            /*
+              Clock and Stats have nothing to be handed — the answer the home
+              row and the remote's source row have given since round 5, on the
+              third surface that never got it.
+            */
+            <p className="kh-addpanel__row">
+              <button
+                type="button"
+                className="kh-quiet"
+                data-testid="remote-add-switch"
+                onClick={() => {
+                  runtime.store.commit((s) => ({ ...s, activeModuleId: 'video' }));
+                }}
+              >
+                Play something
+              </button>
+            </p>
+          ) : (
+            <form
+              className="kh-addpanel__row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addLink();
               }}
-            />
-            <button
-              type="submit"
-              className="kh-btn kh-btn--primary"
-              data-testid="remote-add-link-submit"
             >
-              Add
-            </button>
-          </form>
+              <input
+                className="kh-input"
+                id="remote-add-link"
+                data-testid="remote-add-link"
+                type="text"
+                value={draft}
+                data-paste-field={action.moduleId}
+                aria-label={action.label}
+                placeholder={action.placeholder}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setLinkNote(null);
+                }}
+              />
+              <button
+                type="submit"
+                className="kh-btn kh-btn--primary"
+                data-testid="remote-add-link-submit"
+              >
+                {action.submitLabel}
+              </button>
+            </form>
+          )}
           <div className="kh-addpanel__row">
             <Button
               testId="remote-send-file"

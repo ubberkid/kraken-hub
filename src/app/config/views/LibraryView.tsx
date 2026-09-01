@@ -5,7 +5,6 @@ import {
   IN_YOUR_LIBRARY,
   KEEPING_A_COPY_NOW,
   KEPT_VERB,
-  LINK_RECEIPT,
   NOTHING_KEPT,
 } from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
@@ -48,13 +47,16 @@ import { ingestFile, makeThumbnail } from '../../../modules/video/local/ingest';
 import { detect } from '../../../modules/video/routing/detect';
 import { validateVideoConfig } from '../../../modules/video/types';
 import { Button, Chip, Meter, Notice } from '../../../ui';
+import { hasDisplayBeenSeen } from '../displaySeen';
 import { RECEIPT_LINGER_MS, failureLine } from '../homeState';
 import { buildLibraryTiles, tileDetail, type LibraryTile } from '../libraryItems';
-import { submitVideoLink } from '../pasteLink';
+import { linkReceipt, nowShowingBadge, panelPresence, showingTile } from '../panelPresence';
+import { pasteAction } from '../pasteLink';
 import { activeTileKey, showTile } from '../showTile';
 import { ownsBytes } from '../surface';
 import { useSync } from '../useSync';
 
+import { ConfirmSheet } from './ConfirmSheet';
 import { RemoteAdd } from './RemoteAdd';
 import { RemoteLibrary } from './RemoteLibrary';
 import { TreatedArt } from './TileArt';
@@ -79,11 +81,19 @@ import type { ConfigRuntime } from '../runtime';
  * a tile too, in the same honest words the home screen uses — a missing copy is
  * never a video that failed to play.
  *
- * The add panel's link path goes through `submitVideoLink`, the same function
- * the home screen's paste row calls, so both surfaces honour `downloadMode` and
- * the display does the fetching (CAM's two browsers share one storage
- * partition; a phone and an ordinary tab do not — design-videoEngine.md §5.1).
- * The file path stays local to this window, because the bytes are here.
+ * The add panel's link path goes through `pasteAction` — the ONE mapping every
+ * link field in the product reads (round 6, C1). It called `submitVideoLink`
+ * directly until then, which is the same defect on a different screen: with
+ * **Image** on the panel, a `.jpg` pasted here landed in `modules.video.cfg.url`
+ * and silently switched the active module to video. Going through the mapping
+ * also keeps what the round-5 note below was about — both surfaces honour
+ * `downloadMode` and the display does the fetching (CAM's two browsers share
+ * one storage partition; a phone and an ordinary tab do not —
+ * design-videoEngine.md §5.1).
+ *
+ * The FILE path stays local to this window, because the bytes are here, and it
+ * keeps its own kind-routing: what a file IS is a question about its bytes, not
+ * about what the panel happens to be showing.
  */
 
 const PCT = 100;
@@ -251,7 +261,7 @@ function ImageThumb({ id, name }: { id: string; name: string }) {
  *    guess about how long a delete takes.
  *
  * `claim` is absent for the messages that are not receipts: an error the user
- * may want to act on, and `LINK_RECEIPT`, whose subject does not exist yet
+ * may want to act on, and the link receipt, whose subject does not exist yet
  * (the display has not fetched it).
  */
 interface Message {
@@ -297,6 +307,8 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const [addOpen, setAddOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  /** The module this draft belongs to — see `RemoteAdd`'s note on the rule. */
+  const [draftOwner, setDraftOwner] = useState<string | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
   /**
    * The file behind an "Add anyway" offer.
@@ -312,6 +324,14 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   const [forceable, setForceable] = useState<File | null>(null);
   /** The tile whose name is being edited, and the name so far. */
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  /**
+   * The tile a Delete press is asking about — round 6's CAM parity.
+   *
+   * This shelf deleted on the press for three waves while the phone's shelf
+   * asked first, on the argument that in CAM the row and the finger are in the
+   * same room. They are; the undo is not. See `./ConfirmSheet`.
+   */
+  const [confirming, setConfirming] = useState<LibraryTile | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragDepth = useRef(0);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -376,6 +396,48 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   const activeKey = activeTileKey(state.activeModuleId, videoCfg.url, localImageId(imageCfg.url));
 
   /**
+   * The add panel's link row, in the ACTIVE module's own noun — C1.
+   *
+   * `null` for Clock and Stats: the row becomes the quiet switch every other
+   * link surface shows, rather than a field asking for a video link with a
+   * clock on the panel.
+   */
+  const action = pasteAction(runtime, state.activeModuleId);
+  if (draftOwner !== state.activeModuleId) {
+    setDraftOwner(state.activeModuleId);
+    setDraft(action === null || action.clearOnAccept ? '' : action.value);
+    /*
+      The MESSAGE is deliberately left alone.
+
+      Pressing a tile commits `activeModuleId` — that is what showing a picture
+      after a video IS — so clearing the notice here would delete the receipt
+      the same gesture had just produced. The draft belongs to a module; the
+      receipt belongs to the act.
+    */
+  }
+
+  /**
+   * What this window may claim about the Kraken — C5.
+   *
+   * Two sources, whichever this window has: the latch CAM writes when the
+   * display page publishes anything, and — for a window driving the shelf over
+   * a room — the telemetry that has actually arrived.
+   *
+   * The clock is deliberately `0` ("not sampled"). This page makes no claim in
+   * the present tense — the only thing it asks presence is whether a Kraken has
+   * ever been on the other end, which `panelIsKnown` answers without one — and
+   * calling `Date.now()` during render would make this component
+   * non-idempotent for a number nothing here reads.
+   */
+  const presence = panelPresence(
+    {
+      everSeen: hasDisplayBeenSeen() || sync.lastTele !== null,
+      lastSeenAt: sync.lastTele?.at ?? null,
+    },
+    0,
+  );
+
+  /**
    * ONE shelf, from whichever source this window can actually see — A2.
    *
    * `buildLibraryTiles` is the same pure function on both branches, fed the same
@@ -427,7 +489,15 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
     // The shared commit (`showTile`), so a tile does the same thing whichever
     // window it was tapped in — see A3.
     showTile(runtime.store, tile);
-    setMessage({ tone: 'ok', text: `“${tile.name}” is on your Kraken.`, claim: tile.name });
+    /*
+      The receipt asks before it claims a screen — round 6, the C2 family.
+
+      *"“dunes.mp4” is on your Kraken."* was printed on the strength of a state
+      commit, which is evidence that the app decided something and none at all
+      that a Kraken heard it. Same question, same answer, as the ladder on the
+      home screen: `panelPresence`.
+    */
+    setMessage({ tone: 'ok', text: showingTile(presence, tile.name), claim: tile.name });
   };
 
   const togglePin = (tile: LibraryTile): void => {
@@ -438,6 +508,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   };
 
   const remove = (tile: LibraryTile): void => {
+    setConfirming(null);
     if (tile.id === null) return;
     const id = tile.id;
     if (tile.kind === 'clip') void deleteClip(id).then(refresh);
@@ -484,7 +555,8 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   };
 
   const addLink = (): void => {
-    const outcome = submitVideoLink(runtime, draft);
+    if (action === null) return;
+    const outcome = action.submit(draft);
     if (outcome.issue !== null) {
       setMessage({
         tone: outcome.issue.severity === 'error' ? 'error' : 'warn',
@@ -494,7 +566,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
       setMessage(null);
     }
     if (outcome.accepted) {
-      setDraft('');
+      if (action.clearOnAccept) setDraft('');
       setAddOpen(false);
       /*
        * Truthful about WHO does the fetching, and therefore about when a tile
@@ -507,7 +579,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
        * the LCD reads. So if CAM is not running there is no tile, and there will
        * not be one, and the message has to say so.
        */
-      setMessage({ tone: 'ok', text: LINK_RECEIPT });
+      setMessage({ tone: 'ok', text: linkReceipt(presence) });
     }
   };
 
@@ -641,7 +713,8 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           activeModuleId={state.activeModuleId}
           videoUrl={videoCfg.url}
           imageId={localImageId(imageCfg.url)}
-          add={<RemoteAdd runtime={runtime} sync={sync} />}
+          presence={presence}
+          add={<RemoteAdd runtime={runtime} sync={sync} presence={presence} />}
         />
       </section>
     );
@@ -734,44 +807,77 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
             addFiles(e.dataTransfer.files);
           }}
         >
-          <form
-            className="kh-addpanel__row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              addLink();
-            }}
-          >
-            <input
-              ref={addInput}
-              className="kh-input"
-              id="library-add-input"
-              data-testid="library-add-input"
-              type="text"
-              value={draft}
-              aria-label="Paste a link or drop a file"
-              placeholder="Paste a link or drop a file"
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setMessage(null);
+          {action === null ? (
+            /*
+              Clock and Stats have nothing to be handed — the answer every other
+              link surface gives, on the fourth one (C1). A file can still be
+              dropped on the panel: bytes are a different question from what the
+              panel is showing.
+            */
+            <p className="kh-addpanel__row">
+              <button
+                type="button"
+                className="kh-quiet"
+                data-testid="library-add-switch"
+                onClick={() => {
+                  runtime.store.commit((prev) => ({ ...prev, activeModuleId: videoModule.id }));
+                  window.setTimeout(() => addInput.current?.focus(), 0);
+                }}
+              >
+                Play something
+              </button>
+              <Button
+                testId="library-browse"
+                title="Choose a file on this PC"
+                onClick={() => {
+                  fileInput.current?.click();
+                }}
+              >
+                Browse…
+              </Button>
+            </p>
+          ) : (
+            <form
+              className="kh-addpanel__row"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addLink();
               }}
-            />
-            <button
-              type="submit"
-              className="kh-btn kh-btn--primary"
-              data-testid="library-add-submit"
             >
-              Add
-            </button>
-            <Button
-              testId="library-browse"
-              title="Choose a file on this PC"
-              onClick={() => {
-                fileInput.current?.click();
-              }}
-            >
-              Browse…
-            </Button>
-          </form>
+              <input
+                ref={addInput}
+                className="kh-input"
+                id="library-add-input"
+                data-testid="library-add-input"
+                type="text"
+                value={draft}
+                /* The spine's fingerprint — see `pasteLink.ts` and C1. */
+                data-paste-field={action.moduleId}
+                aria-label={action.label}
+                placeholder={action.placeholder}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setMessage(null);
+                }}
+              />
+              <button
+                type="submit"
+                className="kh-btn kh-btn--primary"
+                data-testid="library-add-submit"
+              >
+                Add
+              </button>
+              <Button
+                testId="library-browse"
+                title="Choose a file on this PC"
+                onClick={() => {
+                  fileInput.current?.click();
+                }}
+              >
+                Browse…
+              </Button>
+            </form>
+          )}
           {/*
           One sentence about what the two paths DO.
 
@@ -859,9 +965,10 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
               tile={tile}
               owns={owns}
               active={tile.key === activeKey}
+              activeLabel={nowShowingBadge(presence)}
               onShow={show}
               onPin={togglePin}
-              onDelete={remove}
+              onDelete={setConfirming}
               renamingDraft={renaming !== null && renaming.id === tile.id ? renaming.draft : null}
               onRenameStart={() => {
                 if (tile.id !== null) setRenaming({ id: tile.id, draft: tile.name });
@@ -888,27 +995,55 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         disk (A1). On a phone they measure storage the library does not live in,
         offer a remedy ("pin the ones you care about") for a pressure that is not
         the phone's, and imply the bytes are here. They are not drawn at all.
+
+        …and round 6 found the OTHER half of the same rule half-applied. Round 2
+        established `quotaMatters` — a meter is worth drawing once something is
+        actually stored, or once the quota is genuinely under pressure — and
+        then wired it to the CHIP only, leaving the bar and its label mounted
+        unconditionally. So an empty library rendered "13 kB of 4.0 GB used"
+        directly under **Nothing kept here**: two sentences about the same shelf,
+        one saying it holds nothing and one quantifying what it holds. (The
+        13 kB is the store's own overhead, which is why the `usageBytes <= 0`
+        branch below never caught it — the shelf is empty and the database is
+        not.) The rule now gates the block it was written for.
       */}
-      <div className="kh-quota" data-testid="library-quota">
-        <Meter
-          pct={quotaPct}
-          label={
-            quota === null || quota.quotaBytes <= 0
-              ? 'space in use — unknown'
-              : quota.usageBytes <= 0
-                ? `Nothing ${KEPT_VERB} — ${mb(quota.quotaBytes)} available`
-                : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
-          }
+      {confirming !== null && (
+        <ConfirmSheet
+          testId="library-confirm-delete"
+          question={`Delete “${confirming.name}” from your library?`}
+          confirmLabel="Delete"
+          confirmTitle="Delete it — there is no undo"
+          keepTitle="Leave it alone"
+          onConfirm={() => {
+            remove(confirming);
+          }}
+          onCancel={() => {
+            setConfirming(null);
+          }}
         />
-        {quotaMatters &&
-          (quota?.persisted === true ? (
+      )}
+
+      {quotaMatters && (
+        <div className="kh-quota" data-testid="library-quota">
+          <Meter
+            pct={quotaPct}
+            label={
+              quota === null || quota.quotaBytes <= 0
+                ? 'space in use — unknown'
+                : quota.usageBytes <= 0
+                  ? `Nothing ${KEPT_VERB} — ${mb(quota.quotaBytes)} available`
+                  : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
+            }
+          />
+          {quota?.persisted === true ? (
             <Chip tone="ok">Kept for good</Chip>
           ) : (
             <Chip tone="warn">
               May be cleared if the disk fills up — pin the ones you care about
             </Chip>
-          ))}
-      </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -924,6 +1059,7 @@ function Tile({
   tile,
   owns,
   active,
+  activeLabel,
   onShow,
   onPin,
   onDelete,
@@ -940,6 +1076,8 @@ function Tile({
   /** Whether this window can act on the bytes, not merely name them. */
   owns: boolean;
   active: boolean;
+  /** What the badge says — "On screen", or the truth (`nowShowingBadge`). */
+  activeLabel: string;
   onShow: (tile: LibraryTile) => void;
   onPin: (tile: LibraryTile) => void;
   onDelete: (tile: LibraryTile) => void;
@@ -1046,7 +1184,7 @@ function Tile({
         */}
         {active && (
           <span className="kh-tile__on" data-testid="tile-active">
-            On screen
+            {activeLabel}
           </span>
         )}
       </div>
