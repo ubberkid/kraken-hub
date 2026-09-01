@@ -23,6 +23,7 @@
  * and `frame()` is not implemented.
  */
 
+import { CAM_PATH_CONFIGURE } from '../../config/camPaths';
 import { createLogger } from '../../lib/log';
 import { computeFit, toTransformCss } from '../../render/fit';
 import { setReplicaThumb } from '../replicaThumb';
@@ -39,6 +40,33 @@ import type { DisplayRenderer, ModuleContext, UpdateReason } from '../types';
 import './image.css';
 
 const log = createLogger('image/display');
+
+/**
+ * Where this renderer is painting — R6's "context-aware empty state".
+ *
+ * The empty picture module used to say `CAM → Kraken → Configure` in every
+ * context, including inside the config page's own halo, where the field it was
+ * telling you to go and find was **six inches below it on the same screen**.
+ * The home screen's mirror runs the real display page in an iframe on this
+ * origin; CAM's Kraken Browser is always a top-level window. So `window.top` is
+ * the honest, zero-plumbing answer to "can the person reading this type into
+ * the box below?".
+ */
+function inConfigMirror(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    // A cross-origin `top` throws, which can only happen when we are framed.
+    return true;
+  }
+}
+
+/** The one line an empty picture module shows, addressed to whoever is reading it. */
+function emptyMessage(): string {
+  return inConfigMirror()
+    ? 'No picture yet.\nPaste a picture link below.'
+    : `No picture yet.\n${CAM_PATH_CONFIGURE}`;
+}
 
 const MS_PER_SEC = 1000;
 const QUARTER_TURN = 90;
@@ -181,7 +209,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
     const check = validateImageUrl(url, { context: 'display' });
 
     if (check.kind === 'empty') {
-      setMessage('No image chosen.\nCAM → Kraken → Configure');
+      setMessage(emptyMessage());
       if (img !== null) img.hidden = true;
       return;
     }
@@ -191,7 +219,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
       const found = id === null ? null : await fromLibrary(id);
       if (stale()) return;
       if (found === null) {
-        setMessage("That image isn't in this display's library.\nCAM → Kraken → Configure");
+        setMessage(`That picture isn't in your library.\n${CAM_PATH_CONFIGURE}`);
         if (img !== null) img.hidden = true;
         return;
       }

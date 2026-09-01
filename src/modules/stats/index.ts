@@ -14,10 +14,16 @@ import type { KrakenModule } from '../types';
 
 export const statsModule: KrakenModule<StatsConfig> = defineModule<StatsConfig>({
   id: 'stats',
-  name: 'System stats',
-  // The home screen's chip row is four one-word pills; "System stats" is the
-  // module's name everywhere it is named at length.
-  chipName: 'Stats',
+  /**
+   * One name, everywhere.
+   *
+   * It was `name: 'System stats'` with `chipName: 'Stats'`, and the round-2
+   * audit caught the consequence: the home chip said "Stats", the panel heading
+   * said "System stats", and the remote's module picker — which reads `name` —
+   * said a third thing again from the row directly above it. A module that is
+   * called two things is two modules to a person reading the screen.
+   */
+  name: 'Stats',
   summary: 'CPU and GPU temperature and load, plus liquid temperature, from CAM.',
   // Gauge glyph: a dial arc with a needle. Inline path data, no asset request.
   icon: 'M12 4a8 8 0 018 8h-2a6 6 0 10-2.2 4.63l1.4 1.42A8 8 0 1112 4zm.7 3.3l1.3 5.3-4 1.4 2.7-6.7z',

@@ -1,3 +1,5 @@
+import { CAM_PATH_CONFIGURE } from '../../config/camPaths';
+
 /**
  * The one thing a user can see when a module fails on a device with no input.
  *
@@ -12,7 +14,7 @@ export function ModuleErrorCard({ title, detail }: { title: string; detail: stri
       <div className="kh-card">
         <p className="kh-card__title">{title}</p>
         <p className="kh-card__body">{detail}</p>
-        <p className="kh-card__footer">Fix in CAM → Kraken → Configure</p>
+        <p className="kh-card__footer">Fix in {CAM_PATH_CONFIGURE}</p>
       </div>
     </div>
   );

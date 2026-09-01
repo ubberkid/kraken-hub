@@ -40,7 +40,7 @@ export function createAdapter(): HtmlVideoAdapter {
       if (blob === null) {
         throw fail(
           'clip-missing',
-          "That clip isn't in this display's library any more.",
+          "That clip isn't in your library any more.",
           'local-file',
           ctx.url,
         );

@@ -28,6 +28,8 @@
  * that invariant I8 keeps out of the display graph entirely.
  */
 
+import { CAM_PATH_CONFIGURE } from '../../../config/camPaths';
+
 import type { VideoErrorCode } from '../adapters/VideoAdapter';
 
 const URL_ELLIPSIS_LEN = 40;
@@ -108,7 +110,7 @@ export function middleEllipsize(text: string, max = URL_ELLIPSIS_LEN): string {
   return `${text.slice(0, keep)}…${text.slice(text.length - keep)}`;
 }
 
-export const FIX_FOOTER = 'Fix in CAM → Kraken → Configure';
+export const FIX_FOOTER = `Fix in ${CAM_PATH_CONFIGURE}`;
 
 export interface ErrorCardModel {
   code: VideoErrorCode;

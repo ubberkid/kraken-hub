@@ -26,13 +26,13 @@ describe('§7.1 message table', () => {
 
   it('carries the exact Discord expiry note', () => {
     expect(VALIDATION_MESSAGES['discord-expiring-url']).toBe(
-      'Discord links are signed and expire in about 24 hours — this will stop working. Download the file and add it as a local clip.',
+      'Discord links are signed and expire in about 24 hours — this will stop working. Download the file and add it to your library.',
     );
   });
 
   it('carries the remaining doc messages verbatim', () => {
     expect(VALIDATION_MESSAGES['http-not-upgradable']).toBe(
-      'This link is http:// only. The Kraken display is served over HTTPS, so the browser will block it. Download the file and add it as a local clip instead.',
+      'This link is http:// only. Your Kraken is served over HTTPS, so the browser will block it. Download the file and add it to your library instead.',
     );
     expect(VALIDATION_MESSAGES['imgur-unreliable']).toBe(
       "Imgur redirects hotlinked videos to its homepage; this often won't load.",

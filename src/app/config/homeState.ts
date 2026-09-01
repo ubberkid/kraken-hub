@@ -333,6 +333,17 @@ export interface VideoStatusInput {
   downloading: boolean;
   /** Has a display ever published anything on this origin? */
   displaySeen: boolean;
+  /**
+   * True only when nothing is being kept: the user asked for stream-only, or the
+   * server refused the cross-origin read so no copy is possible.
+   *
+   * Round 2's one-status-voice finding. The strip carried a permanent green
+   * "Keeping a copy" badge while the line under the halo read
+   * "**Streaming** clip.mp4" — one screen, two answers to "is this being
+   * saved?", and neither of them was a stage in a story. "Streaming" is a real
+   * word for a real state and it is now used only for that state.
+   */
+  streamingOnly: boolean;
 }
 
 interface TeleStats {
@@ -354,12 +365,18 @@ interface TeleStats {
  *  - **Playing / Holding** — telemetry is fresh. This is the display's own
  *    clock, not ours, and `Holding` is what the video engine calls a pause it
  *    performs without YouTube's overlay.
- *  - **Downloading** — a job for this exact link is in flight in the other
+ *  - **Keeping a copy of** — a job for this exact link is in flight in the other
  *    window. The bytes are moving whether or not telemetry is.
  *  - **Playing / Streaming** — a source is configured and a display has been
- *    seen on this origin. A local clip plays; a link streams.
+ *    seen on this origin. `Streaming` ONLY when nothing is being kept.
  *  - **Ready to play** — and only here. Nothing is configured, or no display has
  *    ever connected, which is the one case where nothing is genuinely happening.
+ *
+ * Round 2's finding was that rungs two and three disagreed with each other and
+ * with the ops strip: a `.mp4` being downloaded read "Streaming clip.mp4" under
+ * a green badge that said "Keeping a copy". The ladder tells ONE story now —
+ * *keeping a copy of X*, then *playing X · 0:12 / 3:02* — and the badge is gone,
+ * because a stage in a story is not a permanent property of a video.
  */
 export function describeVideoStatus(input: VideoStatusInput): Status {
   const { tele, now } = input;
@@ -375,12 +392,15 @@ export function describeVideoStatus(input: VideoStatusInput): Status {
     return { live: !stats.held, verb: stats.held ? 'Holding' : 'Playing', name, detail };
   }
 
-  if (input.downloading) return { live: false, verb: 'Downloading', name, detail: null };
+  if (input.downloading) return { live: false, verb: 'Keeping a copy of', name, detail: null };
 
   const configured = input.url.trim() !== '';
   if (configured && input.displaySeen) {
+    // A local clip is never streamed, whatever the mode says; everything else is
+    // streaming only when no copy is being kept.
     const local = LOCAL_CLIP_RE.test(input.url.trim());
-    return { live: false, verb: local ? 'Playing' : 'Streaming', name, detail: null };
+    const streaming = !local && input.streamingOnly;
+    return { live: false, verb: streaming ? 'Streaming' : 'Playing', name, detail: null };
   }
 
   return { live: false, verb: 'Ready to play', name, detail: null };

@@ -258,18 +258,24 @@ async function captureRemote(browser) {
 }
 
 /**
- * The merged About/Diagnostics page, with its probes finished.
+ * The merged About page, with its technical drawer open and probed.
  *
  * `#/about` rather than `#/diag`: the two are one page now (design audit, F7),
  * and `#/diag` reaches it by rewriting the hash — which would put a redirect in
  * the middle of a screenshot run for no reason.
+ *
+ * The drawer is opened deliberately. Round 2's R3 put every probe behind
+ * **Show the technical detail**, and a shot of the closed page would be three
+ * short sections — accurate, and useless as documentation of what the
+ * diagnostics actually contain.
  */
 async function captureDiag(browser) {
   const { context, page } = await freshPage(browser, { width: 1000, height: 880 }, DOC_SCALE);
   await page.goto(`${ORIGIN}/#/about`, { waitUntil: 'networkidle' });
+  await page.getByTestId('tech-detail').locator('summary').click();
   await page.getByRole('heading', { name: 'This browser' }).waitFor();
   // The codec/storage probes are async; give them a beat to fill in.
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(3500);
   const file = join(assetsDir, 'diag.png');
   await page.screenshot({ path: file, fullPage: true });
   reportSize(file);

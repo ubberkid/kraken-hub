@@ -23,6 +23,7 @@
  * module knows about the dismiss key and the module's own safe-area overlays.
  */
 
+import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
 import { readRaw, writeRaw } from '../../../platform/storage';
 
 /** §8.1 — the config-UI dismiss key. */
@@ -96,7 +97,7 @@ export function createFpsAdvisory(opts: FpsAdvisoryOptions = {}): FpsAdvisory {
 
 /** §8.1 — the card copy, verbatim, including the device maximum. */
 export function fpsAdvisoryBody(): string {
-  return 'In CAM: Lighting → Kraken → Web Integration → Frame Rate → drag to max (40 on Elite).';
+  return `${CAM_PATH_FRAME_RATE} → drag to max (40 on Elite).`;
 }
 
 export function renderFpsCard(targetFps: number): HTMLElement {

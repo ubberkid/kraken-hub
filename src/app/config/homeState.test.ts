@@ -326,6 +326,7 @@ describe('describeVideoStatus', () => {
     now: 10_000,
     downloading: false,
     displaySeen: true,
+    streamingOnly: false,
   };
 
   function stats(over: Partial<{ currentTime: number; bufferedEnd: number; held: boolean }> = {}) {
@@ -353,12 +354,16 @@ describe('describeVideoStatus', () => {
     expect(s.name).toBe('lofi hip hop radio');
   });
 
-  it('says Downloading while bytes are moving in the other window', () => {
-    expect(describeVideoStatus({ ...base, downloading: true }).verb).toBe('Downloading');
+  it('names the stage the strip used to badge: keeping a copy of it', () => {
+    expect(describeVideoStatus({ ...base, downloading: true }).verb).toBe('Keeping a copy of');
   });
 
-  it('says Streaming for a configured link once a display has been seen', () => {
-    expect(describeVideoStatus(base).verb).toBe('Streaming');
+  it('says Streaming only when nothing is being kept', () => {
+    // A copy IS being kept, so the verb is the outcome, not the transport. This
+    // pair is round 2's contradiction: the line said "Streaming clip.mp4" under
+    // a permanent "Keeping a copy" badge.
+    expect(describeVideoStatus(base).verb).toBe('Playing');
+    expect(describeVideoStatus({ ...base, streamingOnly: true }).verb).toBe('Streaming');
     expect(
       describeVideoStatus({
         ...base,
@@ -377,10 +382,18 @@ describe('describeVideoStatus', () => {
     // …or no Kraken has ever connected on this origin, which is the one case
     // where claiming "Streaming" would be a guess.
     expect(describeVideoStatus({ ...base, displaySeen: false }).verb).toBe('Ready to play');
+    expect(describeVideoStatus({ ...base, displaySeen: false, streamingOnly: true }).verb).toBe(
+      'Ready to play',
+    );
   });
 
   it('goes quiet again when the telemetry mirror goes stale', () => {
-    const s = describeVideoStatus({ ...base, tele: { ts: 1, stats: stats() }, now: 100_000 });
+    const s = describeVideoStatus({
+      ...base,
+      streamingOnly: true,
+      tele: { ts: 1, stats: stats() },
+      now: 100_000,
+    });
     expect(s.verb).toBe('Streaming');
     expect(s.live).toBe(false);
   });

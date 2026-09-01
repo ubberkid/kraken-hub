@@ -10,7 +10,8 @@ Before anything else, two questions answer most reports:
    [below](#video-plays-as-a-slideshow-one-frame-per-second).
 2. **What does the version footer say?** Every configuration page ends with
    `kraken-hub v… · <sha> · built …`. Quote it — it names the exact deploy. It is
-   also a link: it opens the About page, which is where the diagnostics live.
+   also a link: it opens the About page, whose **Report** section is where the
+   diagnostics live — **Copy report** puts them on your clipboard.
 
 ---
 
@@ -24,16 +25,17 @@ be. CAM's own images still work.
 | Cause                                 | How to tell                                                                                                                                                                       | Fix                                                                                                                                                                                                                             |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The URL is missing its trailing slash | The address in CAM ends `…/kraken-hub` rather than `…/kraken-hub/`                                                                                                                | Re-paste it from the configuration page's copy button. Pages answers the slashless form with a 301, and a redirect on load is untested inside CAM.                                                                              |
-| A module crashed                      | Open `?kraken=1&diag=1` in an ordinary browser at the same URL — a crashed module draws an **error card**, not a black screen, so a truly black panel means it never got that far | The card names the failure and always ends "Fix in CAM → Kraken → Configure".                                                                                                                                                   |
+| A module crashed                      | Open `?kraken=1&diag=1` in an ordinary browser at the same URL — a crashed module draws an **error card**, not a black screen, so a truly black panel means it never got that far | The card names the failure and always ends "Fix in CAM → Lighting → your Kraken → your kraken-hub card → Configure".                                                                                                            |
 | The page never booted                 | The configuration page works, but the panel is black                                                                                                                              | CAM caches aggressively. Toggle the card off and on. If it recovers, that is the reload path working.                                                                                                                           |
 | The panel is asleep, not blank        | It wakes when you move the mouse or open CAM                                                                                                                                      | CAM's own dimming, not kraken-hub — timing unmeasured, [H21](hardware-checklist.md).                                                                                                                                            |
 | Frozen after the PC slept             | It was fine before the machine slept, and has been static since                                                                                                                   | A known CAM webview failure mode. kraken-hub runs a liveness watchdog that reloads the page — whether that actually recovers it on hardware is unmeasured, [H16](hardware-checklist.md). Toggling the card in CAM always works. |
 
 **Getting the diagnostics off a panel you cannot copy text from:** open the
 display with `?kraken=1&diag=1`. It publishes a full `DiagReport` through
-`localStorage` every five seconds, and the configuration page's **About** page —
-reached by clicking the version line in the footer — renders it as copyable JSON.
-That is the intended path — do not photograph the LCD and transcribe it.
+`localStorage` every five seconds, and the configuration page's **About → Report
+→ Copy report** — the version line in the footer opens it — puts that JSON on
+your clipboard. That is the intended path; do not photograph the LCD and
+transcribe it.
 
 ## Video plays as a slideshow, one frame per second
 
@@ -43,7 +45,7 @@ That is the intended path — do not photograph the LCD and transcribe it.
 and no web page can override it: the slider controls how often CAM captures the
 page, not how fast the page draws.
 
-**Fix.** CAM → Lighting → your Kraken → Mode: Web Integration → **Frame Rate** →
+**Fix.** CAM → Lighting → your Kraken → Web Integration → **Frame Rate** →
 drag to maximum. Elite 40, Kraken (2023) 25, Kraken Z is capped at 1 by NZXT and
 will not be raised. Kraken Plus is unmeasured, [H22](hardware-checklist.md).
 
@@ -115,8 +117,8 @@ never reads _Linked to your Kraken_, or the display never reacts.
 | You are expecting it to upload a file   | It cannot, and this is not a bug. CAM's two browsers share a storage partition; your phone does not. The remote can _choose_ from clips the display has already announced, and it offers a link to open kraken-hub in CAM to add new ones.                                                                                  |
 
 Whether CAM's webview can reach either endpoint at all is
-[H19](hardware-checklist.md) — the diagnostics page lists the targets but
-deliberately never probes them unasked.
+[H19](hardware-checklist.md) — the Report section's technical detail names the
+targets but deliberately never probes them unasked.
 
 ## Settings changes do not reach the panel
 
@@ -234,8 +236,8 @@ GitHub account. Details and the design correction are in
 
 ## Still stuck
 
-Open the display with `?kraken=1&diag=1`, copy the JSON from the configuration
-page's **About** page (the version line in the footer), and
+Open the display with `?kraken=1&diag=1`, press **Copy report** on the
+configuration page's **About** page (the version line in the footer), and
 [file an issue](https://github.com/ubberkid/kraken-hub/issues/new/choose) with
 it attached. That report contains the device identity, the Chromium version, the
 codec matrix, storage persistence, the state-delivery counters and the frame

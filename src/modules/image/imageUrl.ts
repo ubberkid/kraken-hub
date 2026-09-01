@@ -16,6 +16,7 @@
  * decide for themselves.
  */
 
+import { CAM_PATH_CONFIGURE, CAM_PATH_FRAME_RATE } from '../../config/camPaths';
 import { MAX_URL_LEN, normalizeMediaUrl } from '../../lib/mediaUrl';
 
 import { LOCAL_IMAGE_RE, localImageId } from './schema';
@@ -40,16 +41,14 @@ export const IMAGE_MESSAGES: Readonly<Record<ImageIssueCode, string>> = {
   'mixed-content-http':
     'Upgraded to https:// — GitHub Pages is HTTPS-only and browsers block http:// images.',
   'unsupported-scheme':
-    'That is not a link the display can open. Paste an https:// image URL, or add the file to the image library.',
+    'That is not a link your Kraken can open. Paste an https:// image URL, or add the file to your library.',
   'url-too-long': "That link is unusually long and won't survive the sync channel.",
   'unsupported-format':
     'That looks like a page, not an image file. Paste the direct link to the .jpg / .png / .webp / .gif itself (right-click the picture → Copy image address).',
-  'local-image-missing':
-    "That image isn't in this display's library. Local images live in NZXT CAM's browser storage on your PC — add it there (CAM → Lighting → Kraken → Configure), then pick it again.",
+  'local-image-missing': `That picture isn't in your library. Your library lives in CAM's browser storage on this PC — add it there (${CAM_PATH_CONFIGURE}), then pick it again.`,
   'svg-not-rendered':
     'SVG is rendered, but scripts and external references inside it are blocked by the page policy. A PNG or WebP export is more predictable.',
-  'animated-capture-fps':
-    "Animated GIFs play at their own speed, but the LCD only shows what CAM captures — at CAM's default of 1 frame per second you will see one frame of the animation per second. Raise CAM → Lighting → Kraken → Web Integration → Frame Rate.",
+  'animated-capture-fps': `Animated GIFs play at their own speed, but your Kraken only shows what CAM captures — at CAM's default of 1 frame per second you will see one frame of the animation per second. Raise ${CAM_PATH_FRAME_RATE}.`,
 };
 
 const SEVERITIES: Readonly<Record<ImageIssueCode, ImageIssueSeverity>> = {

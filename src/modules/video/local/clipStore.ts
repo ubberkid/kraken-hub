@@ -175,6 +175,30 @@ export async function setPinned(id: string, pinned: boolean): Promise<void> {
   await publishClipIndex();
 }
 
+/**
+ * Backfills a thumbnail onto a clip that was stored without one.
+ *
+ * Two paths produce a `thumbBlob: null` row: a file added through "Add anyway"
+ * after the metadata probe timed out, and a download whose bytes landed before
+ * the thumbnail step could draw a frame. Round 2's R7 is that those tiles were
+ * then a grey rectangle **for good** — the library's whole job is to let you
+ * recognise something at a glance, and half its rows had nothing to recognise.
+ *
+ * The Library page generates the missing frame the first time it draws such a
+ * tile and calls this, so the work happens once per clip rather than once per
+ * visit. Deliberately does NOT republish the clip index: the index carries no
+ * thumbnail, so nothing downstream changes and a republish would be a
+ * localStorage write and a `storage` event per backfilled tile.
+ */
+export async function setClipThumb(id: string, thumbBlob: Blob): Promise<void> {
+  const clip = await getClip(id);
+  if (clip === null) return;
+  const db = await openDb();
+  const tx = db.transaction(STORE_CLIPS, 'readwrite');
+  tx.objectStore(STORE_CLIPS).put({ ...clip, thumbBlob });
+  await txDone(tx);
+}
+
 /** LRU input. Deliberately fire-and-forget: never block a mount on a write. */
 export async function touchClip(id: string): Promise<void> {
   const clip = await getClip(id);

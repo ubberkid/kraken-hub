@@ -1,5 +1,6 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 
+import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
 import { validateClock } from '../../../modules/clock/schema';
 import { validateImageConfig } from '../../../modules/image/schema';
 import { getModule, listModules } from '../../../modules/registry';
@@ -11,7 +12,6 @@ import {
   readMirroredDownloads,
   type DownloadEntry,
 } from '../../../modules/video/local/downloadManager';
-import { type ValidationIssue } from '../../../modules/video/routing/validate';
 import { readTeleMirror, type TelePacket } from '../../../modules/video/telemetry/videoTelemetry';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { DEVICE_PRESETS } from '../../../platform/devicePresets';
@@ -33,7 +33,7 @@ import {
   type FlowState,
   type Status,
 } from '../homeState';
-import { submitVideoLink } from '../pasteLink';
+import { submitImageLink, submitVideoLink, type PasteIssue } from '../pasteLink';
 
 import { CamSetupCard } from './CamSetupCard';
 import { LoopScrubber, LOOP_MAX_SEC } from './LoopScrubber';
@@ -90,6 +90,21 @@ const MIRROR_POLL_MS = 1000;
  * Must be >= `--kh-dur-slow` in `ui.css`, which is what `kh-close` runs for.
  */
 const OPS_CLOSE_MS = 500;
+
+/**
+ * How long a *successful* paste receipt stays on the screen.
+ *
+ * Round 2's R11: the three step-cards are narration, and narration that never
+ * ends becomes furniture — 240 px of it, permanently, between the primary
+ * action and the module chips, describing something that finished. The status
+ * line under the halo already carries the state ("Playing sunset loop · 1:24 /
+ * 3:02"), so the receipt says its piece and gets out of the way.
+ *
+ * Only for the plain success stages. A deviation the user has to know about — a
+ * server that refuses a copy, a copy that failed, YouTube playing its own ads —
+ * is not a receipt, and stays.
+ */
+const RECEIPT_LINGER_MS = 4000;
 
 /**
  * A localStorage mirror, rendered as React state.
@@ -180,7 +195,22 @@ export function HomeView({
   const activeId = state.activeModuleId;
 
   const [draft, setDraft] = useState('');
-  const [issue, setIssue] = useState<ValidationIssue | null>(null);
+  const [issue, setIssue] = useState<PasteIssue | null>(null);
+  /**
+   * The primary action's input, so "Play something" can hand it the caret.
+   *
+   * With Clock or Stats on the panel there is nothing to paste, so the row
+   * collapses to one quiet affordance that switches context (R9). Switching
+   * without landing the caret would leave the user looking at a field they have
+   * to go and click, which is the gesture the affordance existed to save.
+   */
+  const pasteRef = useRef<HTMLInputElement>(null);
+  /**
+   * A ref rather than state: nothing renders differently because a focus is
+   * pending, and the switch itself already re-renders this screen — so the
+   * effect below has a trigger without a second state update chasing the first.
+   */
+  const wantsPaste = useRef(false);
   /**
    * The contextual panel, open on arrival when a `#/module/<id>` link brought
    * us here.
@@ -251,10 +281,62 @@ export function HomeView({
   const videoCfg = validateVideoConfig(state.modules[videoModule.id]?.cfg);
   const clipNames = new Map(clips.map((c) => [c.id, c.name]));
 
+  const imageCfg = validateImageConfig(state.modules['image']?.cfg);
+
+  /**
+   * The primary action, in the active module's own noun (R9).
+   *
+   * `null` means the module has nothing to be given — Clock and Stats — and the
+   * row becomes the quiet switch instead of a loud, irrelevant video field.
+   */
+  const action: PasteAction | null =
+    activeId === videoModule.id
+      ? {
+          label: 'Paste a video link',
+          placeholder: narrow ? 'Paste a video link' : 'Paste a video link — YouTube, MP4, HLS…',
+          submitLabel: 'Play',
+          submit: (raw) => submitVideoLink(runtime, raw),
+          clearOnAccept: true,
+        }
+      : activeId === 'image'
+        ? {
+            label: 'Paste a picture link',
+            placeholder: narrow
+              ? 'Paste a picture link'
+              : 'Paste a picture link — JPG, PNG, WebP, GIF…',
+            submitLabel: 'Show',
+            // The row IS the field: it keeps the picture it is showing, the way
+            // the panel's own text input used to.
+            submit: (raw) => submitImageLink(runtime, raw),
+            clearOnAccept: false,
+          }
+        : null;
+
+  /**
+   * Keep the row holding what the Image module is actually showing.
+   *
+   * The picture link merged INTO this row, so the row has to behave like the
+   * field it replaced: arriving on Image shows the current link, and leaving
+   * empties the box rather than carrying a picture URL into the video field.
+   */
+  const [draftOwner, setDraftOwner] = useState(activeId);
+  if (draftOwner !== activeId) {
+    setDraftOwner(activeId);
+    setDraft(activeId === 'image' ? imageCfg.url : '');
+    setIssue(null);
+  }
+
+  useEffect(() => {
+    if (!wantsPaste.current) return;
+    wantsPaste.current = false;
+    pasteRef.current?.focus();
+  }, [activeId]);
+
   const submit = (): void => {
-    const outcome = submitVideoLink(runtime, draft);
+    if (action === null) return;
+    const outcome = action.submit(draft);
     setIssue(outcome.issue);
-    if (outcome.accepted) setDraft('');
+    if (outcome.accepted && action.clearOnAccept) setDraft('');
   };
 
   const setVideo = (patch: Partial<VideoModuleConfig>): void => {
@@ -280,6 +362,9 @@ export function HomeView({
     now,
     downloading: flow?.stage === 'downloading',
     displaySeen: setupDone,
+    // One voice: "Streaming" is claimed only when nothing is being kept — the
+    // user asked for stream-only, or the server refused the copy (R5).
+    streamingOnly: videoCfg.downloadMode === 'stream-only' || flow?.stage === 'streaming',
   });
 
   const fresh = tele !== null && now - tele.ts < TELE_FRESH_MS ? tele : null;
@@ -297,55 +382,75 @@ export function HomeView({
       ? null
       : Math.max(0, Math.min(1, liveStats.currentTime / durationSec));
 
+  /**
+   * The halo yields the floor when something opens in its place.
+   *
+   * Round 2 measured the options panel overflowing the CAM window by 426–888 px
+   * for every module: the panel opened UNDER a full-height composition, so the
+   * thing you had just asked to see was the one thing off the bottom of the
+   * screen. The options take the halo's place instead — the mirror cross-fades
+   * down to a corner thumb (still the live display page, still ticking) and the
+   * vacated ~180 px is what the panel opens into. Closing restores it, on the
+   * same spring, both ways.
+   */
+  const compact = openOps || loopOpen;
+
   return (
-    <section className="kh-home" data-testid="home">
+    <section className="kh-home" data-testid="home" data-compact={compact ? 'true' : 'false'}>
       {isLowFps(facts) && (
         <div className="kh-fps-banner" role="status" data-testid="fps-banner">
           Your Kraken is running at <b>{String(facts?.targetFps ?? 0)} FPS</b>, so anything that
-          moves looks like a slideshow. In CAM:{' '}
-          <b>Lighting → Kraken → Web Integration → Frame Rate</b> → drag it to maximum.
+          moves looks like a slideshow. <b>{CAM_PATH_FRAME_RATE}</b> → drag it to maximum.
         </div>
       )}
 
-      <div
-        className={preset.shape === 'circle' ? 'kh-halo' : 'kh-halo kh-halo--square'}
-        data-testid="mirror"
-        data-mirror-preset={preset.id}
-        data-mirror-mode={activeId === videoModule.id ? 'surface' : 'live'}
-      >
-        <div className="kh-halo__lcd">
-          {activeId === videoModule.id ? (
-            <VideoHalo
-              url={videoCfg.url}
-              name={status.name}
-              progress={haloProgress}
-              held={liveStats?.held === true}
-            />
-          ) : (
-            <iframe
-              className="kh-halo__frame"
-              title={`Your Kraken — live mirror (${preset.label})`}
-              src={`./?kraken=1&sim=${preset.id}`}
-              style={
-                { '--kh-mirror-w': preset.width, '--kh-mirror-h': preset.height } as CSSProperties
-              }
-            />
-          )}
+      {/*
+        The mirror and the sentence about it are one object, so that when the
+        options take the floor they travel together: the halo shrinks to a thumb
+        and the line steps alongside it rather than being orphaned under a
+        64 px circle.
+      */}
+      <div className="kh-home__mirror">
+        <div
+          className={preset.shape === 'circle' ? 'kh-halo' : 'kh-halo kh-halo--square'}
+          data-testid="mirror"
+          data-mirror-preset={preset.id}
+          data-mirror-mode={activeId === videoModule.id ? 'surface' : 'live'}
+        >
+          <div className="kh-halo__lcd">
+            {activeId === videoModule.id ? (
+              <VideoHalo
+                url={videoCfg.url}
+                name={status.name}
+                progress={haloProgress}
+                held={liveStats?.held === true}
+              />
+            ) : (
+              <iframe
+                className="kh-halo__frame"
+                title={`Your Kraken — live mirror (${preset.label})`}
+                src={`./?kraken=1&sim=${preset.id}`}
+                style={
+                  { '--kh-mirror-w': preset.width, '--kh-mirror-h': preset.height } as CSSProperties
+                }
+              />
+            )}
+          </div>
         </div>
-      </div>
 
-      <p className="kh-status" data-testid="status-line">
-        {status.live && <span className="kh-status__live" aria-hidden="true" />}
-        <span>
-          {status.verb} <b>{status.name}</b>
-          {status.detail !== null && (
-            <>
-              {' · '}
-              <span className="kh-tnum">{status.detail}</span>
-            </>
-          )}
-        </span>
-      </p>
+        <p className="kh-status" data-testid="status-line">
+          {status.live && <span className="kh-status__live" aria-hidden="true" />}
+          <span>
+            {status.verb} <b>{status.name}</b>
+            {status.detail !== null && (
+              <>
+                {' · '}
+                <span className="kh-tnum">{status.detail}</span>
+              </>
+            )}
+          </span>
+        </p>
+      </div>
 
       {/*
         First run, and only first run — BELOW the halo.
@@ -362,29 +467,54 @@ export function HomeView({
       */}
       {!setupDone && <CamSetupCard runtime={runtime} variant="first-run" />}
 
-      <form
-        className="kh-paste"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <input
-          className="kh-paste__input"
-          type="text"
-          value={draft}
-          data-testid="paste-input"
-          aria-label="Paste a video link"
-          placeholder={narrow ? 'Paste a video link' : 'Paste a video link — YouTube, MP4, HLS…'}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            setIssue(null);
+      {action === null ? (
+        /*
+          Clock and Stats have nothing to be handed. The row used to shout
+          "Paste a video link" at them anyway — the most prominent control in
+          the product, asking for something the screen in front of you cannot
+          use (R9). It is one quiet sentence that changes the subject instead.
+        */
+        <p className="kh-paste kh-paste--quiet">
+          <button
+            type="button"
+            className="kh-quiet"
+            data-testid="paste-switch"
+            onClick={() => {
+              runtime.store.commit((s) => ({ ...s, activeModuleId: videoModule.id }));
+              showOps(false);
+              setLoopOpen(false);
+              wantsPaste.current = true;
+            }}
+          >
+            Play something
+          </button>
+        </p>
+      ) : (
+        <form
+          className="kh-paste"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
           }}
-        />
-        <button type="submit" className="kh-btn kh-btn--primary" data-testid="paste-submit">
-          Play
-        </button>
-      </form>
+        >
+          <input
+            ref={pasteRef}
+            className="kh-paste__input"
+            type="text"
+            value={draft}
+            data-testid="paste-input"
+            aria-label={action.label}
+            placeholder={action.placeholder}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setIssue(null);
+            }}
+          />
+          <button type="submit" className="kh-btn kh-btn--primary" data-testid="paste-submit">
+            {action.submitLabel}
+          </button>
+        </form>
+      )}
 
       {issue !== null && (
         <div className="kh-home__notice">
@@ -444,6 +574,7 @@ export function HomeView({
           <LoopScrubber
             idPrefix="home"
             max={durationSec ?? LOOP_MAX_SEC}
+            durationKnown={durationSec !== null && durationSec > 0}
             positionSec={Math.min(liveStats?.currentTime ?? 0, durationSec ?? LOOP_MAX_SEC)}
             loop={videoCfg.loop}
             onLoopChange={(loop) => {
@@ -463,7 +594,15 @@ export function HomeView({
           {...(closingOps ? { inert: true } : {})}
         >
           <div className="kh-disclosure__head">
-            <h2>Options</h2>
+            {/*
+              The module's name, not the word "Options".
+
+              The panel underneath used to print it again as its own heading, one
+              line lower — "Options" over "Video" — and a heading that says the
+              same thing as the heading above it is 30 px this composition does
+              not have. The head names what you opened; the panel gets on with it.
+            */}
+            <h2>{activeModuleName(activeId)}</h2>
             <button
               type="button"
               className="kh-iconbtn"
@@ -578,20 +717,16 @@ function OpsStrip({
             <b className="kh-tnum">{loopLabel}</b>
           </button>
         </span>
-        <span className="kh-op" data-testid="ops-saved">
-          {/*
-            A readout, not a control. It was styled as a button for a whole
-            release and opened a 1,600 px settings wall when pressed, which is
-            the single clearest example of the thing the audit is about.
-          */}
-          <span
-            className={
-              videoCfg.downloadMode === 'auto' ? 'kh-op__chip kh-op__chip--ok' : 'kh-op__chip'
-            }
-          >
-            {videoCfg.downloadMode === 'auto' ? 'Keeping a copy' : 'Streaming only'}
-          </span>
-        </span>
+        {/*
+          No "Keeping a copy" badge here any more.
+
+          It was a permanent green chip asserting a *policy* in the grammar of a
+          *stage*, next to a status line that said "Streaming clip.mp4" about the
+          same file at the same moment (round 2, R5). Keeping a copy is something
+          that happens and then is over: it belongs to the ladder — "Keeping a
+          copy of X", then "Playing X · 0:12 / 3:02" — and the setting behind it
+          is one control in the module's options, where a setting lives.
+        */}
       </>
     );
   }
@@ -765,6 +900,16 @@ function OpsStrip({
  * that is configured RIGHT NOW. The mirror is a ring nobody prunes, so a job
  * from a link three pastes ago is not this link's story.
  */
+/**
+ * Stages whose receipt is allowed to leave.
+ *
+ * A plain success and nothing else. `streaming`, `unsaved` and `youtube-embed`
+ * all report a *deviation* — no copy could be kept, or YouTube is playing its
+ * own ads — and a user who looks away for five seconds must still be able to
+ * find out why. `downloading` is not finished at all.
+ */
+const RECEIPT_COLLAPSES: ReadonlySet<FlowState['stage']> = new Set(['accepted', 'stored']);
+
 function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
   const { stage, entry } = flow;
   const pct = entry === null ? null : progressPct(entry);
@@ -772,8 +917,35 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
   // on the panel, whatever happened to the copy.
   const settled = stage !== 'downloading';
 
+  /**
+   * The receipt's own retirement.
+   *
+   * Keyed on `stage` so a story that moves on — downloading → stored — restarts
+   * the clock rather than inheriting a timer from a stage that has passed. The
+   * node stays in the DOM once collapsed and simply stops taking space: the
+   * stage is still readable to anything that asks, and hiding is a thing CSS can
+   * cross-fade, where an unmount is a hard cut.
+   */
+  const [retired, setRetired] = useState<FlowState['stage'] | null>(null);
+  const gone = retired === stage;
+  useEffect(() => {
+    if (!RECEIPT_COLLAPSES.has(stage)) return undefined;
+    const timer = setTimeout(() => {
+      setRetired(stage);
+    }, RECEIPT_LINGER_MS);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [stage]);
+
   return (
-    <ol className="kh-flow" data-testid="paste-flow" data-flow-stage={stage}>
+    <ol
+      className={gone ? 'kh-flow kh-flow--gone' : 'kh-flow'}
+      data-testid="paste-flow"
+      data-flow-stage={stage}
+      data-collapsed={gone ? 'true' : 'false'}
+      aria-hidden={gone ? true : undefined}
+    >
       <li className="kh-step kh-step--on">
         <span className="kh-step__ic" aria-hidden="true">
           ▶
@@ -834,8 +1006,16 @@ function DownloadFlow({ flow, url }: { flow: FlowState; url: string }) {
   );
 }
 
+/**
+ * One story, one vocabulary (R5).
+ *
+ * "Saving to your Kraken" was a third word for the thing the ops strip called
+ * "Keeping a copy" and the status line called "Streaming", all on one screen.
+ * The ladder says the same words the status line says, in the same order:
+ * *keeping a copy of it*, then *playing it*.
+ */
 function secondHeadline(stage: FlowState['stage']): string {
-  if (stage === 'stored' || stage === 'downloading') return 'Saving to your Kraken';
+  if (stage === 'stored' || stage === 'downloading') return 'Keeping a copy';
   if (stage === 'accepted') return 'Sent to your Kraken';
   return 'Streaming from the link';
 }
@@ -908,12 +1088,16 @@ function describeStatus(input: {
   now: number;
   downloading: boolean;
   displaySeen: boolean;
+  streamingOnly: boolean;
 }): Status {
   if (input.activeId !== videoModule.id) {
+    // The module's own name, from the registry — not a table in this file that
+    // could disagree with the chip six lines below it (R11).
+    const mod = getModule(input.activeId);
     return {
       live: true,
       verb: 'Showing',
-      name: MODULE_LINE[input.activeId] ?? 'this module',
+      name: mod === null ? 'this module' : (mod.chipName ?? mod.name),
       detail: null,
     };
   }
@@ -926,11 +1110,23 @@ function describeStatus(input: {
     now: input.now,
     downloading: input.downloading,
     displaySeen: input.displaySeen,
+    streamingOnly: input.streamingOnly,
   });
 }
 
-const MODULE_LINE: Readonly<Record<string, string>> = {
-  clock: 'Clock',
-  stats: 'Stats',
-  image: 'Image',
-};
+/** One source of truth for a module's name — the registry (R11). */
+function activeModuleName(id: string): string {
+  const mod = getModule(id);
+  return mod === null ? 'Options' : (mod.chipName ?? mod.name);
+}
+
+/** What the one primary action is, for the module that is on the panel (R9). */
+interface PasteAction {
+  /** The input's accessible name. */
+  label: string;
+  placeholder: string;
+  submitLabel: string;
+  submit: (raw: string) => { issue: PasteIssue | null; accepted: boolean };
+  /** False for a field that keeps showing what it committed — the picture link. */
+  clearOnAccept: boolean;
+}

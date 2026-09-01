@@ -29,6 +29,131 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **The About page stopped being a wall, and the remote leads with its job.**
+  (Design audit round 2, wave B — findings R3, R4, R6, R7, R8, R10, R11.) Wave A
+  measured the home screen. Wave B put the same ruler on the four surfaces it had
+  not reached, and every number below is a number.
+
+  - **About: 2,225 px → 1,055 px, 498 words → under 200 (R3).** The page a
+    person reaches by clicking a version string was four screens of CAM's window,
+    headed by internal hardware-checklist ids (`Network reachability (H19)`),
+    listing `?kraken=1&diag=1` query strings, a codec matrix, a
+    `devicePixelRatio`, a `SHA-256(code)` note and a bulleted inventory of
+    transports. Every fact on it was true; almost none of it was for a reader.
+    It is three calm sections now — **About** (one sentence, one full-bleed Add
+    to CAM card with this installation's address on it exactly once, a version
+    line), **Connection** (four settings in plain labels; the transport chips and
+    the privacy note one drawer down each), and **Report** (what a report is, one
+    primary **Copy report**, a link to the issue form, and _every_ probe behind a
+    single **Show the technical detail**). Nothing probes until asked: the frame
+    -rate sample and the storage probe run when you press Copy report or open the
+    drawer, not on arrival. `#/diag` still resolves here.
+  - **The unpaired remote mounts pairing and nothing else (R4).** It used to
+    mount the whole instrument with nothing to drive: a scrubber reading
+    `0:00 / 60:00` — an hour nobody had ever reported, invented by the fallback
+    track length — three dead transport buttons, a video field, two pickers, and
+    **two status lines both saying it was waiting**. Now it is the ring, one
+    sentence and **Create a code**, with _Type a code instead_ behind a quiet
+    disclosure; a test caps the whole screen at four controls. The transport,
+    scrubber and essentials appear when a room is live. Where a duration is
+    unknown the scrubber shows **no total** rather than an invented one, the
+    sub-line only speaks when something is playing, the paired card is the room
+    code and **Unpair** (the QR is for the other device, so it is desktop-only),
+    and the ring's `NO PREVIEW` is the home screen's treated card and the
+    source's own name.
+  - **One spelling of two CAM menu paths (R6).** Five were shipping side by side
+    across the display's error cards, the config UI, both validators and the
+    docs. `src/config/camPaths.ts` exports the two real destinations and every
+    surface imports them — including the tests, so a sixth cannot appear.
+  - **Library tiles carry information (R7).** A clip stored without a thumbnail
+    was a grey rectangle for good; it is generated from the file on first sight
+    and written back. Where no frame can be drawn, a treated card hue-rotated off
+    the name stands in. The `CLIP` badge over the artwork and the `640×640` on
+    every detail line are gone, durations past an hour read `1:30:00` rather than
+    `90:00`, tiles are all one height, and the **+** is a labelled **Add** — which
+    is what let the empty card stop explaining where its own button was.
+  - **No native picker anywhere (R8).** Wave A's rule was true exactly where it
+    had been tested. The remote still had three `<select>`s and Connection had one
+    plus three browser checkboxes; `Select` and `Toggle` are deleted from the
+    vocabulary, and the assertion walks every route with every drawer open.
+  - **44 px thumbs (R10).** At 390 px the segments were 27 px and the navigation
+    row was 17. The visual size is unchanged; the boxes grew. The loop handles
+    are the interesting case: their 44 px hit area was a `::after` bleed, which
+    is invisible to every measurement — the dot moved into a `::before` so the
+    button itself is the target.
+  - **One voice, in the errors too (R11).** "the display" is _your Kraken_ and a
+    "local clip" is _your library_, in every message a user can read. The image
+    module's empty state is context-aware: inside the config mirror it names the
+    field below it, on the real panel it gives the CAM path.
+  - **…and a bug the ruler found on the way.** Moving the hardware-report pull one
+    drawer down shifted its timing by a tenth of a second, and it began failing
+    every run: `SyncService.publishTele` throttles at 5 Hz and _drops_ rather
+    than queues, so a routine `videoStats` or `monitor` packet landing 180 ms
+    before the answer to **Ask your Kraken** took the answer with it — and the
+    card sat there for twenty seconds before reporting that the display had not
+    answered. Report chunks publish with `immediate` now, which is the one thing
+    that bypasses that throttle, for exactly the reason the answer already
+    bypasses the `publishTelemetry` toggle: it is a one-shot reply to a button
+    somebody just pressed, not a stream.
+
+- **The options open in the halo's place, and there is one set of them.** (Design
+  audit round 2, wave A — findings R1, R2, R5, R9, R11.) Round 1 made the active
+  module chip the door to its options and killed the 1,600 px settings wall. Round
+  2 put a ruler on the result: the door opened onto a panel that **still ran off
+  the bottom of CAM's 866×537 window, by 426 to 888 px, on every module** — because
+  it opened _underneath_ a full-height composition instead of in place of one. And
+  the panel it opened was a second copy of the strip four inches above it, free to
+  disagree with it in wording.
+
+  - **One set of options, in view.** The ops strip _is_ the module's primary
+    options now. Clock's panel keeps Show date and its one Advanced door; Stats
+    keeps the reading the single-dial layout needs and its door; Video keeps
+    keep-a-copy and Quality; Image keeps keep-a-copy and its picture shelf. Face,
+    Hours, Seconds, Layout, Degrees, Labels, Fit and Slideshow are asked once, on
+    the strip, where you can see them without opening anything. `FramingPrimary`
+    is gone — Fit lives on the strip and Zoom moved behind Advanced.
+  - **They take the halo's place.** Pressing the active chip cross-fades the
+    mirror down to a 56 px corner thumb — still the live display page, still
+    ticking — with the status line beside it, and the ~180 px that frees is what
+    the panel opens into. Closing restores it, on the same spring, both ways.
+    Measured at 866×537: every module's options fully visible, nothing clipped,
+    `scrollY` 0. The loop scrubber gets the same treatment.
+  - **One control idiom.** A new `Switch` — the house segmented On/Off — is the
+    only shape a boolean takes on this screen; the native checkboxes and the
+    remaining `<select>`s (clock and stats palettes, the stats reading, the
+    quality ladder) are segmented rows. A test asserts there is no native picker
+    left anywhere on home or in any module's options.
+  - **The primary action is contextual (R9).** The row under the halo takes the
+    active module's noun: a video link for Video, and _the_ picture-link field
+    for Image — the panel's duplicate second field merged into it, same
+    validation, same commit. For Clock and Stats, where there is nothing to be
+    handed, it collapses to a quiet "Play something" that switches context and
+    hands over the caret, rather than a loud teal `Play` demanding a video link
+    for a screen that cannot use one.
+  - **One status voice (R5).** The screen said `Streaming clip.mp4` under a
+    permanent green `Keeping a copy` badge, about the same file, at the same
+    moment. The badge is gone — keeping a copy is a _stage_, not a property — and
+    the ladder narrates one story in one vocabulary: _Keeping a copy of X_ →
+    _Playing X · 1:24 / 3:02_. "Streaming" is claimed only when nothing is being
+    kept: stream-only, or a server that refused the copy.
+  - **The receipt gets out of the way (R11).** The three paste step-cards fade
+    into the status line ~4 s after a plain success — state, not narration.
+    Anything the user has to know (a refused copy, a failed copy, YouTube playing
+    its own ads) stays.
+  - **The missing 35 px, found (R11).** The home composition measured 572 px in a
+    537 px window, with the version line — the way in to About and Diagnostics —
+    below the fold, under a comment in `ui.css` promising the opposite. Every
+    selector in that short-viewport block was re-declared further down the same
+    file at the same specificity, so the later declaration won and the compressed
+    rhythm had been dead code. They are `.kh-home`-qualified now, which beats the
+    duplicate wherever it sits, and the suite asserts the whole composition —
+    nav row and footer included — fits 866×537 with no scroll at all.
+  - **One name per module (R11).** `statsModule.name` was "System stats" while
+    the chip said "Stats" and the remote's picker said a third thing; it is
+    "Stats" at the source. The contextual panel's head carries the module's name
+    from the registry instead of the word "Options", so the panel underneath no
+    longer prints it a second time. "The demo clip" is printed once.
+
 - **The Remote page is a remote control, and nothing else.** (Design audit wave B
   — findings F5 remaining, F6, F7, F8, F10, F11, F12, and the census's
   REMOTE 22 → 8 verdict.) The audit opened the remote's `More controls`

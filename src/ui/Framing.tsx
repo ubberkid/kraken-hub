@@ -71,8 +71,17 @@ export function FitControl({
   );
 }
 
-/** Fit and zoom: the two framing controls that stay on the primary surface. */
-export function FramingPrimary({
+/**
+ * Zoom, nudge and rotate — behind the module's one Advanced door, never on top.
+ *
+ * Fit used to sit above this, in a `FramingPrimary` every panel rendered. It was
+ * the round-2 audit's clearest duplicate: the home screen's ops strip already
+ * carries Fit for the module that is on screen, so the panel underneath was
+ * asking the same question a second time, in the same words, two inches lower.
+ * There is one Fit control now and it is the one you can see without opening
+ * anything — `FitControl`, on the strip.
+ */
+export function FramingAdvanced({
   idPrefix,
   value,
   onChange,
@@ -83,17 +92,6 @@ export function FramingPrimary({
 }) {
   return (
     <>
-      <GroupField label="Fit" id={`${idPrefix}-fit`}>
-        <FitControl
-          id={`${idPrefix}-fit`}
-          labelledBy={`${idPrefix}-fit-label`}
-          value={value.fit}
-          onChange={(fit) => {
-            onChange({ fit });
-          }}
-        />
-      </GroupField>
-
       <Field label={`Zoom — ${value.zoom.toFixed(ZOOM_DECIMALS)}×`} htmlFor={`${idPrefix}-zoom`}>
         <RangeInput
           id={`${idPrefix}-zoom`}
@@ -106,22 +104,7 @@ export function FramingPrimary({
           }}
         />
       </Field>
-    </>
-  );
-}
 
-/** Nudge and rotate — behind the module's one Advanced door, never on top. */
-export function FramingAdvanced({
-  idPrefix,
-  value,
-  onChange,
-}: {
-  idPrefix: string;
-  value: FramingValue;
-  onChange: (patch: Partial<FramingValue>) => void;
-}) {
-  return (
-    <>
       <Field
         label={`Nudge across — ${value.offsetX.toFixed(PAN_DECIMALS)}`}
         htmlFor={`${idPrefix}-panx`}

@@ -39,8 +39,8 @@ rather than competing with the thing that works.
 
 ### Unpairing
 
-**Forget this Kraken**, under _Pairing options_ on the pairing card, clears every
-place a room hides on that device: the remembered code, the shared state
+**Unpair**, on the pairing card itself, clears every place a room hides on that
+device: the remembered code, the shared state
 document, and the code still sitting in the page's own fragment from the link
 that opened it.
 
@@ -74,16 +74,26 @@ rate, the last error.
 The remote's surface is a **media remote**, not a settings mirror: a mini-halo, a
 title, the scrubber with its two loop handles, three transport buttons, **four
 compact essentials** and one pairing card. The four are the source field, the
-module picker, Fit and Quality — and they are on the page, not behind a door.
+module picker, Fit and Quality — and they are on the page, not behind a door, as
+segmented rows rather than dropdowns.
+
+**None of it mounts until a room is live.** An unpaired remote is the ring, one
+sentence and **Create a code** — with _Type a code instead_ behind a quiet
+disclosure and nothing else at all. A scrubber reading `0:00 / 60:00` for a
+duration nobody had reported, three greyed-out transport buttons and two status
+lines both saying "waiting" is not a remote; it is a screenshot of one. Where a
+duration is genuinely unknown the scrubber now shows **no total** rather than
+inventing an hour.
 
 There used to be a `More controls` disclosure holding a second complete copy of
 the app: fourteen controls duplicating the configuration page in different words,
 a clip picker, the room settings and a nested privacy note, on a 390 px screen.
 It is gone. **Room settings, the transport internals and the hardware-report pull
-now live in exactly one place** — the `Connection` section of the merged
-About/Diagnostics page, which the remote reaches by the single quiet
-_Connection & diagnostics_ link at the bottom of the page, and which the
-configuration page reaches by clicking the version line in its footer.
+now live in exactly one place** — the `Connection` and `Report` sections of the
+merged About page, which the remote reaches by the single quiet
+_Connection & diagnostics_ link at the bottom of the page (once it is paired),
+and which the configuration page reaches by clicking the version line in its
+footer.
 
 Two things the remote deliberately no longer does: it does not pick from the clip
 library (the shelf lives on the machine running CAM, and the Library page is
@@ -172,16 +182,18 @@ way an A–B loop does. The full per-provider table is in
   Those fields are deliberately absent from the wire format
   (`syncBodyToPatch()` in `src/sync/appSync.ts`).
 
-### Pulling a hardware report (Diagnostics card)
+### Pulling a hardware report
 
-**Remote → Diagnostics → Request hardware report.**
+**About → Report → Show the technical detail → Ask your Kraken.**
 
 This is the one control on the page that is about the machine rather than the
 media. It sends a `requestDiag` command; the display probes itself for about
 five seconds — panel geometry, DPR, Chromium version, target and achieved frame
 rate, a three-second rAF sample, storage and codec support — and publishes the
-result back as `tele` packets. The card renders a summary, a collapsed raw-JSON
-block, a **Copy JSON** button and a link to the hardware-report issue form.
+result back as `tele` packets. The drawer renders a short summary and a
+collapsed raw-JSON block; the **Copy report** button at the top of the Report
+section puts both halves — this browser's probes and your Kraken's — on the
+clipboard, and **Send it in** opens the hardware-report issue form.
 
 Three things about it are worth knowing:
 
@@ -193,17 +205,19 @@ Three things about it are worth knowing:
   toggle governs the continuous stream a display volunteers. A report is a
   one-shot answer to a button somebody just pressed, and a button that silently
   does nothing is the failure mode this feature exists to remove.
-- **It is chunked.** A full report does not fit in one 8 KB envelope, so it is
-  serialised compactly (no whitespace, no null-valued keys) and split into
-  numbered parts spaced 250 ms apart — above `SyncService`'s 5 Hz telemetry
-  throttle, which drops rather than queues. The remote reassembles them and
-  gives up after 20 seconds with _display did not answer — is it online and
-  paired?_
+- **It is chunked, and it jumps the telemetry throttle.** A full report does not
+  fit in one 8 KB envelope, so it is serialised compactly (no whitespace, no
+  null-valued keys) and split into numbered parts spaced 250 ms apart. Every
+  part is published with `immediate`, which is the one thing that bypasses
+  `SyncService`'s 5 Hz telemetry throttle: that throttle drops rather than
+  queues, so a routine `videoStats` packet landing 180 ms before the answer used
+  to eat it and the button did nothing for twenty seconds. The requester
+  reassembles the parts and gives up after 20 s.
 
-The pull itself lives on the merged About/Diagnostics page — `#/about`, which
-`#/diag` still resolves to — under **Hardware report**. Any paired browser can
-press it, including the phone: follow _Connection & diagnostics_ at the bottom of
-the remote.
+The pull lives on the merged About page — `#/about`, which `#/diag` still
+resolves to — inside **Report → Show the technical detail**. Any paired browser
+can press it, including the phone: follow _Connection & diagnostics_ at the
+bottom of the remote.
 
 The same-machine route (the display report the configuration browser reads back
 through `localStorage`, on the same page) is unchanged and remains the
@@ -375,8 +389,8 @@ settings**, and turning it off is exactly what "your Kraken reports back to this
 page" means.
 
 One payload is not part of that stream: a hardware report, sent only in answer
-to **Request hardware report** and therefore unaffected by the toggle. It is the
-same `DiagReport` `#/diag` shows you, and it contains no media URL, no room code
+to **Ask your Kraken** and therefore unaffected by the toggle. It is the same
+`DiagReport` the About page shows you, and it contains no media URL, no room code
 and no file contents — panel geometry, browser and codec support, frame timings,
 storage counters, and the last sixteen lines of the in-page log ring.
 
@@ -441,7 +455,7 @@ page is actually in a room: open it with `?kraken=1&diag=1` and look at the
 `data-kh-sync` attribute on `<html>`, which reports the transport, the last
 applied revision and whether it arrived retained.
 
-**Request hardware report says the display did not answer** — the display is on
+**Ask your Kraken says it did not answer** — the display is on
 a different room code, is not running, or CAM has not reloaded the integration
 since this build was deployed. CAM caches the page: a display already running an
 older build has no `requestDiag` handler, and it will ignore the request in

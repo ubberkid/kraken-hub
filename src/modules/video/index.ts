@@ -16,7 +16,7 @@ import type { KrakenModule } from '../types';
 export const videoModule: KrakenModule<VideoModuleConfig> = defineModule<VideoModuleConfig>({
   id: 'video',
   name: 'Video',
-  summary: 'Plays a pasted URL — downloaded into a local clip library and played from disk.',
+  summary: 'Plays a pasted link — kept in your library and played from disk.',
   // Play glyph in a rounded frame; inline path data, so no asset request.
   icon: 'M4 4h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm6 4v8l6-4-6-4z',
   configVersion: 2,

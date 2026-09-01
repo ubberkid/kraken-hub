@@ -28,14 +28,16 @@ test.describe('config boot', () => {
 
     await page.getByTestId('disclosure-about').click();
     await expect(
-      page.getByRole('heading', { name: 'kraken-hub', level: 2, exact: true }),
+      page.getByRole('main').getByRole('heading', { name: 'About', exact: true }),
     ).toBeVisible();
     // The install instructions did not vanish with the Setup home — they moved.
     await expect(page.getByTestId('setup-about')).toBeVisible();
     expect(new URL(page.url()).hash).toBe('#/about');
 
     await page.goto('/#/diag');
-    await expect(page.getByRole('heading', { name: 'This browser' })).toBeVisible();
+    // The probes live behind "Show the technical detail" since round 2's R3;
+    // what is on the page itself is the section they belong to.
+    await expect(page.getByRole('heading', { name: 'Report', exact: true })).toBeVisible();
 
     expect(errors).toEqual([]);
   });
@@ -131,12 +133,11 @@ test.describe('config boot', () => {
 
     await page.goto('/#/diag');
 
-    // Both halves are on the one page.
-    await expect(
-      page.getByRole('heading', { name: 'kraken-hub', level: 2, exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Connection', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'This browser' })).toBeVisible();
+    // Both halves are on the one page — three calm sections since R3.
+    const main = page.getByRole('main');
+    await expect(main.getByRole('heading', { name: 'About', exact: true })).toBeVisible();
+    await expect(main.getByRole('heading', { name: 'Connection', exact: true })).toBeVisible();
+    await expect(main.getByRole('heading', { name: 'Report', exact: true })).toBeVisible();
 
     await expect.poll(() => new URL(page.url()).hash).toBe('#/about');
     expect(loads).toBe(1);
@@ -308,7 +309,9 @@ test.describe('config boot', () => {
     // Detection is legible: the app agrees, by name, with the link you pasted.
     await expect(flow).toContainText('YouTube video detected');
     await expect(flow).toContainText('lofi hip hop radio');
-    await expect(flow).toContainText('Saving to your Kraken');
+    // One vocabulary: the ladder, the status line and the (now deleted) strip
+    // badge all used to say a different word for this (round 2, R5).
+    await expect(flow).toContainText('Keeping a copy');
     // The number lives in the sentence, as the prototype writes it — not as a
     // second label echoing the bar it sits beside.
     await expect(flow).toContainText('Downloading locally — 40%');
@@ -417,9 +420,12 @@ test.describe('config boot', () => {
     await page.getByTestId('module-chip-video').click();
     await expect(page.getByTestId('ops-panel')).toBeVisible();
     // Wait for the panel's lazy chunk to have actually rendered its controls.
-    await expect(page.getByTestId('video-fit-cover')).toBeVisible();
+    // Not `video-fit-*` any more: Fit is on the ops strip, in view, and asking
+    // for it a second time inside the panel was the duplication round 2 removed.
+    await expect(page.getByTestId('video-downloadmode-auto')).toBeVisible();
 
-    // No teleport. The halo is still the thing you are looking at.
+    // No teleport. The halo is still the thing you are looking at — as a live
+    // corner thumb, because the options took its place.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
     await expect(page.getByTestId('mirror')).toBeInViewport();
 
@@ -642,19 +648,28 @@ test.describe('scrolling', () => {
     await page.setViewportSize({ width: 866, height: 537 });
     await page.goto('/#/diag');
 
-    await expect(page.getByRole('heading', { name: 'This browser' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Report' })).toBeVisible();
 
-    const metrics = await scrollMetrics(page);
-    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+    /*
+     * The page is short enough not to need scrolling now (round 2's R3 got it
+     * from 2,225 px to under two of these windows, and the budget test below
+     * pins that) — so the claim this test makes has to be the one that was
+     * actually broken: content BELOW the fold is reachable. Opening the
+     * technical drawer puts a page's worth of tables there on demand.
+     */
+    const drawer = page.getByTestId('tech-detail').locator('summary');
+    await drawer.scrollIntoViewIfNeeded();
+    await drawer.click();
 
-    // The display-report panel and its controls live below the fold at this
-    // size. Reaching them by scrolling is the whole bug.
     const belowFold = page.getByRole('link', { name: 'Open display diagnostics' });
     await belowFold.scrollIntoViewIfNeeded();
     await expect(belowFold).toBeInViewport();
     // Actionability without navigating away: a trial click fails if anything
     // covers, clips or detaches the target.
     await belowFold.click({ trial: true });
+
+    const metrics = await scrollMetrics(page);
+    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
 
     await page.locator('.kh-footer').scrollIntoViewIfNeeded();
     await expect(page.locator('.kh-footer')).toBeInViewport();
@@ -704,14 +719,21 @@ test.describe('scrolling', () => {
     await expect(wayDown).toBeInViewport();
     await wayDown.click({ trial: true });
 
-    // The page still scrolls — the footer is below the fold and has to be
-    // reachable, which is the scroll-lock regression this suite exists for.
-    const metrics = await scrollMetrics(page);
-    expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+    /*
+      …and the footer with it.
 
-    await page.locator('.kh-footer').scrollIntoViewIfNeeded();
+      The contract in `ui.css`'s short-viewport block promised the whole
+      composition fitted 866x537. It did not: the block's selectors were each
+      re-declared further down the file at the same specificity, so the later
+      declaration won and the compressed rhythm never applied — 572 px of page in
+      a 537 px window, with the version line (which is now the way in to About and
+      Diagnostics) below the fold. Round 2's R11 asked where the missing 35 px
+      were, and this is the assertion that keeps them found.
+    */
+    const metrics = await scrollMetrics(page);
+    expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.clientHeight);
     await expect(page.locator('.kh-footer')).toBeInViewport();
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });
 
   /**
@@ -727,7 +749,9 @@ test.describe('scrolling', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/#/remote');
+    // Paired: round 2's R4 gates the instrument on a live room, and what this
+    // test is about is the page that HAS one.
+    await page.goto('/?transport=fake&room=ABCD1234#/remote');
 
     await expect(page.getByRole('heading', { name: 'kraken-hub', level: 1 })).toBeVisible();
 
@@ -744,7 +768,7 @@ test.describe('scrolling', () => {
     // Any disclosure will do; what is being proved is that opening one produces
     // a page that scrolls all the way to the footer. "More controls" used to be
     // the one here, and it is gone (design audit, F6).
-    await page.getByTestId('pair-by-hand').locator('summary').first().click();
+    await page.getByTestId('pairing-options').locator('summary').first().click();
     const metrics = await scrollMetrics(page);
     expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
 

@@ -125,7 +125,18 @@ export interface SyncService {
   stop(): Promise<void>;
   publishState(body: SyncStateBody, opts: PublishStateOptions): void;
   sendCmd(op: CmdOp, arg?: unknown): void;
-  publishTele(body: TeleBody): void;
+  /**
+   * A telemetry packet, throttled to 5 Hz — EXCEPT when it is an answer.
+   *
+   * The throttle exists for the continuous stream a display volunteers, where
+   * dropping a packet costs nothing: another one is 2 s away. A diagnostics
+   * report is not that. It is a one-shot answer to a button somebody just
+   * pressed on another machine, and losing it because a routine `videoStats`
+   * packet happened to land 180 ms earlier makes that button silently do
+   * nothing — which is the exact failure the remote pull exists to remove. Its
+   * chunks pass `immediate`.
+   */
+  publishTele(body: TeleBody, opts?: { immediate?: boolean }): void;
   onState(cb: (body: SyncStateBody, meta: RecvMeta) => void): Unsub;
   onCmd(cb: (body: CmdBody, meta: RecvMeta) => void): Unsub;
   onTele(cb: (body: TeleBody, meta: RecvMeta) => void): Unsub;
@@ -730,9 +741,11 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
       );
     },
 
-    publishTele(body) {
+    publishTele(body, opts) {
       const now = Date.now();
-      if (now - lastTeleAt < PUBLISH_THROTTLE_MS) return;
+      // `immediate` still moves the clock: a burst of report chunks should push
+      // the next routine packet out, not race it.
+      if (opts?.immediate !== true && now - lastTeleAt < PUBLISH_THROTTLE_MS) return;
       lastTeleAt = now;
       publishEnvelope(
         { v: PROTOCOL_VERSION, ch: 'tele', ts: now, src: clientId, role, seq: nextSeq(), body },

@@ -33,7 +33,7 @@ An LCD has no keyboard, no scrollbar and no clipboard. So the display page
 ```
 CAM ─┬─ Kraken Browser (hidden, ?kraken=1&diag=1) ── writes ─┐
      │                                                        │ kraken-hub:v1:diag:display
-     └─ Configuration Browser (#/diag) ─────────── reads ─────┘  → "Copy display JSON"
+     └─ Configuration Browser (#/about) ────────── reads ─────┘  → "Copy report"
 ```
 
 CAM's two browsers share one storage partition, which is what makes this work.
@@ -44,10 +44,12 @@ normal browser tab shows that browser's own probes and no display report.
 
 1. In CAM, point the Web Integration at your kraken-hub URL.
 2. Open the display's diagnostics: append `?kraken=1&diag=1` — or use the
-   **Open display diagnostics** button on `#/diag`. Leave it open; it
-   republishes every 5 s.
-3. Open **Configure** → `#/diag` in CAM's Configuration Browser.
-4. Press **Copy display JSON**, paste it into the hardware report.
+   **Open display diagnostics** button under _Report → Show the technical
+   detail_. Leave it open; it republishes every 5 s.
+3. Open **Configure** in CAM, then the version line in the footer (`#/about`;
+   `#/diag` still resolves there).
+4. Press **Copy report** and paste it into the hardware report. It carries this
+   browser's probes and the display's, whichever exist.
 
 ### From another machine
 
@@ -63,18 +65,18 @@ Pair a room once, and then pull it over the network instead:
 2. **On any other browser** — laptop, phone, whatever — open the same site,
    go to **Remote**, and type the code into **Room code → Join**. Wait for the
    status chip to say `online`.
-3. Press **Diagnostics → Request hardware report**. The display probes itself
-   for about five seconds and sends the report back over the paired room,
-   encrypted.
-4. Press **Copy JSON** and paste it into the hardware report, exactly as with
-   the same-machine route. The card also links straight to the issue form.
+3. Open the version line in the footer → **Report → Show the technical detail →
+   Ask your Kraken**. It probes itself for about five seconds and sends the
+   report back over the paired room, encrypted.
+4. Press **Copy report** and paste it into the hardware report, exactly as with
+   the same-machine route. **Send it in** goes straight to the issue form.
 
 ```
 Windows PC                                  your laptop / phone
 ──────────                                  ───────────────────
-CAM ── Kraken Browser (?kraken=1) ──── requestDiag ◄── Remote → Diagnostics
+CAM ── Kraken Browser (?kraken=1) ──── requestDiag ◄── About → Report
                        │
-                       └── DiagReport (tele, chunked, AES-GCM) ──► "Copy JSON"
+                       └── DiagReport (tele, chunked, AES-GCM) ──► "Copy report"
 ```
 
 The display does **not** need to have been opened with `?diag=1` — which matters,
@@ -206,21 +208,21 @@ answers it.
 
 ### Layout and network
 
-| ID      | Unknown                                      | How to measure                                                                                                                                                                                                                                      | Record                                                                                                 | Status |
-| ------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------ |
-| **H20** | True circular safe radius                    | `?kraken=1&diag=1&pattern=rings` (there is a button for it on `#/diag`) draws concentric labelled rings at 100/96/92/88/84/80 % of the panel width. Photograph the panel **straight on**, and report the outermost label that is **fully** visible. | `visibleRadiusPct` — this calibrates the safe-area inset, currently a community-practice guess of 0.88 | manual |
-| **H19** | Network reachability from inside the webview | The button on `#/diag` lands with the sync transports in M2. Until then: does the display load at all from a remote URL, and does anything on your network block nonstandard ports?                                                                 | reachable / blocked, plus any corporate proxy in the way                                               | M4     |
+| ID      | Unknown                                      | How to measure                                                                                                                                                                                                                                                                                     | Record                                                                                                 | Status |
+| ------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------ |
+| **H20** | True circular safe radius                    | `?kraken=1&diag=1&pattern=rings` (there is a **Ring target** button for it under _Report → Show the technical detail_) draws concentric labelled rings at 100/96/92/88/84/80 % of the panel width. Photograph the panel **straight on**, and report the outermost label that is **fully** visible. | `visibleRadiusPct` — this calibrates the safe-area inset, currently a community-practice guess of 0.88 | manual |
+| **H19** | Network reachability from inside the webview | The button under _Report_ lands with the sync transports in M2. Until then: does the display load at all from a remote URL, and does anything on your network block nonstandard ports?                                                                                                             | reachable / blocked, plus any corporate proxy in the way                                               | M4     |
 
 ---
 
 ## `DiagReport` field reference
 
-This is the shape of the JSON the **Copy display JSON** button gives you
+This is the shape of the JSON the **Copy report** button gives you
 (`schemaVersion: 1`).
 
 | Field                               | Meaning                                                                                                                                                                                             |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion`                     | Report format version. `#/diag` ignores a report whose version it does not know.                                                                                                                    |
+| `schemaVersion`                     | Report format version. The About page ignores a report whose version it does not know.                                                                                                              |
 | `capturedAt`                        | `Date.now()` at capture.                                                                                                                                                                            |
 | `app.{version,gitSha,buildTime}`    | Which build produced this. Always include it; a report without it cannot be reproduced.                                                                                                             |
 | `mode`                              | `"display"` or `"config"` — which of CAM's two browsers wrote it.                                                                                                                                   |

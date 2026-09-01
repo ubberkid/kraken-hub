@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
 import { resetNamespace } from '../../../platform/storage';
 
 import {
@@ -78,11 +79,17 @@ describe('the dismiss key', () => {
 });
 
 describe('rendering', () => {
-  it('names the exact CAM path in the card', () => {
+  /**
+   * The path comes from `src/config/camPaths.ts` and nowhere else (round 2,
+   * R6). Asserting against the constant rather than a copy of the string is the
+   * point: five spellings of two menu paths were shipping side by side, and a
+   * test carrying a sixth is how that happens again.
+   */
+  it('names the one CAM frame-rate path in the card', () => {
     const el = renderFpsCard(1);
     const text = el.textContent;
     expect(text).toContain('1 FPS');
-    expect(text).toContain('Lighting → Kraken → Web Integration → Frame Rate');
+    expect(text).toContain(CAM_PATH_FRAME_RATE);
   });
 
   it('shrinks to a badge that says the number and nothing else', () => {

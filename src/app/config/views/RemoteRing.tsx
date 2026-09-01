@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 
-import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
 import { startReplica, type ReplicaDisplayInfo, type ReplicaInput } from '../replica';
 
 import { arcPath } from './arc';
@@ -48,6 +47,15 @@ export interface RemoteRingProps {
   posterUrl: string | null;
   /** The video source, so the ring can tell a local clip from a stream. */
   sourceUrl: string;
+  /**
+   * What the status line above calls this source, or `''` for nothing chosen.
+   *
+   * The ring used to print `NO PREVIEW` in uppercase machine type — an
+   * engineering non-answer, in a place the home screen's halo solves with a
+   * treated card and the source's own name (round 2, R4/R7). Same treatment
+   * here: the surface, and the name only when there is one.
+   */
+  name: string;
   /** 0–1 through the clip, or `null` when there is no known duration. */
   progress: number | null;
   held: boolean;
@@ -102,7 +110,6 @@ export function RemoteRing(props: RemoteRingProps) {
     handleRef.current?.update(input);
   });
 
-  const local = props.sourceUrl.startsWith(LOCAL_CLIP_SCHEME);
   const radius = RING_PX / 2 - ARC_STROKE;
   const centre = RING_PX / 2;
 
@@ -128,8 +135,10 @@ export function RemoteRing(props: RemoteRingProps) {
           }}
         />
       ) : props.posterUrl === null ? (
-        <div className="kh-minihalo__empty" data-testid="ring-empty">
-          {local ? 'Stored clip' : 'No preview'}
+        <div className="kh-minihalo__card" data-testid="ring-empty">
+          {props.sourceUrl.trim() !== '' && (
+            <span className="kh-minihalo__card-name">{props.name}</span>
+          )}
         </div>
       ) : (
         <img className="kh-minihalo__still" data-testid="ring-still" src={props.posterUrl} alt="" />

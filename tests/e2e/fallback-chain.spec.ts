@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { CAM_PATH_CONFIGURE } from '../../src/config/camPaths';
+
 /**
  * §7.3's fallback chain and §7.4's error card, on a link that genuinely cannot
  * be played.
@@ -49,7 +51,8 @@ test.describe('unknown-URL fallback chain', () => {
     // 6 s `<video>` probe + a range probe, inside §7.3's 25 s cap.
     await expect(card).toBeVisible({ timeout: 30_000 });
     // §7.4 — the fixed footer, because the fix is never on the LCD.
-    await expect(card).toContainText('Fix in CAM → Kraken → Configure');
+    // The one spelling of the path, from `src/config/camPaths.ts` (round 2, R6).
+    await expect(card).toContainText(`Fix in ${CAM_PATH_CONFIGURE}`);
     await expect(card).toContainText('diagnostics log');
 
     // Every step's reason landed in the zero-network diagnostic path (§7.5), so

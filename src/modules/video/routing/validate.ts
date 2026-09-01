@@ -10,6 +10,7 @@
  * a blank screen — so callers get `blocking` and decide for themselves.
  */
 
+import { CAM_PATH_CONFIGURE } from '../../../config/camPaths';
 import { MAX_URL_LEN } from '../types';
 
 import { detect } from './detect';
@@ -45,24 +46,23 @@ export const VALIDATION_MESSAGES: Readonly<Record<ValidationCode, string>> = {
   'mixed-content-http':
     'Upgraded to https:// — GitHub Pages is HTTPS-only and browsers block http:// media.',
   'http-not-upgradable':
-    'This link is http:// only. The Kraken display is served over HTTPS, so the browser will block it. Download the file and add it as a local clip instead.',
+    'This link is http:// only. Your Kraken is served over HTTPS, so the browser will block it. Download the file and add it to your library instead.',
   'unsupported-container':
     ".mkv can't be played — Chromium has no Matroska support in `<video>`, and no library fixes that. Remux to MP4: `ffmpeg -i in.mkv -c copy out.mp4`.",
   'discord-expiring-url':
-    'Discord links are signed and expire in about 24 hours — this will stop working. Download the file and add it as a local clip.',
+    'Discord links are signed and expire in about 24 hours — this will stop working. Download the file and add it to your library.',
   'imgur-unreliable': "Imgur redirects hotlinked videos to its homepage; this often won't load.",
   'reddit-comment-url':
     'Paste the `v.redd.it/…` link (open the video, copy the video link), not the comments page.',
   'youtube-playlist-ignored': "Playlists aren't supported in v1 — only this video will play.",
-  'local-clip-remote-context':
-    "That clip isn't in this display's library. Local clips live in NZXT CAM's browser storage on your PC — add it there (CAM → Lighting → Kraken → Configure), then pick it again.",
+  'local-clip-remote-context': `That clip isn't in your library. Your library lives in CAM's browser storage on this PC — add it there (${CAM_PATH_CONFIGURE}), then pick it again.`,
   'url-too-long': "That link is unusually long and won't survive the sync channel.",
   'mov-codec-risk':
     '`.mov` files often contain ProRes or HEVC, which may not decode. MP4/H.264 is safest.',
   'codec-unsupported':
     "Your PC can't decode this file (HEVC needs GPU support Chromium won't emulate).",
   'unsupported-scheme':
-    'That is not a link the display can open. Paste an https:// URL, or add the file as a local clip.',
+    'That is not a link your Kraken can open. Paste an https:// URL, or add the file to your library.',
 };
 
 const SEVERITIES: Readonly<Record<ValidationCode, Severity>> = {

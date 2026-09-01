@@ -19,6 +19,16 @@
  *  - **The slideshow moved behind Advanced**, because a slideshow is a thing you
  *    set up once and then never touch.
  *
+ * Round 2 took two more:
+ *
+ *  - **The picture link is not written here either.** The home screen's primary
+ *    action is contextual now — with Image on the panel, the row under the halo
+ *    *is* the picture-link field, submitted by the same validation this panel
+ *    used to run. Two fields holding one string, one of them behind a
+ *    disclosure, is the shape of the problem the whole redesign is about.
+ *  - **Fit and Slideshow are on the ops strip**, in view, so they are not asked
+ *    again down here.
+ *
  * "Your pictures" stays exactly where it is. Merging the image store into the
  * Library is a real architectural change with storage-quota consequences, and
  * the audit reserved it for the user (§6).
@@ -26,20 +36,10 @@
 
 import { useEffect, useState } from 'react';
 
-import {
-  Disclosure,
-  Field,
-  GroupField,
-  Notice,
-  Panel,
-  RangeInput,
-  Segmented,
-  TextInput,
-} from '../../ui';
-import { FramingAdvanced, FramingPrimary } from '../../ui/Framing';
+import { Disclosure, Field, GroupField, Panel, RangeInput, Segmented } from '../../ui';
+import { FramingAdvanced } from '../../ui/Framing';
 
 import { readImageIndex, type ImageSummary } from './imageStore';
-import { primaryImageIssue, validateImageUrl } from './imageUrl';
 import {
   SLIDESHOW_MAX_INTERVAL_SEC,
   SLIDESHOW_MIN_INTERVAL_SEC,
@@ -74,12 +74,6 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
     };
   }, []);
 
-  const check = validateImageUrl(cfg.url, {
-    context: 'config',
-    knownImageIds: library.map((i) => i.id),
-  });
-  const issue = primaryImageIssue(check);
-
   const patch = (next: Partial<ImageModuleConfig>): void => {
     onChange({ ...cfg, ...next });
   };
@@ -89,39 +83,21 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
 
   return (
     <>
-      <Panel
-        title="Image"
-        hint="Paste a direct link to a picture or a GIF. Your Kraken keeps a copy and paints that from then on, so it goes on working with the network unplugged."
-      >
-        <Field
-          label="Picture link"
-          htmlFor="image-url"
-          description="A link to the file itself — right-click the picture and copy the image address, not the page address."
-        >
-          <TextInput
-            id="image-url"
-            value={cfg.url}
-            placeholder="Paste a direct image link"
-            onChange={(url) => {
-              patch({ url });
-            }}
-          />
-        </Field>
-        {issue !== null && (
-          <Notice tone={issue.severity === 'error' ? 'error' : 'warn'}>{issue.message}</Notice>
-        )}
-
-        <GroupField
-          label="Keep a copy on this PC"
-          id="image-download-mode"
-          description="A copy is still there with the network unplugged. If the server refuses to hand over the bytes, your Kraken shows the picture from the link instead — quietly."
-        >
+      <Panel hint="The row under the halo is the picture link. Fit and slideshow are on the strip above.">
+        {/* The sentence lives on the segment that means it — see the video
+            panel's note: this panel opens inside a 537 px window now. */}
+        <GroupField label="Keep a copy on this PC" id="image-download-mode">
           <Segmented
             id="image-download-mode"
             labelledBy="image-download-mode-label"
             value={cfg.downloadMode}
             options={[
-              { value: 'auto', label: 'Keep a copy', title: 'Fetch it once, then paint the copy.' },
+              {
+                value: 'auto',
+                label: 'Keep a copy',
+                title:
+                  'Fetch it once, then paint the copy — still there with the network unplugged.',
+              },
               { value: 'stream-only', label: 'Stream only', title: 'Never store anything.' },
             ]}
             onChange={(value) => {
@@ -129,63 +105,22 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             }}
           />
         </GroupField>
-      </Panel>
 
-      <Panel title="Framing" hint="How the picture sits in the panel.">
-        <FramingPrimary idPrefix="image" value={cfg.render} onChange={patchRender} />
-      </Panel>
+        {/*
+          The picture store, inside this panel rather than in a second one.
 
-      {/* ONE door, one level — the same rule as every other module. */}
-      <Disclosure summary="Advanced" testId="image-advanced">
-        <FramingAdvanced idPrefix="image" value={cfg.render} onChange={patchRender} />
-
-        <GroupField
-          label="Cycle through your pictures"
-          id="image-slideshow"
-          description="Ten seconds is the floor: each change hands CAM a picture with nothing in common with the last one, which is the most expensive thing this can do."
-        >
-          <Segmented
-            id="image-slideshow"
-            labelledBy="image-slideshow-label"
-            value={cfg.slideshow.enabled ? 'on' : 'off'}
-            options={[
-              { value: 'on', label: 'On' },
-              { value: 'off', label: 'Off' },
-            ]}
-            onChange={(value) => {
-              onChange({ ...cfg, slideshow: { ...cfg.slideshow, enabled: value === 'on' } });
-            }}
-          />
-        </GroupField>
-
-        <Field
-          label={`Change every ${String(cfg.slideshow.intervalSec)} s`}
-          htmlFor="image-slideshow-interval"
-        >
-          <RangeInput
-            id="image-slideshow-interval"
-            value={cfg.slideshow.intervalSec}
-            min={SLIDESHOW_MIN_INTERVAL_SEC}
-            max={SLIDESHOW_MAX_INTERVAL_SEC}
-            step={INTERVAL_STEP}
-            onChange={(intervalSec) => {
-              onChange({ ...cfg, slideshow: { ...cfg.slideshow, intervalSec } });
-            }}
-          />
-        </Field>
-      </Disclosure>
-
-      <Panel
-        title="Your pictures"
-        hint="Everything your Kraken has kept. Stored on this PC inside CAM's own browser storage, so it survives a reboot with no network."
-      >
+          A `.kh-panel` of its own cost a heading, a lede and two sets of
+          padding for what is a list — and the round-2 measurement is that the
+          image options overflowed CAM's window by 260 px, more than any other
+          module. It is a subhead and a shelf now. (Merging it into the Library
+          proper is still the user's call — audit §6.)
+        */}
         {library.length === 0 ? (
-          <p className="kh-hint">
-            Nothing here yet. Paste a link above with “keep a copy” on, and this fills in the moment
-            the picture is fetched.
-          </p>
+          /* Empty needs one line, not a heading over a paragraph saying the
+             heading has nothing under it. */
+          <p className="kh-hint">Your pictures — nothing kept yet.</p>
         ) : (
-          <ul className="kh-list">
+          <ul className="kh-list kh-list--shelf" aria-label="Your pictures">
             {library.map((row) => (
               <li key={row.id}>
                 <button
@@ -203,6 +138,28 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           </ul>
         )}
       </Panel>
+
+      {/* ONE door, one level — the same rule as every other module. */}
+      <Disclosure summary="Advanced" testId="image-advanced">
+        <FramingAdvanced idPrefix="image" value={cfg.render} onChange={patchRender} />
+
+        <Field
+          label={`Change pictures every ${String(cfg.slideshow.intervalSec)} s`}
+          htmlFor="image-slideshow-interval"
+          description="Ten seconds is the floor — every change is a whole new picture for CAM to capture."
+        >
+          <RangeInput
+            id="image-slideshow-interval"
+            value={cfg.slideshow.intervalSec}
+            min={SLIDESHOW_MIN_INTERVAL_SEC}
+            max={SLIDESHOW_MAX_INTERVAL_SEC}
+            step={INTERVAL_STEP}
+            onChange={(intervalSec) => {
+              onChange({ ...cfg, slideshow: { ...cfg.slideshow, intervalSec } });
+            }}
+          />
+        </Field>
+      </Disclosure>
     </>
   );
 }

@@ -73,7 +73,7 @@ export function loadYtApi(opts: LoadYtApiOptions = {}): Promise<YtApi.Namespace>
       reject(
         fail(
           'yt-api-unavailable',
-          'YouTube’s player API did not load. Check the network, or use a local clip.',
+          'YouTube’s player API did not load. Check the network, or play something from your library.',
           'youtube-embed',
         ),
       );

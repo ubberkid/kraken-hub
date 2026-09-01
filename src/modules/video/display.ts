@@ -29,6 +29,7 @@
  * a config change never re-creates the `<video>` and never restarts playback.
  */
 
+import { CAM_PATH_CONFIGURE } from '../../config/camPaths';
 import { createLogger } from '../../lib/log';
 import { setReplicaThumb } from '../replicaThumb';
 
@@ -290,7 +291,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     const footer = document.createElement('p');
     footer.className = 'kh-video__card-footer';
     // Fixed footer: the LCD is non-interactive, so the fix always lives in CAM.
-    footer.textContent = card.footer ?? 'Fix in CAM → Kraken → Configure';
+    footer.textContent = card.footer ?? `Fix in ${CAM_PATH_CONFIGURE}`;
     inner.append(footer);
 
     wrap.append(inner);
@@ -856,7 +857,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
         const issue = validation.issues.find((i) => i.severity === 'error');
         showCard({
           title: 'Source rejected',
-          body: issue?.message ?? 'This link cannot be played on the display.',
+          body: issue?.message ?? 'This link cannot be played on your Kraken.',
           detail: middleEllipsize(source.url),
         });
         return;
@@ -1020,7 +1021,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       startStats();
 
       if (playingDemo) {
-        showHint('Demo clip — paste a video URL in CAM → Kraken → Configure');
+        showHint(`Demo clip — paste a video link in ${CAM_PATH_CONFIGURE}`);
       }
     } catch (err) {
       if (session !== mine) return;

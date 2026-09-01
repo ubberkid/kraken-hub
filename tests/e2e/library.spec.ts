@@ -141,7 +141,10 @@ test.describe('the library shows your library, and nothing else', () => {
     await expect(tiles(page)).toHaveCount(1, { timeout: 15_000 });
     await expect(tile).toHaveAttribute('data-clip-id', /.+/);
     await expect(tile).toContainText('demo.mp4');
-    await expect(tile).toContainText('640×640');
+    // The duration and the size, and NOT the pixel dimensions: `640×640` was on
+    // every tile in the shelf and changed nothing a person could do from it
+    // (round 2, R7). The probe still measures them — the report carries them.
+    await expect(tile).not.toContainText('640×640');
     await expect(tile).toHaveAttribute('data-tile-kind', 'clip');
     await expect(tile).toHaveAttribute('data-tile-state', 'ready');
 
@@ -204,6 +207,6 @@ test.describe('the library shows your library, and nothing else', () => {
     await expect(running).toHaveAttribute('data-tile-state', 'ready', { timeout: 30_000 });
     await expect(tiles(config)).toHaveCount(1);
     await expect(running).toHaveAttribute('data-clip-id', /.+/);
-    await expect(running).toContainText('640×640');
+    await expect(running).not.toContainText('640×640');
   });
 });

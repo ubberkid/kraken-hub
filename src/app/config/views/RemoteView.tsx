@@ -9,7 +9,17 @@ import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/vi
 import { withModuleConfig } from '../../../state/selectors';
 import { anchorPosition, type WirePosition } from '../../../sync/position';
 import { formatRoomCode, generateRoomCode, normalizeRoomCode } from '../../../sync/roomCode';
-import { Button, Code, Disclosure, Field, Notice, Row, Select, TextInput } from '../../../ui';
+import {
+  Button,
+  Code,
+  Disclosure,
+  Field,
+  GroupField,
+  Notice,
+  Row,
+  Segmented,
+  TextInput,
+} from '../../../ui';
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
 import { sourceName } from '../homeState';
 import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
@@ -504,8 +514,23 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
 
   // -------------------------------------------------------------------------
 
+  /**
+   * Nothing but pairing, until there is something to drive (R4).
+   *
+   * The unpaired remote used to mount the whole instrument: a scrubber reading
+   * `0:00 / 60:00` — a duration nobody had reported, invented by the fallback
+   * track length — three greyed-out transport buttons, a video field, a module
+   * picker, a Fit picker, a quality readout and TWO status lines both saying it
+   * was waiting. A page whose entire job at that moment is *press this button*
+   * was 90 % controls that could not do anything.
+   *
+   * So the transport, the scrubber and the essentials are gated on a live room.
+   * What is left before one exists is the ring, one sentence and one button.
+   */
+  const live = paired;
+
   return (
-    <div className="kh-remote" data-testid="remote">
+    <div className="kh-remote" data-testid="remote" data-live={live ? 'true' : 'false'}>
       <RemoteRing
         moduleId={state.activeModuleId}
         config={state.modules[state.activeModuleId]?.cfg ?? null}
@@ -515,101 +540,106 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         monitorAt={sync.monitor?.at ?? 0}
         posterUrl={posterUrl}
         sourceUrl={videoCfg.url}
+        name={title}
         progress={ringProgress}
         held={held}
       />
 
-      <h2 className="kh-remote__title" data-testid="remote-title">
-        {title}
-      </h2>
-      <p className="kh-remote__sub" data-testid="remote-sub">
-        {displayOnline
-          ? held
-            ? 'Holding on your Kraken · '
-            : 'Playing on your Kraken · '
-          : 'Waiting for your Kraken · '}
-        <span className="kh-tnum">{badge}</span>
-      </p>
+      {live && (
+        <>
+          <h2 className="kh-remote__title" data-testid="remote-title">
+            {title}
+          </h2>
+          {/*
+        One line, one truth.
 
-      <LoopScrubber
-        max={scrubMax}
-        positionSec={seekBarValue}
-        loop={videoCfg.loop}
-        onLoopChange={publishLoop}
-        onSeek={(next) => {
-          /*
-           * The echo guard.
-           *
-           * React delivers BOTH `input` and `change` for a controlled range, and
-           * by the time the second one runs the component has already re-rendered
-           * with the telemetry-anchored position — so the echo arrives carrying
-           * the value the bar snapped back to, not the one the user chose. Acting
-           * on it seeks the display back to where it already was.
-           *
-           * The tolerance is half a step, not exact equality, because the two
-           * numbers are not the same number: the bar renders a continuous
-           * `3.503996` and the input reports the grid value `3.5`. Half a step is
-           * also exactly the widest a real gesture can never be.
-           */
-          if (Math.abs(next - seekBarValue) < SEEK_SLIDER_STEP_SEC / 2) return;
-          sync.sendCmd('seekTo', next);
-          publishSeek(next);
-        }}
-      />
+        This sub-line and the link status underneath it BOTH said the remote was
+        waiting — "Waiting for your Kraken · quality not reported yet" directly
+        above "Looking for your Kraken…" — which is the same sentence twice in
+        two vocabularies. The sub-line is about what is PLAYING, so it only
+        appears when something is; the link status owns the other case alone.
+      */}
+          {displayOnline && (
+            <p className="kh-remote__sub" data-testid="remote-sub">
+              {held ? 'Holding on your Kraken · ' : 'Playing on your Kraken · '}
+              <span className="kh-tnum">{badge}</span>
+            </p>
+          )}
 
-      <div className="kh-transport" role="group" aria-label="Playback">
-        <button
-          type="button"
-          className="kh-tbtn"
-          data-testid="transport-back"
-          aria-label="Back 10 seconds"
-          disabled={!displayOnline}
-          onClick={() => {
-            seek(-SEEK_STEP_SEC);
-          }}
-        >
-          −10
-        </button>
-        <button
-          type="button"
-          className="kh-tbtn kh-tbtn--big"
-          data-testid="transport-hold"
-          /*
-           * "Hold", never "Pause". YouTube's real pause raises a
-           * suggested-video grid inside the picture, where cropping cannot
-           * reach it, so the display micro-loops instead (§2.6).
-           */
-          aria-label={held ? 'Play' : 'Hold'}
-          disabled={!displayOnline}
-          onClick={() => {
-            sync.sendCmd(held ? 'play' : 'pause');
-          }}
-        >
-          <span aria-hidden="true">{held ? '▶' : '❙❙'}</span>
-        </button>
-        <button
-          type="button"
-          className="kh-tbtn"
-          data-testid="transport-forward"
-          aria-label="Forward 10 seconds"
-          disabled={!displayOnline}
-          onClick={() => {
-            seek(SEEK_STEP_SEC);
-          }}
-        >
-          +10
-        </button>
-      </div>
+          <LoopScrubber
+            max={scrubMax}
+            durationKnown={durationSec !== null && durationSec > 0}
+            positionSec={seekBarValue}
+            loop={videoCfg.loop}
+            onLoopChange={publishLoop}
+            onSeek={(next) => {
+              /*
+               * The echo guard.
+               *
+               * React delivers BOTH `input` and `change` for a controlled range, and
+               * by the time the second one runs the component has already re-rendered
+               * with the telemetry-anchored position — so the echo arrives carrying
+               * the value the bar snapped back to, not the one the user chose. Acting
+               * on it seeks the display back to where it already was.
+               *
+               * The tolerance is half a step, not exact equality, because the two
+               * numbers are not the same number: the bar renders a continuous
+               * `3.503996` and the input reports the grid value `3.5`. Half a step is
+               * also exactly the widest a real gesture can never be.
+               */
+              if (Math.abs(next - seekBarValue) < SEEK_SLIDER_STEP_SEC / 2) return;
+              sync.sendCmd('seekTo', next);
+              publishSeek(next);
+            }}
+          />
 
-      <LinkStatus
-        sync={sync}
-        now={now}
-        online={displayOnline}
-        paired={paired}
-        hasCode={roomCode !== null}
-      />
+          <div className="kh-transport" role="group" aria-label="Playback">
+            <button
+              type="button"
+              className="kh-tbtn"
+              data-testid="transport-back"
+              aria-label="Back 10 seconds"
+              disabled={!displayOnline}
+              onClick={() => {
+                seek(-SEEK_STEP_SEC);
+              }}
+            >
+              −10
+            </button>
+            <button
+              type="button"
+              className="kh-tbtn kh-tbtn--big"
+              data-testid="transport-hold"
+              /*
+               * "Hold", never "Pause". YouTube's real pause raises a
+               * suggested-video grid inside the picture, where cropping cannot
+               * reach it, so the display micro-loops instead (§2.6).
+               */
+              aria-label={held ? 'Play' : 'Hold'}
+              disabled={!displayOnline}
+              onClick={() => {
+                sync.sendCmd(held ? 'play' : 'pause');
+              }}
+            >
+              <span aria-hidden="true">{held ? '▶' : '❙❙'}</span>
+            </button>
+            <button
+              type="button"
+              className="kh-tbtn"
+              data-testid="transport-forward"
+              aria-label="Forward 10 seconds"
+              disabled={!displayOnline}
+              onClick={() => {
+                seek(SEEK_STEP_SEC);
+              }}
+            >
+              +10
+            </button>
+          </div>
 
-      {/*
+          <LinkStatus sync={sync} now={now} online={displayOnline} />
+
+          {/*
         The compact essentials — four controls, not fourteen.
 
         These are the ones a person on a sofa genuinely reaches for, and they
@@ -621,67 +651,81 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         SAME one-word vocabulary as the home screen and the video panel, from
         `ui/Framing`, so the same setting is never learned twice.
       */}
-      <section className="kh-remote__ess" data-testid="remote-essentials" aria-label="Controls">
-        <form
-          className="kh-remote__src"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setVideo({ url: urlValue.trim() });
-            setUrlDraft(null);
-          }}
-        >
-          <label className="kh-sr" htmlFor="remote-src">
-            Video link
-          </label>
-          <TextInput
-            id="remote-src"
-            value={urlValue}
-            placeholder="Paste a video link"
-            onChange={setUrlDraft}
-          />
-          <button type="submit" className="kh-btn kh-btn--primary" data-testid="remote-play">
-            Play
-          </button>
-        </form>
-        {urlIssue !== null && (
-          <Notice tone={urlIssue.severity === 'error' ? 'error' : 'warn'}>
-            {urlIssue.message}
-          </Notice>
-        )}
-
-        <div className="kh-remote__pair2">
-          <Field label="Showing" htmlFor="remote-module">
-            <Select
-              id="remote-module"
-              value={state.activeModuleId}
-              options={listModules().map((m) => ({ value: m.id, label: m.name }))}
-              onChange={(id) => {
-                commit((s) => ({ ...s, activeModuleId: id }));
+          <section className="kh-remote__ess" data-testid="remote-essentials" aria-label="Controls">
+            <form
+              className="kh-remote__src"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setVideo({ url: urlValue.trim() });
+                setUrlDraft(null);
               }}
-            />
-          </Field>
-          <Field label="Fit" htmlFor="remote-fit">
-            <Select
-              id="remote-fit"
-              value={state.render.fit}
-              options={FIT_SEGMENTS.map((f) => ({ value: f.value, label: f.label }))}
-              onChange={(fit) => {
-                commit((s) => ({
-                  ...s,
-                  render: { ...s.render, fit: fit as AppState['render']['fit'] },
-                }));
-              }}
-            />
-          </Field>
-        </div>
+            >
+              <label className="kh-sr" htmlFor="remote-src">
+                Video link
+              </label>
+              <TextInput
+                id="remote-src"
+                value={urlValue}
+                placeholder="Paste a video link"
+                onChange={setUrlDraft}
+              />
+              <button type="submit" className="kh-btn kh-btn--primary" data-testid="remote-play">
+                Play
+              </button>
+            </form>
+            {urlIssue !== null && (
+              <Notice tone={urlIssue.severity === 'error' ? 'error' : 'warn'}>
+                {urlIssue.message}
+              </Notice>
+            )}
 
-        <RemoteQuality
-          cfg={videoCfg}
-          tele={tele}
-          fallbackProvider={ytMatch.provider}
-          onChange={setQuality}
-        />
-      </section>
+            {/*
+          Segmented, not `<select>` (R8). These were the last two native pickers
+          in the product, and both are three or four one-word choices — the
+          exact shape a segment row is for, and the shape the home screen draws
+          the same two settings in.
+        */}
+            <div className="kh-remote__pair2">
+              <GroupField label="Showing" id="remote-module">
+                <Segmented
+                  id="remote-module"
+                  wrap
+                  labelledBy="remote-module-label"
+                  value={state.activeModuleId}
+                  // `chipName ?? name`, the same source the home chips read, so the
+                  // two rows can never call one module two different things.
+                  options={listModules().map((m) => ({ value: m.id, label: m.chipName ?? m.name }))}
+                  onChange={(id) => {
+                    commit((s) => ({ ...s, activeModuleId: id }));
+                  }}
+                />
+              </GroupField>
+              <GroupField label="Fit" id="remote-fit">
+                <Segmented
+                  id="remote-fit"
+                  wrap
+                  labelledBy="remote-fit-label"
+                  value={state.render.fit}
+                  options={FIT_SEGMENTS.map((f) => ({ value: f.value, label: f.label }))}
+                  onChange={(fit) => {
+                    commit((s) => ({
+                      ...s,
+                      render: { ...s.render, fit: fit as AppState['render']['fit'] },
+                    }));
+                  }}
+                />
+              </GroupField>
+            </div>
+
+            <RemoteQuality
+              cfg={videoCfg}
+              tele={tele}
+              fallbackProvider={ytMatch.provider}
+              onChange={setQuality}
+            />
+          </section>
+        </>
+      )}
 
       <PairingCard
         paired={paired}
@@ -699,14 +743,18 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
       {/*
         The only navigation on the page, and the only door left to everything
         this screen used to duplicate: brokers, endpoints, telemetry switches
-        and the hardware-report pull all live in one Connection section on the
-        merged About/Diagnostics page.
+        and the hardware-report pull all live on the merged About page.
+
+        Gated with everything else: before a room exists there is no connection
+        to inspect, and the unpaired screen is one sentence and one button.
       */}
-      <p className="kh-remote__foot">
-        <a href="#/about" data-testid="remote-connection-link">
-          Connection &amp; diagnostics
-        </a>
-      </p>
+      {live && (
+        <p className="kh-remote__foot">
+          <a href="#/about" data-testid="remote-connection-link">
+            Connection &amp; diagnostics
+          </a>
+        </p>
+      )}
     </div>
   );
 }
@@ -727,30 +775,22 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
  * The `data-*` attributes are the machine-readable copy of the same answer, so
  * the e2e suite can assert on state rather than on user-facing prose.
  */
-function LinkStatus({
-  sync,
-  now,
-  online,
-  paired,
-  hasCode,
-}: {
-  sync: SyncHandle;
-  now: number;
-  online: boolean;
-  paired: boolean;
-  /** Whether there is a code on screen at all — the line must not name one that
-   *  is not there, which is the same mistake as F5.4 in a second place. */
-  hasCode: boolean;
-}) {
+function LinkStatus({ sync, now, online }: { sync: SyncHandle; now: number; online: boolean }) {
   const network = sync.status?.network ?? 'idle';
   const failedOver = sync.status?.failedOver === true;
   const seenSec =
     sync.lastTele === null ? null : Math.max(0, Math.round((now - sync.lastTele.at) / 1000));
 
+  /*
+   * Three states, and the unpaired one is not among them.
+   *
+   * This line only mounts inside a live room now, so "Not paired yet — scan the
+   * code below" is gone along with the screen that could show it: the unpaired
+   * remote IS the pairing card, and a status line above it saying so was the
+   * second of the two duplicate waiting lines (R4).
+   */
   let text: string;
-  if (!paired) {
-    text = hasCode ? 'Not paired yet — scan the code below.' : 'Not paired yet.';
-  } else if (online) text = `Linked to your Kraken · seen ${String(seenSec ?? 0)}s ago`;
+  if (online) text = `Linked to your Kraken · seen ${String(seenSec ?? 0)}s ago`;
   else if (network === 'online') text = 'Linked, but your Kraken has not said anything yet.';
   else text = 'Looking for your Kraken…';
 
@@ -870,13 +910,33 @@ function PairingCard({
     return (
       <section className="kh-roomcard" data-testid="pairing-card" data-paired="true">
         <div className="kh-roomcard__head" data-testid="paired-summary">
-          {qr !== null && <QrCode qr={qr} size="small" />}
-          <div>
+          {/*
+            The square is for the OTHER device.
+
+            A phone showing itself a code to scan is furniture, and this card is
+            what the audit's phone capture (F-ph-remote-room) is mostly made of.
+            So `ui.css` hides it below 700 px: on a desktop, where somebody is
+            pairing a phone against it, it is exactly what they came for.
+          */}
+          {qr !== null && (
+            <span className="kh-roomcard__qr">
+              <QrCode qr={qr} size="small" />
+            </span>
+          )}
+          <div className="kh-roomcard__who">
             <b data-testid="paired-title">
               {connecting ? <span className="kh-shimmer">Connecting…</span> : 'Paired with your PC'}
             </b>
             <small className="kh-roomcard__code">ROOM {formatRoomCode(roomCode)}</small>
           </div>
+          {/*
+            Unpaired, not "Forget this Kraken" — the one thing this card is for
+            besides showing the code, promoted out of a drawer and named after
+            the state it produces.
+          */}
+          <Button testId="pair-forget" onClick={onForget}>
+            Unpair
+          </Button>
         </div>
         <Disclosure summary="Pairing options" testId="pairing-options">
           {codeField}
@@ -893,58 +953,40 @@ function PairingCard({
               </Row>
             </>
           )}
-          <Row>
-            <Button testId="pair-forget" onClick={onForget}>
-              Forget this Kraken
-            </Button>
-          </Row>
           <p className="kh-hint">
-            Forgetting clears the pairing from this device only. Your Kraken keeps playing, and the
-            same code still works if you scan it again.
+            Unpairing clears this device only. Your Kraken keeps playing, and the same code still
+            works if you scan it again.
           </p>
         </Disclosure>
       </section>
     );
   }
 
+  /*
+   * Unpaired is ONE state: a sentence, a button, and a way in by hand.
+   *
+   * There is no second branch for "a code exists but we are not paired",
+   * because there is no such moment — `onRotate` mints a code and joins the
+   * room in the same commit, so the card is either asking for a pairing or
+   * reporting one. The branch that used to sit here drew a large QR under the
+   * heading "Open on your phone", on the phone.
+   */
   return (
     <section
       className="kh-roomcard kh-roomcard--open"
       data-testid="pairing-card"
       data-paired="false"
     >
-      <h2 className="kh-roomcard__title">Open on your phone</h2>
-      {qr === null ? (
-        <>
-          {/*
-            No code exists yet, so nothing here refers to one. One sentence, one
-            button, and the sentence describes what the button will do rather
-            than what a missing code would have done.
-          */}
-          <p className="kh-hint">
-            Create a code and a square appears here. Point your phone's camera at it and the remote
-            opens already connected — nothing to type, no account, and no server of ours in between.
-          </p>
-          <Row>
-            <Button primary testId="pair-rotate" onClick={onRotate}>
-              Create a code
-            </Button>
-          </Row>
-        </>
-      ) : (
-        <>
-          <QrCode qr={qr} size="large" />
-          <p className="kh-roomcard__caption" data-testid="pair-caption">
-            Point your phone's camera at this — it opens the remote already connected.
-          </p>
-          <small className="kh-roomcard__code">ROOM {formatRoomCode(roomCode ?? '')}</small>
-          <Row>
-            <Button primary testId="pair-copy" onClick={copyLink}>
-              {copied ? 'Copied' : 'Copy the link'}
-            </Button>
-          </Row>
-        </>
-      )}
+      <h2 className="kh-roomcard__title">Pair with your Kraken</h2>
+      <p className="kh-hint">
+        Create a code here, then scan it from the CAM window on your PC — nothing to type, no
+        account, and no server of ours in between.
+      </p>
+      <Row>
+        <Button primary testId="pair-rotate" onClick={onRotate}>
+          Create a code
+        </Button>
+      </Row>
       <Disclosure summary="Type a code instead" testId="pair-by-hand">
         {codeField}
       </Disclosure>

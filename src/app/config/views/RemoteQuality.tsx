@@ -10,7 +10,7 @@ import {
   type QualityConfig,
 } from '../../../modules/video/quality';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
-import { Field, Select } from '../../../ui';
+import { GroupField, Segmented } from '../../../ui';
 
 import type { ProviderId, VideoModuleConfig } from '../../../modules/video/types';
 
@@ -30,9 +30,9 @@ import type { ProviderId, VideoModuleConfig } from '../../../modules/video/types
  * ## `tele` must be a VIDEO packet
  *
  * This component's shape is derived from `provider`: `bias` and `set` render a
- * `<Select>`, `readonly` and `none` render a paragraph. So handing it a packet
- * that simply has no opinion about the video does not degrade the reading — it
- * REPLACES the control with prose and throws the `<Select>`'s DOM node away.
+ * segmented ladder, `readonly` and `none` render a paragraph. So handing it a
+ * packet that simply has no opinion about the video does not degrade the
+ * reading — it REPLACES the control with prose and throws its DOM node away.
  *
  * That is exactly what used to happen. The caller passed `lastTele`, "the most
  * recent packet of any kind", and the `tele` channel is shared: the replica
@@ -78,10 +78,10 @@ export const RemoteQuality = memo(function RemoteQuality({
 
   if (control === 'readonly' || control === 'none') {
     return (
-      <p className="kh-hint" data-testid="remote-quality-readout">
+      <p className="kh-hint" id="remote-quality-readout" data-testid="remote-quality-readout">
         {reading}
         {control === 'readonly'
-          ? ' — a stored file has one resolution, so there is nothing to choose.'
+          ? ' — one resolution, nothing to choose.'
           : ' — nothing is playing yet.'}
       </p>
     );
@@ -89,20 +89,27 @@ export const RemoteQuality = memo(function RemoteQuality({
 
   return (
     <>
-      <Field
+      <GroupField
         label={control === 'bias' ? 'Bias' : 'Quality'}
-        htmlFor="remote-quality"
+        id="remote-quality"
         description={reading}
       >
-        <Select
+        {/*
+          The same segmented ladder the CAM panel draws (R8): the remote was the
+          last surface in the product with a native `<select>` on it, and a
+          picker whose options are one word each was never a popup's job.
+        */}
+        <Segmented
           id="remote-quality"
+          wrap
+          labelledBy="remote-quality-label"
           value={qualityOptionValue(cfg.quality)}
           options={qualityOptions(control, levels)}
           onChange={(value) => {
             onChange(qualityFromOption(value, cfg.quality));
           }}
         />
-      </Field>
+      </GroupField>
       {control === 'bias' && <p className="kh-hint">{YT_BIAS_HELPER}</p>}
     </>
   );

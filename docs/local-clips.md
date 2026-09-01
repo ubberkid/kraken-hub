@@ -11,7 +11,7 @@ So that is the **default** in kraken-hub, and it does not involve a file picker:
 
 You paste it into the row under the halo on the home screen, and the app narrates
 what it did in three cards: **YouTube video detected** (whatever it actually
-recognised), **Saving to your Kraken** with a live percentage, and **On screen
+recognised), **Keeping a copy** with a live percentage, and **On screen
 now**. The point of writing it out is that this used to happen silently — the
 single biggest thing kraken-hub does for picture quality was invisible.
 
@@ -22,7 +22,7 @@ not the headline.
 
 ## The Library page
 
-**In CAM → Lighting → your Kraken → Configure**, then **Library** in the row
+**In CAM → Lighting → your Kraken → your kraken-hub card → Configure**, then **Library** in the row
 under the halo (`#/library`). Every sub-page carries a **‹ Your Kraken** link in
 its top-left corner, which is how you get back — CAM's Configuration Browser has
 no back button of its own.

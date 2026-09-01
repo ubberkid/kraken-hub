@@ -14,7 +14,7 @@ Kraken Plus. You do not need an account, a server, or the companion.
 Do this **before** anything else, because everything after it will look broken if
 you skip it.
 
-**CAM → Lighting → your Kraken → Mode: _Web Integration_ → Frame Rate → drag to
+**CAM → Lighting → your Kraken → Web Integration → Frame Rate → drag to
 maximum.**
 
 CAM ships every Web Integration at **1 frame per second**. At 1 FPS a video is a
@@ -252,7 +252,8 @@ Pages deploys continuously, so there is nothing to update: the next time CAM
 loads the page you have the current build. To force it now, toggle the card off
 and on in CAM. The version line in the footer of every configuration page names
 the exact build you are looking at — quote it in bug reports. It is also the link
-to the About page, which carries the diagnostics.
+to the About page, whose **Report** section has a **Copy report** button and, one
+disclosure down, every probe behind it.
 
 ## Removing everything
 

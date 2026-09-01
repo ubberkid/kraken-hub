@@ -49,7 +49,14 @@ export function ModuleSettingsView({ runtime, id }: { runtime: ConfigRuntime; id
   const stored = Object.hasOwn(state.modules, mod.id) ? state.modules[mod.id]?.cfg : undefined;
 
   return (
-    <Suspense fallback={<Panel title={mod.name}>Loading settings…</Panel>}>
+    /*
+      The fallback carries no title.
+
+      It used to be `<Panel title={mod.name}>`, and the contextual panel's own
+      head now carries that name — so for the length of one lazy chunk fetch the
+      screen printed "Clock" twice, six pixels apart, and then printed it once.
+    */
+    <Suspense fallback={<Panel>Loading settings…</Panel>}>
       {/*
         `react-hooks/static-components` fires because it cannot prove that a
         capitalised local binding is stable. This one is: `PANELS` is built once

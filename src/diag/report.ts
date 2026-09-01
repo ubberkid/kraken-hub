@@ -88,7 +88,16 @@ export function readDisplayReport(): DiagReport | null {
   }
 }
 
-/** Redacts anything private before a report is offered for pasting into an issue. */
-export function toJson(report: DiagReport): string {
+/**
+ * The clipboard form of a report — already redacted; nothing private is in it.
+ *
+ * Takes `unknown` rather than `DiagReport` because the About page's Copy button
+ * puts BOTH halves on the clipboard when it has them —
+ * `{ config: …, kraken: … }` — and an issue with the config browser's probes
+ * beside the panel's own is worth several rounds of questions. The shape is
+ * still only ever built here or from a `DiagReport`; the loose parameter is so
+ * the pair does not need a wrapper type nobody else would use.
+ */
+export function toJson(report: unknown): string {
   return JSON.stringify(report, null, 2);
 }

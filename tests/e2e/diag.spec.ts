@@ -28,7 +28,10 @@ test('the display publishes a DiagReport that the config page can read', async (
 
   const config = await context.newPage();
   await config.goto('/#/diag');
-  await expect(config.getByRole('heading', { name: 'The display' })).toBeVisible();
+  // The probes and the hand-off live behind "Show the technical detail" since
+  // round 2's R3 — the same content, one press down.
+  await config.getByTestId('tech-detail').locator('summary').click();
+  await expect(config.getByRole('heading', { name: 'Your Kraken' })).toBeVisible();
   // Addressed by test id rather than by `.kh-chip--ok`: `#/diag` is the merged
   // About/Diagnostics page now (design audit, F7), so several other healthy
   // chips share that class on it.

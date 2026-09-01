@@ -12,11 +12,10 @@ import {
   Panel,
   Row,
   Segmented,
-  Select,
+  Switch,
   TextInput,
-  Toggle,
 } from '../../ui';
-import { FramingAdvanced, FramingPrimary } from '../../ui/Framing';
+import { FramingAdvanced } from '../../ui/Framing';
 
 import {
   YT_BIAS_HELPER,
@@ -137,7 +136,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         it duplicates the home paste row: merge". The paste row is the merge, and
         it owns the validation copy too.
       */}
-      <Panel title="Video">
+      <Panel>
         {isYouTube && (
           /* §2.8 — said plainly, next to the field where the decision is made. */
           <Notice tone="warn">
@@ -146,17 +145,23 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
           </Notice>
         )}
 
-        <GroupField
-          label="Keep a copy on this PC"
-          id="video-downloadmode"
-          description="A copy plays ad-free, offline, and forever."
-        >
+        {/*
+          No description line. The options panel opens in the halo's place in a
+          537 px window now, and every sentence in here is measured against that
+          — so the explanation lives on the segment that means it, which is the
+          same rule the audit's F9 applied to `<option>` prose.
+        */}
+        <GroupField label="Keep a copy on this PC" id="video-downloadmode">
           <Segmented
             id="video-downloadmode"
             labelledBy="video-downloadmode-label"
             value={cfg.downloadMode}
             options={[
-              { value: 'auto', label: 'Keep a copy', title: 'Fetch it once, then play the copy.' },
+              {
+                value: 'auto',
+                label: 'Keep a copy',
+                title: 'Fetch it once, then play the copy — ad-free, offline, forever.',
+              },
               { value: 'stream-only', label: 'Stream only', title: 'Never store anything.' },
             ]}
             onChange={(value) => {
@@ -166,14 +171,6 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
         </GroupField>
 
         <QualityRow cfg={cfg} set={set} provider={validation.match.provider} />
-
-        <FramingPrimary
-          idPrefix="video"
-          value={cfg.render}
-          onChange={(patch) => {
-            set({ render: { ...cfg.render, ...patch } });
-          }}
-        />
       </Panel>
 
       {/*
@@ -214,19 +211,20 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
 
         <LocalDownloaderCard cfg={cfg} set={set} />
 
-        <Field
+        <GroupField
           label="Use a public proxy as a last resort"
-          htmlFor="video-proxy"
+          id="video-proxy"
           description="allorigins.win is a free public service with no uptime promise, and it sees every URL your Kraken plays. Tried only for links nothing else could fetch, and it cannot fix HLS."
         >
-          <Toggle
+          <Switch
             id="video-proxy"
+            labelledBy="video-proxy-label"
             checked={cfg.proxyBase === ALLORIGINS_PROXY_BASE}
             onChange={(on) => {
               set({ proxyBase: on ? ALLORIGINS_PROXY_BASE : '' });
             }}
           />
-        </Field>
+        </GroupField>
         <Field
           label="Or your own proxy address"
           htmlFor="video-proxy-base"
@@ -267,8 +265,9 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
  * configuration window shares with the display for free — the same zero-network
  * path the diagnostics log uses.
  *
- * This is the one `<select>` the census kept, and it kept it because its options
- * are not sentences: they are resolutions the display reported, one word each.
+ * The census kept this control because its options are not sentences: they are
+ * resolutions your Kraken reported, one word each — which is exactly the shape a
+ * segmented row is for, and what it became in round 2's R8.
  */
 function QualityRow({
   cfg,
@@ -314,33 +313,43 @@ function QualityRow({
 
   if (control === 'readonly' || control === 'none') {
     return (
-      <Field label="Quality" htmlFor="video-quality">
-        <p className="kh-hint" id="video-quality" data-testid="quality-readout">
-          {reading}
-          {control === 'readonly'
-            ? ' — a stored file has one resolution, so there is nothing to choose.'
-            : ' — nothing is playing yet.'}
+      <GroupField label="Quality" id="video-quality-readout">
+        {/*
+          One line. It ran to two — "a stored file has one resolution, so there
+          is nothing to choose" — and two lines of prose explaining the ABSENCE
+          of a control is exactly the weight the panel cannot afford now that it
+          opens inside the window rather than below it.
+        */}
+        <p className="kh-hint" id="video-quality-readout" data-testid="quality-readout">
+          {control === 'readonly' ? `${reading} — one resolution, nothing to choose.` : reading}
         </p>
-      </Field>
+      </GroupField>
     );
   }
 
   return (
     <>
-      <Field
+      <GroupField
         label={control === 'bias' ? 'Quality bias' : 'Quality'}
-        htmlFor="video-quality"
+        id="video-quality"
         description={reading}
       >
-        <Select
+        {/*
+          A segmented row rather than a `<select>`: round 2's control-idiom rule
+          is that this surface has no native pickers left, and a quality ladder
+          is five one-word rungs — exactly the shape a segment row is for.
+        */}
+        <Segmented
           id="video-quality"
+          wrap
+          labelledBy="video-quality-label"
           value={qualityOptionValue(cfg.quality)}
           options={qualityOptions(control, levels)}
           onChange={(value) => {
             set({ quality: qualityFromOption(value, cfg.quality) });
           }}
         />
-      </Field>
+      </GroupField>
       {control === 'bias' && <p className="kh-hint">{YT_BIAS_HELPER}</p>}
     </>
   );

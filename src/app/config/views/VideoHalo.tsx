@@ -123,8 +123,16 @@ export function VideoHalo({ url, name, progress, held }: VideoHaloProps) {
           }}
         />
       ) : (
+        /*
+          Nothing configured yet, so nothing to name.
+
+          The card printed "the demo clip" inside the bezel while the status line
+          one row below printed "Ready to play **the demo clip**" — the same four
+          words twice, six pixels apart (round 2, R11). The status line owns the
+          sentence; the halo shows the surface and gets out of its way.
+        */
         <div className="kh-halo__card" data-testid="halo-card">
-          <span className="kh-halo__card-name">{name}</span>
+          {trimmed !== '' && <span className="kh-halo__card-name">{name}</span>}
         </div>
       )}
       {progress !== null && (

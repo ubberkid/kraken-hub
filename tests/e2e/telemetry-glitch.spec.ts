@@ -80,13 +80,16 @@ test.describe('a telemetry packet is not a repaint', () => {
     await waitForTelemetry(remote);
 
     // The module picker is one of the remote's compact essentials now, not
-    // something behind a "More controls" door (design audit, F6).
-    await remote.locator('#remote-module').selectOption('clock');
+    // something behind a "More controls" door (design audit, F6), and it is a
+    // segmented row rather than a `<select>` since round 2's R8.
+    await remote.getByTestId('remote-module-clock').click();
 
     // The revert took about a second and arrived with a telemetry packet, so a
     // single assertion after the click passes on the broken build.
-    const values = await sampleAcross(async () => remote.locator('#remote-module').inputValue());
-    expect(new Set(values)).toEqual(new Set(['clock']));
+    const values = await sampleAcross(async () =>
+      remote.getByTestId('remote-module-clock').getAttribute('aria-checked'),
+    );
+    expect(new Set(values)).toEqual(new Set(['true']));
 
     await expect
       .poll(async () => display.locator('[data-module]').getAttribute('data-module'), {

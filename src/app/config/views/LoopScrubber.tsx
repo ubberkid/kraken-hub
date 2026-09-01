@@ -43,6 +43,7 @@ export const LOOP_MAX_SEC = 3600;
 
 export function LoopScrubber({
   max,
+  durationKnown = true,
   positionSec,
   loop,
   onLoopChange,
@@ -50,6 +51,17 @@ export function LoopScrubber({
   idPrefix = 'remote',
 }: {
   max: number;
+  /**
+   * Whether `max` is a duration somebody REPORTED, or the fallback track length.
+   *
+   * Round 2's R4: with nothing playing, the remote's scrubber read `0:00 /
+   * 60:00` — a total nobody had ever measured, invented by `LOOP_MAX_SEC`
+   * standing in as the rail's length. An hour is a plausible-looking number,
+   * which is what makes it worse than a blank: a user reads it as the length of
+   * their video. The rail still needs a length to draw against; the readout
+   * says nothing rather than saying that length out loud.
+   */
+  durationKnown?: boolean;
   positionSec: number;
   loop: VideoModuleConfig['loop'];
   onLoopChange: (next: VideoModuleConfig['loop']) => void;
@@ -226,7 +238,7 @@ export function LoopScrubber({
         >
           Loop {formatSeconds(start)} – {loop.end === null ? 'end' : formatSeconds(end)}
         </button>
-        <span data-testid="scrub-duration">{formatSeconds(max)}</span>
+        <span data-testid="scrub-duration">{durationKnown ? formatSeconds(max) : ''}</span>
       </div>
     </div>
   );

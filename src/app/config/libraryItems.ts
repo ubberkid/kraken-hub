@@ -184,6 +184,7 @@ const BYTES_PER_KB = 1024;
 const BYTES_PER_MB = 1_048_576;
 const MB_DECIMALS = 1;
 const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
 const PAD_BELOW = 10;
 
 /**
@@ -198,30 +199,40 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / BYTES_PER_MB).toFixed(MB_DECIMALS)} MB`;
 }
 
-/** `94` → `1:34`. An unknown or zero duration renders as an em dash. */
+/**
+ * `94` → `1:34`, `5400` → `1:30:00`. An unknown or zero duration is an em dash.
+ *
+ * The hour case is round 2's R7: a 96-minute film read `96:00`, which is not a
+ * duration anybody writes — every player, every file browser and every clock in
+ * the world rolls over at sixty. Minutes past 59 are the one place this format
+ * could be misread as *seconds past the hour*, which is exactly the reading
+ * that makes a two-hour film look like a ninety-second clip.
+ */
 export function formatDuration(sec: number | null): string {
   if (sec === null || !Number.isFinite(sec) || sec <= 0) return '—';
   const total = Math.round(sec);
-  const m = Math.floor(total / SECONDS_PER_MINUTE);
+  const h = Math.floor(total / SECONDS_PER_HOUR);
+  const m = Math.floor((total % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
   const s = total % SECONDS_PER_MINUTE;
-  return `${String(m)}:${s < PAD_BELOW ? '0' : ''}${String(s)}`;
+  const ss = `${s < PAD_BELOW ? '0' : ''}${String(s)}`;
+  if (h === 0) return `${String(m)}:${ss}`;
+  return `${String(h)}:${m < PAD_BELOW ? '0' : ''}${String(m)}:${ss}`;
 }
 
 /**
- * The one line under a tile's name.
+ * The one line under a tile's name: how long it runs, and how much room it takes.
  *
- * The dimensions are the REAL stored ones — what the probe measured for an
- * upload, and what the resolver's chosen rendition actually was for a download
- * — never the ladder rung that was asked for. A tile that has not been probed
- * yet says nothing rather than `0×0`.
+ * **No pixel dimensions.** `640×640` was on every tile in the library, and it is
+ * a number that changes nothing a person can do: they cannot re-encode from
+ * here, the panel scales whatever it gets, and the fit control is two screens
+ * away. It is still in the report and still in the clip row — it is simply not
+ * what a shelf is for (round 2, R7). The stored dimensions remain on
+ * `LibraryTile` for the diagnostics that genuinely need them.
  */
 export function tileDetail(tile: LibraryTile): string {
   const parts: string[] = [];
   if (tile.kind === 'clip' && tile.durationSec !== null)
     parts.push(formatDuration(tile.durationSec));
-  if (tile.width > 0 && tile.height > 0) {
-    parts.push(`${String(tile.width)}×${String(tile.height)}`);
-  }
   if (tile.sizeBytes > 0) parts.push(formatBytes(tile.sizeBytes));
   if (tile.animated) parts.push('animated');
   return parts.join(' · ');

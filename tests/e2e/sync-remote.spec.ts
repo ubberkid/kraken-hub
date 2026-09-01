@@ -132,7 +132,10 @@ test('Forget this Kraken clears the pairing and disconnects', async ({ context }
 
   await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
   await expect(remote.getByTestId('paired-summary')).toHaveCount(0);
-  await expect(remote.getByTestId('link-status')).toHaveAttribute('data-network', 'idle');
+  // The status line goes with the instrument: round 2's R4 gates both on a live
+  // room, and a line reading "Not paired yet" above a card that says the same
+  // thing was the second of the two duplicate waiting lines.
+  await expect(remote.getByTestId('link-status')).toHaveCount(0);
 
   expect(await remote.evaluate((key) => localStorage.getItem(key), REMEMBERED_KEY)).toBeNull();
   // The room is out of the fragment too, so a reload cannot undo the decision.
@@ -180,19 +183,29 @@ test('the paired remote is a remote, not a second copy of the app', async ({ con
   }
 
   // The four essentials that DID survive the census are on the page, with no
-  // door in front of them.
+  // door in front of them — as segmented rows, not `<select>`s (round 2, R8).
   await expect(remote.locator('#remote-src')).toBeVisible();
   await expect(remote.locator('#remote-module')).toBeVisible();
   await expect(remote.locator('#remote-fit')).toBeVisible();
+  expect(
+    await remote.getByTestId('remote').evaluate((root) => root.querySelectorAll('select').length),
+  ).toBe(0);
 
   // Room settings live in exactly one place now, and this is the way there.
   await expect(remote.getByTestId('remote-connection-link')).toHaveAttribute('href', '#/about');
 
   const controls = await remote.getByTestId('remote').evaluate((root) => {
-    const interactive = 'button, a[href], input, select, textarea, summary';
+    const interactive = 'button, a[href], input, select, textarea, summary, [role="radiogroup"]';
     return [...root.querySelectorAll(interactive)].filter((el) => {
       if (el.closest('.kh-scrub') !== null) return false;
       if (el.closest('.kh-transport') !== null) return false;
+      // A segmented row is ONE control — the same one control a `<select>` was
+      // before round 2's R8 turned it inside out. Counting its segments would
+      // score the app as more complicated for having made the choices visible,
+      // which is the opposite of what this ceiling is for.
+      if (el.closest('[role="radiogroup"]') !== null && el.getAttribute('role') !== 'radiogroup') {
+        return false;
+      }
       // A collapsed <details> still lays its children out in Chromium, so
       // `offsetParent` alone would count things nobody can see. The summary
       // itself is on screen and does count — it is the door.
@@ -220,8 +233,6 @@ test('the unpaired remote is a sentence and one button, then a code', async ({ c
   // No copy about a code that is not there, and no orange warning about it.
   await expect(card).not.toContainText('Point a camera at this code');
   await expect(card).not.toContainText('No code yet');
-  // …and neither does the status line above it.
-  await expect(remote.getByTestId('link-status')).not.toContainText('code below');
   await expect(card.locator('.kh-qr')).toHaveCount(0);
 
   // One primary action.
@@ -231,11 +242,58 @@ test('the unpaired remote is a sentence and one button, then a code', async ({ c
 
   await create.click();
 
-  // …and now there IS a code, so the card may finally talk about one: the
-  // scannable square, the room, and the link to copy.
+  // …and now there IS a code, so the card may finally talk about one.
   await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'true');
-  await expect(remote.locator('.kh-qr')).toBeVisible();
   await expect(remote.getByTestId('paired-summary')).toContainText('ROOM');
+  // Unpairing is the card's one visible action, out of the drawer it used to
+  // hide in and named after the state it produces (round 2, R4).
+  await expect(remote.getByTestId('pair-forget')).toHaveText('Unpair');
+});
+
+/**
+ * R4 — the remote leads with its job, and its job is pairing until it has a room.
+ *
+ * What the audit's capture showed at `#/remote` with nothing paired: a scrubber
+ * reading `0:00 / 60:00` for a video nobody had chosen, three dead transport
+ * buttons, a video field, a module picker, a Fit picker, a quality line, TWO
+ * status lines both saying it was waiting, and — somewhere under all of it —
+ * the one button that would have made any of it work.
+ *
+ * The ceiling is four because that is what the screen honestly needs: create a
+ * code, and the by-hand fallback's summary, field and Join.
+ */
+test('an unpaired remote mounts pairing and nothing else', async ({ context }) => {
+  const remote = await context.newPage();
+  await remote.goto('/?transport=fake#/remote');
+  await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
+
+  // The instrument is not mounted at all — not merely disabled.
+  for (const id of [
+    'scrubber',
+    'transport-hold',
+    'transport-back',
+    'transport-forward',
+    'remote-essentials',
+    'link-status',
+    'remote-title',
+    'remote-sub',
+    'remote-connection-link',
+  ] as const) {
+    await expect(remote.getByTestId(id)).toHaveCount(0);
+  }
+  // …so there is no invented duration on screen either.
+  await expect(remote.getByTestId('remote')).not.toContainText('60:00');
+
+  // The ring stays: it is the object the page is about.
+  await expect(remote.getByTestId('remote-mirror')).toBeVisible();
+
+  const controls = await remote.getByTestId('remote').evaluate((root) => {
+    const interactive = 'button, a[href], input, select, textarea, summary';
+    return [...root.querySelectorAll(interactive)].filter(
+      (el) => (el as HTMLElement).offsetParent !== null,
+    ).length;
+  });
+  expect(controls).toBeLessThanOrEqual(4);
 });
 
 test('a cold display restores from the retained snapshot ALONE', async ({ context }) => {
@@ -248,8 +306,9 @@ test('a cold display restores from the retained snapshot ALONE', async ({ contex
   // test waits for it to CHANGE rather than merely to exist.
   const before = await remote.evaluate((key) => localStorage.getItem(key), RETAINED_KEY);
   // The module picker is one of the remote's four compact essentials — the
-  // "More controls" duplicate app it used to hide behind is gone (audit F6).
-  await remote.locator('#remote-module').selectOption('clock');
+  // "More controls" duplicate app it used to hide behind is gone (audit F6) —
+  // and it is a segmented row rather than a `<select>` (round 2, R8).
+  await remote.getByTestId('remote-module-clock').click();
   await expect
     .poll(async () => remote.evaluate((key) => localStorage.getItem(key), RETAINED_KEY))
     .not.toBe(before);
@@ -429,9 +488,14 @@ test('a remote pulls a hardware report from a display never opened with ?diag=1'
   await expect.poll(() => new URL(remote.url()).hash).toBe('#/about');
   // This page joins the same room, but its transport has to come up before the
   // command has anywhere to go — otherwise this measures a race, not a feature.
+  // Both readouts moved one door down in round 2's R3: the transport chips into
+  // "Connection detail", the pull into "Show the technical detail". Same
+  // feature, same channel — one press each to reach them.
+  await remote.getByTestId('connection-detail').locator('summary').click();
   await expect(remote.getByTestId('connection-net')).toContainText('online', {
     timeout: 10_000,
   });
+  await remote.getByTestId('tech-detail').locator('summary').click();
   await remote.getByTestId('request-report').click();
 
   // The display samples frames for three seconds before it answers, and the
@@ -452,10 +516,11 @@ test('a remote pulls a hardware report from a display never opened with ?diag=1'
   expect(JSON.parse(json)).toMatchObject({ mode: 'display' });
 
   // The summary the card renders, not just the blob behind it — scoped to the
-  // pulled report, because this page also runs its own local probes and they
-  // report a `devicePixelRatio` of their own.
+  // pulled report, because this page runs its own local probes too. R3 cut the
+  // summary to the four rows somebody actually reads off a screen; the rest is
+  // in the JSON above and on the clipboard.
   await expect(
-    remote.getByTestId('pulled-summary').getByRole('row', { name: /devicePixelRatio/ }),
+    remote.getByTestId('pulled-summary').getByRole('row', { name: /Panel/ }),
   ).toBeVisible();
   await expect(remote.getByTestId('copy-report')).toBeVisible();
 });

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
 import { camInstallUrl } from '../../../config/knownHosts';
 import { Chip, Code } from '../../../ui';
 
@@ -10,8 +11,10 @@ import type { ConfigRuntime } from '../runtime';
  *
  * Everything a Kraken needs before it can show anything at all lives here: the
  * frame-rate slider (CAM ships it at 1 FPS and nothing else matters until it is
- * raised) and the exact URL to paste as the Web Integration address, derived
- * from `location` so a fork on any origin gets its own.
+ * raised) and the exact URL to paste as the integration address, derived from
+ * `location` so a fork on any origin gets its own. Both menu paths come from
+ * `src/config/camPaths.ts`, which is the only place in the product that spells
+ * them (round 2, R6).
  *
  * The old Setup view was the home screen: four numbered panels, permanently, for
  * every user forever. That is the wrong trade — it is the most important screen
@@ -78,8 +81,8 @@ export function CamSetupCard({
       <section className="kh-band" data-testid="setup-first-run" aria-labelledby="kh-setup-title">
         <div className="kh-band__line">
           <p className="kh-band__text">
-            <b id="kh-setup-title">Your Kraken has not shown up yet.</b> In CAM, turn{' '}
-            <b>Web Integration → Frame Rate</b> up, then point CAM at this page.
+            <b id="kh-setup-title">Your Kraken has not shown up yet.</b> Point CAM at this page,
+            then turn <b>{CAM_PATH_FRAME_RATE}</b> up.
           </p>
           <a
             className="kh-btn kh-btn--primary"
@@ -115,7 +118,7 @@ export function CamSetupCard({
               {camChip}
             </div>
             <p className="kh-band__hint">
-              Paste it into CAM as the Web Integration URL if the button above did not open CAM.
+              Paste this into CAM as the integration URL if the button above did not open CAM.
             </p>
           </div>
         )}
@@ -123,59 +126,64 @@ export function CamSetupCard({
     );
   }
 
+  /*
+   * The quiet variant, after round 2's R3.
+   *
+   * It used to be two numbered steps, four paragraphs and four side-by-side
+   * buttons — 380 px of instruction on a page that was already 2,225 px tall.
+   * A numbered list is for a procedure somebody follows once while looking at
+   * two windows; this is a card somebody lands on when they are setting up a
+   * second machine, and what they need is the address and one button. The
+   * frame-rate step is a clause in the same sentence rather than a step of its
+   * own, because it is one drag of one slider.
+   *
+   * The address appears here and NOWHERE else on the page: `AboutView` no
+   * longer prints a "This installation" panel above this card saying the same
+   * URL a second time.
+   */
   return (
     <section className="kh-setup" data-testid="setup-about" aria-labelledby="kh-setup-title">
       <h2 id="kh-setup-title" className="kh-setup__title">
         Add to CAM
       </h2>
       <p className="kh-setup__lede">
-        The two steps that put kraken-hub on a Kraken — here if you are setting up another machine.
+        Point CAM at this address, then drag <strong>{CAM_PATH_FRAME_RATE}</strong> to maximum.
       </p>
-
-      <ol className="kh-setup__steps">
-        <li className="kh-setup__step">
-          <span className="kh-setup__num" aria-hidden="true">
-            1
-          </span>
-          <div className="kh-setup__body">
-            <b>Turn the frame rate up.</b>
-            <p className="kh-setup__hint">
-              CAM ships this at 1 frame per second, which makes anything that moves look like a
-              slideshow. In CAM: <strong>Lighting → Kraken → Web Integration → Frame Rate</strong>,
-              then drag it to maximum.
-            </p>
+      <Code>{runtime.appUrl}</Code>
+      <div className="kh-row kh-setup__actions">
+        <a
+          className="kh-btn kh-btn--primary"
+          data-testid="setup-open-cam"
+          href={camInstallUrl(runtime.appUrl)}
+        >
+          Open in CAM
+        </a>
+        <button
+          type="button"
+          className="kh-band__more"
+          data-testid="setup-reveal-address"
+          aria-expanded={revealed}
+          aria-controls="kh-setup-more"
+          onClick={() => {
+            setRevealed((open) => !open);
+          }}
+        >
+          {revealed ? 'Fewer ways' : 'Other ways'}
+        </button>
+      </div>
+      {revealed && (
+        <div className="kh-band__reveal" id="kh-setup-more">
+          <div className="kh-row">
+            <button type="button" className="kh-btn" data-testid="setup-copy-url" onClick={copy}>
+              {copied ? 'Copied' : 'Copy the address'}
+            </button>
+            <a className="kh-btn" href={camInstallUrl(runtime.appUrl, true)}>
+              Open in CAM Beta
+            </a>
+            {camChip}
           </div>
-        </li>
-
-        <li className="kh-setup__step">
-          <span className="kh-setup__num" aria-hidden="true">
-            2
-          </span>
-          <div className="kh-setup__body">
-            <b>Point CAM at this page.</b>
-            <p className="kh-setup__hint">
-              Paste this address into CAM as the Web Integration URL — or let CAM open it for you.
-            </p>
-            <Code>{runtime.appUrl}</Code>
-            <div className="kh-row kh-setup__actions">
-              <a
-                className="kh-btn kh-btn--primary"
-                data-testid="setup-open-cam"
-                href={camInstallUrl(runtime.appUrl)}
-              >
-                Open in CAM
-              </a>
-              <button type="button" className="kh-btn" data-testid="setup-copy-url" onClick={copy}>
-                {copied ? 'Copied' : 'Copy the address'}
-              </button>
-              <a className="kh-btn" href={camInstallUrl(runtime.appUrl, true)}>
-                Open in CAM Beta
-              </a>
-              {camChip}
-            </div>
-          </div>
-        </li>
-      </ol>
+        </div>
+      )}
     </section>
   );
 }

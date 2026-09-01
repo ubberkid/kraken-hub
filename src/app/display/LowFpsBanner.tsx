@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { CAM_PATH_FRAME_RATE } from '../../config/camPaths';
+
 /**
  * The highest-leverage piece of UX in the whole app.
  *
@@ -46,10 +48,7 @@ export function LowFpsBanner({
     <div className="kh-overlay kh-lowfps">
       <div className="kh-card">
         <p className="kh-card__title">{targetFps} FPS</p>
-        <p className="kh-card__body">
-          Open CAM → Lighting → Kraken → Web Integration → <strong>Frame Rate</strong> and drag it
-          to maximum.
-        </p>
+        <p className="kh-card__body">{CAM_PATH_FRAME_RATE} — drag it to maximum.</p>
         <p className="kh-card__footer">This notice disappears once a higher frame rate is set.</p>
       </div>
     </div>

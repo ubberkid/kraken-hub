@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import { imageModule } from '../../../modules/image';
 import {
@@ -12,8 +12,10 @@ import { localImageId, localImageUrl, validateImageConfig } from '../../../modul
 import { videoModule } from '../../../modules/video';
 import {
   deleteClip,
+  getClipBlob,
   publishClipIndex,
   readQuota,
+  setClipThumb,
   setPinned,
   listClips,
   type ClipRecord,
@@ -28,7 +30,7 @@ import {
   subscribeDownloads,
   type DownloadEntry,
 } from '../../../modules/video/local/downloadManager';
-import { ingestFile } from '../../../modules/video/local/ingest';
+import { ingestFile, makeThumbnail } from '../../../modules/video/local/ingest';
 import { detect } from '../../../modules/video/routing/detect';
 import { LOCAL_CLIP_SCHEME } from '../../../modules/video/routing/patterns';
 import { validateVideoConfig } from '../../../modules/video/types';
@@ -93,8 +95,12 @@ function mb(bytes: number): string {
  * The object URL is created during render and revoked when the blob changes or
  * the tile unmounts. Creating it in an effect instead would need a `setState`
  * inside that effect, which cascades a render for every tile in the library.
+ *
+ * `null` is not a hole: it is the treated card `TreatedArt` draws, which is the
+ * same fallback language the home screen's halo uses for a source with no
+ * poster. A grey rectangle is what the audit found on more than half the shelf.
  */
-function ClipThumb({ blob }: { blob: Blob | null }) {
+function ClipThumb({ blob, name }: { blob: Blob | null; name: string }) {
   const url = useMemo(() => (blob === null ? null : URL.createObjectURL(blob)), [blob]);
   useEffect(
     () => () => {
@@ -102,8 +108,96 @@ function ClipThumb({ blob }: { blob: Blob | null }) {
     },
     [url],
   );
-  if (url === null) return <div className="kh-tile__thumb" />;
+  if (url === null) return <TreatedArt name={name} />;
   return <img className="kh-tile__thumb" src={url} alt="" />;
+}
+
+/**
+ * What a tile shows when there is no picture to show — and there never will be.
+ *
+ * Flat, quiet, and derived from the name so two clips never look identical: the
+ * initial plus a hue rotation off a cheap string hash. It is not decoration, it
+ * is the difference between "three grey squares" and "three things I can tell
+ * apart".
+ */
+function TreatedArt({ name }: { name: string }) {
+  const trimmed = name.trim();
+  // `codePointAt` rather than `[0]`, so a name that starts outside the BMP
+  // renders one character instead of half a surrogate pair.
+  const first = trimmed.codePointAt(0);
+  const initial = first === undefined ? '?' : String.fromCodePoint(first).toUpperCase();
+  let hash = 0;
+  for (const ch of trimmed) hash = (hash * HUE_MIX + (ch.codePointAt(0) ?? 0)) % HUE_STEPS;
+  return (
+    <div
+      className="kh-tile__thumb kh-tile__thumb--treated"
+      data-testid="tile-treated"
+      style={{ '--kh-tile-hue': `${String(hash)}deg` } as CSSProperties}
+    >
+      <span aria-hidden="true">{initial}</span>
+    </div>
+  );
+}
+
+/** Small odd multiplier plus a full turn of hue: cheap, stable, no collisions that matter. */
+const HUE_MIX = 31;
+const HUE_STEPS = 360;
+
+/**
+ * Clips whose thumbnail we have already tried to generate, this page load.
+ *
+ * Module-level rather than component state on purpose: `refresh()` re-reads
+ * IndexedDB and rebuilds every tile, so per-component state would re-arm the
+ * generation on every poll for a clip whose frame genuinely cannot be drawn —
+ * which is a decoder spun up once a second, forever.
+ */
+const thumbAttempted = new Set<string>();
+
+/**
+ * A clip stored without a thumbnail, thumbnailed on first sight (R7).
+ *
+ * Two paths leave `thumbBlob: null` behind — "Add anyway" after a probe
+ * timeout, and a download whose bytes arrived before a frame could be drawn —
+ * and the tile was a grey rectangle for the life of the clip. The frame is
+ * generated here with the same `makeThumbnail` both ingest paths use, so a
+ * backfilled tile is pixel-identical to one that worked first time, and it is
+ * written back through `setClipThumb` so the next visit costs nothing.
+ *
+ * A failure is not retried and not an error: some files simply have no frame
+ * this decoder can draw, and the treated card is a perfectly good answer.
+ */
+function GeneratedThumb({
+  id,
+  name,
+  durationSec,
+}: {
+  id: string;
+  name: string;
+  durationSec: number;
+}) {
+  const [blob, setBlob] = useState<Blob | null>(null);
+  useEffect(() => {
+    if (thumbAttempted.has(id)) return undefined;
+    thumbAttempted.add(id);
+    // Read through a function so TypeScript cannot narrow it across an await —
+    // the same trick `useSync` and `ModuleHost` use for their teardown flags.
+    // A plain boolean (or a cell) narrows to `true` after the first check and
+    // every guard after it becomes dead code the linter is right to flag.
+    let gone = false;
+    const isGone = (): boolean => gone;
+    void (async () => {
+      const bytes = await getClipBlob(id);
+      if (isGone() || bytes === null) return;
+      const thumb = await makeThumbnail(bytes, durationSec);
+      if (isGone() || thumb === null) return;
+      setBlob(thumb);
+      await setClipThumb(id, thumb);
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [id, durationSec]);
+  return <ClipThumb blob={blob} name={name} />;
 }
 
 /**
@@ -111,7 +205,7 @@ function ClipThumb({ blob }: { blob: Blob | null }) {
  * are kilobytes rather than megabytes, so the tile reads the blob back rather
  * than the library carrying a second copy of every picture at 320 px.
  */
-function ImageThumb({ id }: { id: string }) {
+function ImageThumb({ id, name }: { id: string; name: string }) {
   const [blob, setBlob] = useState<Blob | null>(null);
   useEffect(() => {
     let live = true;
@@ -122,7 +216,7 @@ function ImageThumb({ id }: { id: string }) {
       live = false;
     };
   }, [id]);
-  return <ClipThumb blob={blob} />;
+  return <ClipThumb blob={blob} name={name} />;
 }
 
 interface Message {
@@ -244,7 +338,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         activeModuleId: imageModule.id,
       }));
     }
-    setMessage({ tone: 'ok', text: `“${tile.name}” is on the display.` });
+    setMessage({ tone: 'ok', text: `“${tile.name}” is on your Kraken.` });
   };
 
   const togglePin = (tile: LibraryTile): void => {
@@ -368,10 +462,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
       <div className="kh-library__head">
         <div>
           <h2>Your library</h2>
-          <p className="kh-hint">
-            Kept on this PC, inside CAM’s own browser storage. Everything here plays with the
-            network unplugged.
-          </p>
+          <p className="kh-hint">Kept on this PC, inside CAM’s own browser storage.</p>
         </div>
         <button
           type="button"
@@ -387,8 +478,17 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
             window.setTimeout(() => addInput.current?.focus(), 0);
           }}
         >
+          {/*
+            A labelled button, not a glyph.
+
+            The empty card underneath used to have to explain where this control
+            was and what it did — "Add a link or a file with the button in the
+            corner" — which is a caption for an icon that failed. A button that
+            says Add needs no caption anywhere, and the empty state got shorter
+            by exactly the sentence this label replaced.
+          */}
           <span aria-hidden="true">+</span>
-          <span className="kh-sr">Add to your library</span>
+          <span className="kh-add__lab">Add</span>
         </button>
       </div>
 
@@ -497,15 +597,18 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
         <div className="kh-empty" data-testid="library-empty">
           <p className="kh-empty__title">Nothing saved yet</p>
           {/*
-            No "press + up there": while the add panel is open that button is an
-            ×, so the instruction pointed at a control that was not on screen
-            (design audit, F5.2). The card describes what the shelf is for
-            instead, which is true in both states.
+            One sentence, and it does not describe its own buttons.
+
+            F5.2 killed "Press + up there" because the + becomes an × when the
+            panel is open; round 2's R7 killed its replacement too, for a
+            simpler reason — the button is labelled **Add** now, so a sentence
+            explaining where the Add button is says strictly less than the
+            button does. The promise underneath it — *plays with the network
+            unplugged* — was ALSO printed in the header two lines above, on the
+            same screen, at the same moment. It is said once, here, where there
+            is nothing else to look at.
           */}
-          <p className="kh-hint">
-            Add a link or a file with the button in the corner. Whatever lands here keeps playing
-            with the network unplugged.
-          </p>
+          <p className="kh-hint">Whatever lands here keeps playing with the network unplugged.</p>
         </div>
       ) : (
         <ul className="kh-grid" data-testid="library-grid">
@@ -577,7 +680,6 @@ function Tile({
 }) {
   const entry = tile.download;
   const pct = entry === null ? null : progressPct(entry);
-  const kindLabel = tile.kind === 'clip' ? 'Clip' : 'Image';
 
   return (
     <li
@@ -593,9 +695,11 @@ function Tile({
       <div className="kh-tile__art">
         {tile.state === 'ready' ? (
           tile.kind === 'image' && tile.id !== null ? (
-            <ImageThumb id={tile.id} />
+            <ImageThumb id={tile.id} name={tile.name} />
+          ) : tile.thumbBlob === null && tile.id !== null ? (
+            <GeneratedThumb id={tile.id} name={tile.name} durationSec={tile.durationSec ?? 0} />
           ) : (
-            <ClipThumb blob={tile.thumbBlob} />
+            <ClipThumb blob={tile.thumbBlob} name={tile.name} />
           )
         ) : (
           <div className="kh-tile__thumb" />
@@ -625,7 +729,16 @@ function Tile({
           </div>
         )}
 
-        <span className="kh-tile__badge">{kindLabel}</span>
+        {/*
+          No kind badge.
+
+          Every tile in the library carried a small uppercase CLIP or IMAGE in
+          its corner, over the one part of the tile that is genuinely
+          informative — the picture. The distinction is real and it is already
+          drawn: a clip has a duration on its detail line and a picture does
+          not. Machine-typed labels over the artwork are the shelf explaining
+          itself instead of showing itself (round 2, R7).
+        */}
         {active && (
           <span className="kh-tile__on" data-testid="tile-active">
             On screen

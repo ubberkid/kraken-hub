@@ -153,12 +153,12 @@ is one directory and one line in the registry —
 [docs/modules.md](docs/modules.md) is the walkthrough, and the Clock module was
 built by following it.
 
-| Module           | What it does                                                                                                                                                               |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Video**        | Any of the sources above, downloaded and played locally, A‑B looped, chrome-free                                                                                           |
-| **Image**        | A picture or GIF from a link or your library — downloaded and painted from disk, with the video module's fit/zoom/pan/rotate math and an optional slideshow                |
-| **Clock**        | Digital or analog, 12/24-hour, optional seconds and date line, five flat colour themes. Deliberately correct at CAM's 1 FPS default: the hands tick, they never sweep      |
-| **System stats** | CPU and GPU temperature and load plus liquid temperature, from CAM's 1 Hz feed. Single dial, dual dial or a compact grid. Anything CAM does not report reads `--`, never 0 |
+| Module    | What it does                                                                                                                                                               |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Video** | Any of the sources above, downloaded and played locally, A‑B looped, chrome-free                                                                                           |
+| **Image** | A picture or GIF from a link or your library — downloaded and painted from disk, with the video module's fit/zoom/pan/rotate math and an optional slideshow                |
+| **Clock** | Digital or analog, 12/24-hour, optional seconds and date line, five flat colour themes. Deliberately correct at CAM's 1 FPS default: the hands tick, they never sweep      |
+| **Stats** | CPU and GPU temperature and load plus liquid temperature, from CAM's 1 Hz feed. Single dial, dual dial or a compact grid. Anything CAM does not report reads `--`, never 0 |
 
 There is **no pump-RPM readout**, because CAM exposes no such field. The stats
 panel says so plainly rather than inventing a number.
@@ -294,23 +294,23 @@ npm run capture    # regenerate every screenshot in docs/assets/
 The app ships a hardware simulator, so every panel size, shape and frame rate is
 reachable from an ordinary browser tab. Start `npm run dev`, then open:
 
-| URL                                             | What it gives you                                                                                       |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `/`                                             | the configuration UI, exactly as CAM's browser sees it                                                  |
-| `/?kraken=1&sim=elite`                          | the display, as the LCD sees it: 640 round at 40 FPS                                                    |
-| `/?kraken=1&sim=z`                              | Kraken Z — 320 round, and CAM's 1 FPS ceiling                                                           |
-| `/?kraken=1&sim=kraken2023`                     | Kraken (2023) — 240 square, no round mask                                                               |
-| `/?kraken=1&sim=elite&fps=1`                    | what a user who never touched the CAM slider actually sees                                              |
-| `/?kraken=1&sim=elite&inject=late`              | CAM injecting `window.nzxt` 1.5 s after the page booted                                                 |
-| `/?kraken=1&sim=elite&monitor=missing`          | the 1 Hz feed with fields rotating in and out of `undefined`                                            |
-| `/?kraken=1&sim=elite&module=clock&face=analog` | the Clock module's analog face                                                                          |
-| `/?kraken=1&sim=elite&module=stats&layout=grid` | System stats in the compact grid layout                                                                 |
-| `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                                                               |
-| `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)                                               |
-| `/#/library`                                    | your library: one grid of clips and pictures, plus the quota                                            |
-| `/#/remote`                                     | the phone remote, at whatever size the window is                                                        |
-| `/#/about`                                      | About **and** Diagnostics: the build, Add to CAM, Connection, local probes and the display's own report |
-| `/#/diag`                                       | resolves to `/#/about` — the two pages merged                                                           |
+| URL                                             | What it gives you                                                     |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| `/`                                             | the configuration UI, exactly as CAM's browser sees it                |
+| `/?kraken=1&sim=elite`                          | the display, as the LCD sees it: 640 round at 40 FPS                  |
+| `/?kraken=1&sim=z`                              | Kraken Z — 320 round, and CAM's 1 FPS ceiling                         |
+| `/?kraken=1&sim=kraken2023`                     | Kraken (2023) — 240 square, no round mask                             |
+| `/?kraken=1&sim=elite&fps=1`                    | what a user who never touched the CAM slider actually sees            |
+| `/?kraken=1&sim=elite&inject=late`              | CAM injecting `window.nzxt` 1.5 s after the page booted               |
+| `/?kraken=1&sim=elite&monitor=missing`          | the 1 Hz feed with fields rotating in and out of `undefined`          |
+| `/?kraken=1&sim=elite&module=clock&face=analog` | the Clock module's analog face                                        |
+| `/?kraken=1&sim=elite&module=stats&layout=grid` | Stats in the compact grid layout                                      |
+| `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                             |
+| `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)             |
+| `/#/library`                                    | your library: one grid of clips and pictures, plus the quota          |
+| `/#/remote`                                     | the phone remote, at whatever size the window is                      |
+| `/#/about`                                      | About, Connection and Report — with every probe behind one disclosure |
+| `/#/diag`                                       | resolves to `/#/about` — the two pages merged                         |
 
 The simulator refuses to run whenever a real `window.nzxt` is present, so a
 `?sim=` left in a configured URL is inert inside CAM.

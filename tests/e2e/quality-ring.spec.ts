@@ -131,18 +131,19 @@ test.describe('quality', () => {
     });
 
     // No "More controls" door any more (design audit, F6): the quality picker
-    // is one of the four compact essentials, on the page.
+    // is one of the four compact essentials, on the page — and since round 2's
+    // R8 it is a segmented row rather than a `<select>`, like every other short
+    // exclusive choice in the product.
     await expect(remote.getByTestId('more-controls')).toHaveCount(0);
     const picker = remote.locator('#remote-quality');
     await expect(picker).toBeVisible({ timeout: 10_000 });
 
     // The ladder came off the wire, not out of a guess: 720p is in this
     // fixture's master playlist and nowhere else.
-    await expect
-      .poll(async () => picker.locator('option[value="720"]').count(), { timeout: 15_000 })
-      .toBe(1);
+    const rung = remote.getByTestId('remote-quality-720');
+    await expect(rung).toBeVisible({ timeout: 15_000 });
 
-    await picker.selectOption('720');
+    await rung.click();
 
     // 1. The choice reached the display's own state document.
     await expect

@@ -118,9 +118,9 @@ test.describe('a local change is not rolled back', () => {
     // `#/module/video` is a redirect now — options are contextual, so it lands
     // on home with the video panel already open (design audit, F1).
     await config.goto(`/?room=${ROOM}&transport=fake#/module/video`);
-    // The panel's Fit control, not the home strip's: this is the one that used
-    // to be a `<select>` of sentences and is now a segmented control.
-    const contain = config.getByTestId('video-fit-contain');
+    // The strip's Fit control, which is now the ONLY one: the module panel asked
+    // the same question again four inches lower, and round 2 deleted the copy.
+    const contain = config.getByTestId('home-video-fit-contain');
     await expect(contain).toBeVisible();
 
     await contain.click();

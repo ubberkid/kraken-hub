@@ -206,7 +206,8 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
    *  - **Only a peer holding the room key can ask.** The command arrived
    *    decrypted, which means it came from inside the room.
    */
-  let publishTele: ((body: { ts: number; kind: string }) => void) | null = null;
+  let publishTele:
+    ((body: { ts: number; kind: string }, opts?: { immediate?: boolean }) => void) | null = null;
   let diagRunning = false;
   let lastDiagAt = 0;
   const diagTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -231,15 +232,24 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
       const chunks = wire.toDiagChunks(report);
       writeReadout({ diag: chunks.length });
       chunks.forEach((chunk, index) => {
-        // `publishTele` throttles at 5 Hz and DROPS what lands inside the
-        // window, so parts have to be spaced rather than looped out.
+        /*
+         * Spaced AND immediate.
+         *
+         * The spacing is for the chunks' own sake — `publishTele` throttles at
+         * 5 Hz and a loop would emit them all inside one window. `immediate` is
+         * for the routine stream's: a `videoStats` or `monitor` packet landing
+         * 180 ms before the report silently ate it, so the button a person had
+         * just pressed on another machine did nothing and the card timed out
+         * twenty seconds later. Reproducible, and the reason round 2's Report
+         * section can promise "ask your Kraken" and mean it.
+         */
         if (index === 0) {
-          publish(chunk);
+          publish(chunk, { immediate: true });
           return;
         }
         const timer = setTimeout(() => {
           diagTimers.delete(timer);
-          publish(chunk);
+          publish(chunk, { immediate: true });
         }, index * wire.DIAG_CHUNK_SPACING_MS);
         diagTimers.add(timer);
       });
@@ -316,8 +326,8 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
    * silently do nothing, which is the failure mode this whole feature exists to
    * remove.
    */
-  publishTele = (body) => {
-    service.publishTele(body);
+  publishTele = (body, opts) => {
+    service.publishTele(body, opts);
   };
 
   if (o.state.sync.publishTelemetry) {

@@ -177,14 +177,22 @@ describe('buildLibraryTiles', () => {
 });
 
 describe('tileDetail', () => {
-  it('reads the real stored metadata for a clip', () => {
+  /**
+   * No pixel dimensions (round 2, R7).
+   *
+   * `1080×1080` was on every tile and changed nothing a person could do from
+   * this page. The stored numbers are still on `LibraryTile` and still in the
+   * report; they are simply not what a shelf shows.
+   */
+  it('reads the real stored metadata for a clip, without its pixel dimensions', () => {
     const [tile] = buildLibraryTiles({
       clips: [clip()],
       images: [],
       downloads: [],
       dismissed: NONE,
     });
-    expect(tileDetail(tile!)).toBe('1:34 · 1080×1080 · 2.0 MB');
+    expect(tileDetail(tile!)).toBe('1:34 · 2.0 MB');
+    expect(tileDetail(tile!)).not.toContain('1080');
   });
 
   it('omits the duration for a picture and names an animated one', () => {
@@ -194,7 +202,7 @@ describe('tileDetail', () => {
       downloads: [],
       dismissed: NONE,
     });
-    expect(tileDetail(tile!)).toBe('1024×1024 · 512 kB · animated');
+    expect(tileDetail(tile!)).toBe('512 kB · animated');
   });
 
   it('never renders 0×0 for something that has not been probed', () => {
@@ -223,5 +231,17 @@ describe('formatting', () => {
   it('pads the seconds', () => {
     expect(formatDuration(65)).toBe('1:05');
     expect(formatDuration(600)).toBe('10:00');
+  });
+
+  /**
+   * Round 2, R7. A 96-minute film read `96:00`, which is not a duration anybody
+   * writes — and is readable as ninety-six SECONDS, which is the whole problem.
+   */
+  it('rolls over to hours rather than counting past sixty minutes', () => {
+    expect(formatDuration(3600)).toBe('1:00:00');
+    expect(formatDuration(3661)).toBe('1:01:01');
+    expect(formatDuration(5400)).toBe('1:30:00');
+    expect(formatDuration(3599)).toBe('59:59');
+    expect(formatDuration(36_000)).toBe('10:00:00');
   });
 });

@@ -15,13 +15,22 @@ export function Panel({
   hint,
   children,
 }: {
-  title: string;
+  /**
+   * Optional, for the panels that are already named by the thing that opened
+   * them.
+   *
+   * A module's options open inside the home screen's contextual panel, whose
+   * own head carries the module's name — so the panel underneath printing
+   * "Video" directly below a heading that says "Video" was a heading tax on the
+   * one composition that has 537 px to spend.
+   */
+  title?: string;
   hint?: string;
   children: ReactNode;
 }) {
   return (
     <section className="kh-panel">
-      <h2>{title}</h2>
+      {title !== undefined && <h2>{title}</h2>}
       {hint !== undefined && <p className="kh-hint">{hint}</p>}
       {children}
     </section>
@@ -100,6 +109,7 @@ export function Segmented({
   onChange,
   labelledBy,
   ariaLabel,
+  wrap,
 }: {
   id: string;
   value: string;
@@ -108,6 +118,15 @@ export function Segmented({
   /** Usually `${id}-label`, from the `GroupField` wrapping this. */
   labelledBy?: string | undefined;
   ariaLabel?: string | undefined;
+  /**
+   * Allow the row to run onto a second line.
+   *
+   * For the handful of choices that are genuinely longer than two or three —
+   * the five palettes, the quality ladder, the seven readings — where the
+   * alternative is a `<select>` and the round-2 audit's rule is that there
+   * isn't one on this surface any more.
+   */
+  wrap?: boolean;
 }) {
   const move = (delta: number): void => {
     const at = options.findIndex((o) => o.value === value);
@@ -118,7 +137,7 @@ export function Segmented({
 
   return (
     <div
-      className="kh-seg"
+      className={wrap === true ? 'kh-seg kh-seg--wrap' : 'kh-seg'}
       id={id}
       role="radiogroup"
       aria-labelledby={labelledBy}
@@ -180,51 +199,61 @@ export function TextInput({
   );
 }
 
-export function Select({
-  id,
-  value,
-  options,
-  onChange,
-}: {
-  id: string;
-  value: string;
-  options: readonly { value: string; label: string }[];
-  onChange: (next: string) => void;
-}) {
-  return (
-    <select
-      className="kh-select"
-      id={id}
-      value={value}
-      onChange={(e) => {
-        onChange(e.target.value);
-      }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
+/*
+ * `Select` and `Toggle` used to live here.
+ *
+ * Wave A took the native `<select>`s and checkboxes off the home screen and out
+ * of every module's options; round 2's R8 finished the job on the two surfaces
+ * that still had them — the Connection section's transport picker and its three
+ * checkboxes, and the remote's Showing / Fit / Quality pickers. There is now no
+ * native picker component in the vocabulary at all, which is the only version
+ * of that rule a codebase can actually keep: you cannot reach for what is not
+ * there. Short exclusive choices are `Segmented`; booleans are `Switch`.
+ */
 
-export function Toggle({
+/**
+ * The house boolean — ONE of them, used everywhere a yes/no is asked.
+ *
+ * The round-2 audit's control-idiom finding: the home screen's ops strip drew
+ * `Seconds [On|Off]` as a segmented control while the panel two inches below it
+ * drew the same setting as a bare browser checkbox, and a third surface drew it
+ * as a sentence. A product with three shapes for one idea is a product a person
+ * has to re-learn on every screen.
+ *
+ * It is `Segmented` rather than a hand-rolled switch on purpose: the two states
+ * are both *named*, both visible, and both one press away, which is what makes a
+ * boolean legible at a glance on a screen you are only glancing at.
+ */
+export function Switch({
   id,
   checked,
   onChange,
+  labelledBy,
+  ariaLabel,
+  onLabel,
+  offLabel,
 }: {
   id: string;
   checked: boolean;
   onChange: (next: boolean) => void;
+  labelledBy?: string | undefined;
+  ariaLabel?: string | undefined;
+  /** For the rare boolean whose two states have better names than On/Off. */
+  onLabel?: string;
+  offLabel?: string;
 }) {
   return (
-    <input
+    <Segmented
       id={id}
-      type="checkbox"
-      checked={checked}
-      onChange={(e) => {
-        onChange(e.target.checked);
+      value={checked ? 'on' : 'off'}
+      labelledBy={labelledBy}
+      ariaLabel={ariaLabel}
+      options={[
+        { value: 'on', label: onLabel ?? 'On' },
+        { value: 'off', label: offLabel ?? 'Off' },
+      ]}
+      onChange={(next) => {
+        onChange(next === 'on');
       }}
     />
   );

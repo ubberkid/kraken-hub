@@ -1,311 +1,169 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { issueUrl } from '../../../buildInfo';
-import { toJson } from '../../../diag/report';
-import { diagPhase, diagReportFreshness, DIAG_REQUEST_TIMEOUT_MS } from '../../../diag/wire';
 import { DEFAULT_MQTT_URL, DEFAULT_NTFY_BASE } from '../../../sync/endpoints';
 import {
-  Button,
   Chip,
   Code,
   Disclosure,
   Field,
+  GroupField,
   Notice,
   Panel,
   Row,
-  Select,
+  Segmented,
+  Switch,
   TextInput,
-  Toggle,
 } from '../../../ui';
-import { useSync } from '../useSync';
 
 import type { AppState } from '../../../state/schema';
 import type { ConfigRuntime } from '../runtime';
+import type { SyncHandle } from '../useSync';
 
 /**
- * Connection — the ONE place a room is configured, and the hardware report.
+ * Connection — the ONE place a room is configured, and nothing else.
  *
  * All of this used to live on the Remote page, two and three disclosures deep,
  * inside a "More controls" section that was a second complete copy of the app
  * (design audit, F6). None of it is a media control: a person driving a cooler
  * from the sofa never changes an MQTT endpoint, and a person who does is not
- * doing it on a phone.
+ * doing it on a phone. So it moved here.
  *
- * So it moved here, onto the merged About/Diagnostics page the footer's version
- * line opens, and the remote keeps exactly one quiet link to it. Three things
- * live in this section, in the order somebody actually needs them:
+ * Round 2's R3 then took the engineering out of it. What this section shipped
+ * as was three panels — *Connection*, *Hardware report*, *Connection detail* —
+ * carrying a native `<select>` whose options were sentences, three bare browser
+ * checkboxes, a paragraph containing `SHA-256(code)`, a row of six chips
+ * reading `mqtt — online · local bus — idle · topic 2RTW…`, and a cross-network
+ * diagnostics puller. Roughly 700 px of it, on a page that was 2,225 px tall.
  *
- *  1. **Connection** — transport preference, and the endpoints behind a toggle.
- *  2. **Hardware report** — the cross-network pull, which is the only way to get
- *     measurements off a machine you are not sitting at. It has to be here
- *     rather than on the remote because it is a diagnostic, and this is the
- *     diagnostics page.
- *  3. **Connection detail** plus the honest privacy note about what a broker
- *     can and cannot observe.
+ * What is left is the four settings and their labels:
  *
- * The `useSync` call is what makes the pull work: this page joins the same room
- * the remote does, so "Request hardware report" reaches a display anywhere.
+ *  - **Route** — a segmented row, one word per option (R8).
+ *  - **Use my own broker**, and the two endpoint fields it reveals.
+ *  - **Remember remote changes** and **Report back to this page**, as the house
+ *    `Switch`. There is no native checkbox anywhere in this product now.
+ *
+ * The plumbing readout and the honest privacy note are both still here and both
+ * still true — behind one disclosure each, which is where a thing that is
+ * occasionally essential and usually noise belongs. The hardware-report pull
+ * moved to the Report section, next to the rest of the diagnostics, because
+ * that is the errand it belongs to.
+ *
+ * `sync` is a prop rather than a `useSync()` call of its own: the About page
+ * mounts this beside the Report section, and two hooks would open two
+ * connections to the same room.
  */
-
-/** The diag card's own 20 s timeout ticks off this clock; 1 Hz is plenty. */
-const CLOCK_MS = 1000;
-
-/** Telemetry values arrive as `unknown`; render them without stringifying an object. */
-function asText(value: unknown, fallback: string): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return fallback;
-}
-
-export function ConnectionSection({ runtime }: { runtime: ConfigRuntime }) {
+export function ConnectionSection({
+  runtime,
+  sync,
+  now,
+}: {
+  runtime: ConfigRuntime;
+  sync: SyncHandle;
+  /** The page's 1 Hz clock, sampled outside render. `0` means "not yet". */
+  now: number;
+}) {
   const state = runtime.store.getSnapshot();
-  const sync = useSync(runtime);
   const [showEndpoints, setShowEndpoints] = useState(false);
-  const [diagRequestedAt, setDiagRequestedAt] = useState<number | null>(null);
-  const [diagCopied, setDiagCopied] = useState(false);
-
-  /**
-   * The clock, sampled OUTSIDE render — `Date.now()` during render would make
-   * this component non-idempotent, and the 20 s timeout below needs something
-   * to tick against anyway.
-   */
-  const [now, setNow] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(Date.now());
-    }, CLOCK_MS);
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
 
   const commit = (mutate: (s: AppState) => AppState): void => {
     runtime.store.commit(mutate);
   };
 
-  const paired = state.sync.roomCode !== null && state.sync.enabled;
-  const diag = sync.diagReport;
-  const diagState = diagPhase({
-    requestedAt: diagRequestedAt,
-    receivedAt: diag?.at ?? null,
-    now,
-  });
-  const diagStale = diag !== null && diagReportFreshness(diagState) === 'stale';
-  const hardwareReportUrl = issueUrl('hardware_report.yml');
   const errorPacket = sync.lastError?.body ?? null;
-  const tele = sync.lastVideo?.body ?? null;
-  const achievedFps = typeof tele?.['achievedFps'] === 'number' ? tele['achievedFps'] : null;
 
   return (
-    <>
-      <Panel
-        title="Connection"
-        hint="How this PC and your phone reach each other, and what that tells anyone else."
-      >
-        <Field
-          label="Route"
-          htmlFor="room-transport"
-          description="Automatic tries the fast route first and falls back to a slower one if it cannot connect within five seconds."
-        >
-          <Select
-            id="room-transport"
-            value={state.sync.transport === 'fake' ? 'auto' : state.sync.transport}
-            options={[
-              { value: 'auto', label: 'Automatic — recommended' },
-              { value: 'mqtt', label: 'MQTT only' },
-              { value: 'ntfy', label: 'ntfy only' },
-              { value: 'off', label: 'Off — same PC only' },
-            ]}
-            onChange={(raw) => {
-              commit((s) => ({
-                ...s,
-                sync: { ...s.sync, transport: raw as AppState['sync']['transport'] },
-              }));
-            }}
-          />
-        </Field>
+    <Panel title="Connection" hint="How this PC and your phone reach each other.">
+      {/*
+        No description under it.
 
-        <Row>
-          <Toggle id="room-endpoints" checked={showEndpoints} onChange={setShowEndpoints} />
-          <label htmlFor="room-endpoints">Use my own broker</label>
-        </Row>
-        {showEndpoints && (
-          <>
-            <Field
-              label="MQTT URL"
-              htmlFor="room-mqtt"
-              description="wss:// or ws://. Empty means this build's default."
-            >
-              <TextInput
-                id="room-mqtt"
-                value={state.sync.mqttUrl}
-                placeholder={DEFAULT_MQTT_URL}
-                onChange={(mqttUrl) => {
-                  commit((s) => ({ ...s, sync: { ...s.sync, mqttUrl } }));
-                }}
-              />
-            </Field>
-            <Field
-              label="ntfy base URL"
-              htmlFor="room-ntfy"
-              description="https:// only. Empty means this build's default."
-            >
-              <TextInput
-                id="room-ntfy"
-                value={state.sync.ntfyBase}
-                placeholder={DEFAULT_NTFY_BASE}
-                onChange={(ntfyBase) => {
-                  commit((s) => ({ ...s, sync: { ...s.sync, ntfyBase } }));
-                }}
-              />
-            </Field>
-          </>
-        )}
+        "Automatic tries the fast route first and falls back if it cannot
+        connect within five seconds" is a true sentence about a setting whose
+        first option is the word **Automatic** and which nobody who is not
+        already debugging a broker will ever touch. Two lines of the About
+        page's height budget, spent explaining the default.
+      */}
+      <GroupField label="Route" id="room-transport">
+        <Segmented
+          id="room-transport"
+          labelledBy="room-transport-label"
+          value={state.sync.transport === 'fake' ? 'auto' : state.sync.transport}
+          options={[
+            { value: 'auto', label: 'Automatic' },
+            { value: 'mqtt', label: 'MQTT' },
+            { value: 'ntfy', label: 'ntfy' },
+            { value: 'off', label: 'Same PC only' },
+          ]}
+          onChange={(raw) => {
+            commit((s) => ({
+              ...s,
+              sync: { ...s.sync, transport: raw as AppState['sync']['transport'] },
+            }));
+          }}
+        />
+      </GroupField>
 
-        <Row>
-          <Toggle
-            id="room-persist"
-            checked={state.sync.persistRemote}
-            onChange={(persistRemote) => {
-              commit((s) => ({ ...s, sync: { ...s.sync, persistRemote } }));
-            }}
-          />
-          <label htmlFor="room-persist">Your Kraken remembers remote changes across reboots</label>
-        </Row>
-        <Row>
-          <Toggle
-            id="room-tele"
-            checked={state.sync.publishTelemetry}
-            onChange={(publishTelemetry) => {
-              commit((s) => ({ ...s, sync: { ...s.sync, publishTelemetry } }));
-            }}
-          />
-          <label htmlFor="room-tele">Your Kraken reports back to this page</label>
-        </Row>
-      </Panel>
+      <GroupField label="Use my own broker" id="room-endpoints">
+        <Switch
+          id="room-endpoints"
+          labelledBy="room-endpoints-label"
+          checked={showEndpoints}
+          onChange={setShowEndpoints}
+        />
+      </GroupField>
+      {showEndpoints && (
+        <>
+          <Field label="MQTT address" htmlFor="room-mqtt">
+            <TextInput
+              id="room-mqtt"
+              value={state.sync.mqttUrl}
+              placeholder={DEFAULT_MQTT_URL}
+              onChange={(mqttUrl) => {
+                commit((s) => ({ ...s, sync: { ...s.sync, mqttUrl } }));
+              }}
+            />
+          </Field>
+          <Field label="ntfy address" htmlFor="room-ntfy">
+            <TextInput
+              id="room-ntfy"
+              value={state.sync.ntfyBase}
+              placeholder={DEFAULT_NTFY_BASE}
+              onChange={(ntfyBase) => {
+                commit((s) => ({ ...s, sync: { ...s.sync, ntfyBase } }));
+              }}
+            />
+          </Field>
+        </>
+      )}
 
-      <Panel
-        title="Hardware report"
-        hint="Pull a report off the machine running CAM — from this browser, on any machine."
-      >
-        <p className="kh-hint">
-          Your Kraken checks itself for about five seconds and sends the answer back over the paired
-          room, encrypted like everything else. It does <strong>not</strong> need to have been
-          opened with <Code inline>?diag=1</Code>, and that is the point: nobody can edit a URL on a
-          hidden window from another computer.
-        </p>
-        <Row>
-          <Button
-            primary
-            disabled={!paired || diagState === 'waiting'}
-            testId="request-report"
-            title={
-              paired
-                ? 'Asks the display for a report; it answers on the telemetry channel.'
-                : 'Pair a room on the Remote page first — there is nothing to ask.'
-            }
-            onClick={() => {
-              setDiagCopied(false);
-              setDiagRequestedAt(Date.now());
-              sync.sendCmd('requestDiag');
-            }}
-          >
-            {diagState === 'waiting' ? 'Waiting for the display…' : 'Request hardware report'}
-          </Button>
-          {diag !== null && (
-            <Chip tone={diagStale ? 'warn' : 'ok'}>
-              {diagStale ? 'stale — from an earlier request, captured ' : 'captured '}
-              {new Date(diag.report.capturedAt).toLocaleTimeString()}
-            </Chip>
-          )}
-        </Row>
+      <GroupField label="Your Kraken remembers remote changes" id="room-persist">
+        <Switch
+          id="room-persist"
+          labelledBy="room-persist-label"
+          checked={state.sync.persistRemote}
+          onChange={(persistRemote) => {
+            commit((s) => ({ ...s, sync: { ...s.sync, persistRemote } }));
+          }}
+        />
+      </GroupField>
+      <GroupField label="Your Kraken reports back to this page" id="room-tele">
+        <Switch
+          id="room-tele"
+          labelledBy="room-tele-label"
+          checked={state.sync.publishTelemetry}
+          onChange={(publishTelemetry) => {
+            commit((s) => ({ ...s, sync: { ...s.sync, publishTelemetry } }));
+          }}
+        />
+      </GroupField>
 
-        {diagState === 'waiting' && (
-          <p className="kh-hint">
-            Asked. The display measures its frame rate for three seconds before it answers, so this
-            normally takes five or six — and gives up after{' '}
-            {Math.round(DIAG_REQUEST_TIMEOUT_MS / 1000)}.
-          </p>
-        )}
-        {diagState === 'timeout' && (
-          <Notice tone="error">
-            The display did not answer — is it on and paired? Your Kraken is only reachable while
-            CAM has kraken-hub open on the same room code.
-            {diagStale && ' The report below is the earlier one, not an answer to this request.'}
-          </Notice>
-        )}
+      {/*
+        The plumbing, one tap down.
 
-        {diag !== null && (
-          <>
-            <table className="kh-table" data-testid="pulled-summary">
-              <tbody>
-                <tr>
-                  <th scope="row">Panel</th>
-                  <td>
-                    {diag.report.device.width}×{diag.report.device.height}{' '}
-                    {diag.report.device.shape} ({diag.report.device.geometrySource})
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">devicePixelRatio</th>
-                  <td>{diag.report.device.dpr}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Target FPS</th>
-                  <td>{diag.report.device.targetFps}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Chromium</th>
-                  <td>{diag.report.capabilities.chromiumVersion ?? 'not Chromium'}</td>
-                </tr>
-                <tr>
-                  <th scope="row">window.nzxt</th>
-                  <td>{diag.report.injection.present ? 'injected' : 'absent'}</td>
-                </tr>
-                <tr>
-                  <th scope="row">rAF fps (p50)</th>
-                  <td>{diag.report.timings.rafFps?.p50?.toFixed(1) ?? '—'}</td>
-                </tr>
-                <tr>
-                  <th scope="row">Build</th>
-                  <td>
-                    {diag.report.app.version} · {diag.report.app.gitSha}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <details data-testid="pulled-report">
-              <summary>Raw JSON</summary>
-              <Code>{toJson(diag.report)}</Code>
-            </details>
-            <Row>
-              <Button
-                primary
-                testId="copy-report"
-                onClick={() => {
-                  void navigator.clipboard.writeText(toJson(diag.report)).then(
-                    () => {
-                      setDiagCopied(true);
-                    },
-                    () => {
-                      setDiagCopied(false);
-                    },
-                  );
-                }}
-              >
-                {diagCopied ? 'Copied' : 'Copy JSON'}
-              </Button>
-              {hardwareReportUrl !== null && (
-                <a className="kh-btn" href={hardwareReportUrl} target="_blank" rel="noreferrer">
-                  File a hardware report
-                </a>
-              )}
-            </Row>
-          </>
-        )}
-      </Panel>
-
-      <Panel title="Connection detail" hint="What the link is doing, in its own words.">
+        Six chips of transport vocabulary on the page itself answered a question
+        almost nobody was asking; the person who IS asking it knows to open a
+        drawer called "Connection detail".
+      */}
+      <Disclosure summary="Connection detail" testId="connection-detail">
         <Row>
           <Chip tone={sync.status?.network === 'online' ? 'ok' : 'warn'} testId="connection-net">
             {sync.status === null
@@ -320,12 +178,9 @@ export function ConnectionSection({ runtime }: { runtime: ConfigRuntime }) {
           )}
           <Chip tone={sync.lastTele === null ? 'neutral' : 'ok'}>
             {sync.lastTele === null
-              ? 'no telemetry yet'
-              : `display seen ${String(Math.max(0, Math.round((now - sync.lastTele.at) / 1000)))}s ago`}
+              ? 'nothing heard yet'
+              : `heard ${String(Math.max(0, Math.round((now - sync.lastTele.at) / 1000)))}s ago`}
           </Chip>
-          {achievedFps !== null && (
-            <Chip tone="neutral">{achievedFps.toFixed(1)} fps achieved</Chip>
-          )}
           {sync.topicId !== null && <Chip tone="neutral">topic {sync.topicId}</Chip>}
         </Row>
         {sync.status?.lastError != null && <Notice tone="warn">{sync.status.lastError}</Notice>}
@@ -340,24 +195,30 @@ export function ConnectionSection({ runtime }: { runtime: ConfigRuntime }) {
             code.
           </Notice>
         )}
+      </Disclosure>
 
-        <Disclosure summary="What leaves your machine" testId="privacy-note">
-          <p className="kh-hint">
-            Only the room code stays private, and only because you never send it: the broker sees a
-            topic derived from <Code inline>SHA-256(code)</Code>, and every payload is AES-GCM
-            encrypted under a key derived from the same code, with a separate key per channel. What
-            the broker can observe is that <em>some</em> topic exists, how big the messages are and
-            how often they arrive. What it cannot read is the video URL, the seek position, the clip
-            names or any error text.
-          </p>
-          <p className="kh-hint">
-            Telemetry contains playback position, achieved frame rate, panel geometry, error codes,
-            the names and durations of stored clips, and a <em>hash</em> of the source URL — never
-            the URL itself. Full detail, including the honest limits of a 40-bit room code, is in
-            docs/remote-control.md.
-          </p>
-        </Disclosure>
-      </Panel>
-    </>
+      <Disclosure summary="What leaves your machine" testId="privacy-note">
+        <p className="kh-hint">
+          Only the room code stays private, and only because you never send it: the broker sees a
+          topic derived from <Code inline>SHA-256(code)</Code>, and every payload is AES-GCM
+          encrypted under a key derived from the same code, with a separate key per channel. What
+          the broker can observe is that <em>some</em> topic exists, how big the messages are and
+          how often they arrive. What it cannot read is the video link, the seek position, the clip
+          names or any error text.
+        </p>
+        <p className="kh-hint">
+          What your Kraken reports back is playback position, achieved frame rate, panel geometry,
+          error codes, the names and durations of what is in your library, and a <em>hash</em> of
+          the source link — never the link itself.
+        </p>
+      </Disclosure>
+    </Panel>
   );
+}
+
+/** Telemetry values arrive as `unknown`; render them without stringifying an object. */
+function asText(value: unknown, fallback: string): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
 }
