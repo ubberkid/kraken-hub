@@ -246,11 +246,23 @@ describe('describeFlow', () => {
   });
 
   it('never puts the browser’s own words on the home screen', () => {
-    const line = failureLine(
-      entry({ state: 'error', reason: 'network', error: 'Failed to fetch' }),
-    );
+    const failed = entry({ state: 'error', reason: 'network', error: 'Failed to fetch' });
+    const line = failureLine(failed, 'live');
     expect(line).not.toContain('Failed to fetch');
     expect(line).toContain('playing it from the link');
+
+    /*
+     * …and round 7's F2: the tail is a claim about the panel.
+     *
+     * All four of these sentences asserted "your Kraken IS playing it from the
+     * link" in the present progressive, on any window, with nothing asked. The
+     * reason stays put in every tense — a disk that is full is a fact about this
+     * PC — and only the clause about the panel moves.
+     */
+    const unseen = failureLine(failed, 'never-seen');
+    expect(unseen).toContain('The download did not finish');
+    expect(unseen).not.toContain('is playing');
+    expect(unseen).toContain('when it connects');
   });
 });
 

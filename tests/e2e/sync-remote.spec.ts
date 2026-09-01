@@ -363,12 +363,56 @@ test('a cold display restores from the retained snapshot ALONE', async ({ contex
  * unchanged in intent: a loop change made on the phone reaches the display in
  * under a second, through the ordinary state channel and its 5 Hz coalescing.
  */
+/**
+ * A duration the display REPORTED — round 7's F1.
+ *
+ * The two loop tests below used to lean on the fabricated one-hour rail: their
+ * own comment said *"no duration is known here, so the track spans the one-hour
+ * ceiling"* and then dragged handle A to "~1800 s" of a video nobody had
+ * measured. That number is exactly what F1 removed — without a reported length
+ * the handles are disabled and nothing is written — so the tests keep their
+ * intent (a drag reaches the display; the handles are keyboard-operable) and
+ * get a real timeline to operate on, seeded into the same `playback` the
+ * display publishes.
+ */
+async function seedDuration(page: Page, durationSec: number): Promise<void> {
+  await page.addInitScript(
+    ([key, sec]) => {
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          schema: 2,
+          rev: 1,
+          updatedAt: Date.now(),
+          writerId: 'e2e-duration',
+          writerRole: 'config',
+          activeModuleId: 'video',
+          playback: {
+            ownerModuleId: 'video',
+            paused: false,
+            posSec: 0,
+            posAtTs: Date.now(),
+            durationSec: sec,
+            rate: 1,
+            muted: true,
+            volume: 1,
+            loop: { enabled: false, startSec: 0, endSec: null },
+          },
+        }),
+      );
+    },
+    [STATE_KEY, durationSec] as const,
+  );
+}
+
 test('a dragged loop handle reaches the display in under a second', async ({ context }) => {
   const display = await context.newPage();
+  await seedDuration(display, 3600);
   await display.goto(displayUrl('BCDE2345'));
   await expect(display.locator('.kh-stage')).toBeVisible();
 
   const remote = await context.newPage();
+  await seedDuration(remote, 3600);
   await remote.goto(remoteUrl('BCDE2345'));
   await expect(remote.getByTestId('paired-summary')).toBeVisible();
 
@@ -376,8 +420,9 @@ test('a dragged loop handle reaches the display in under a second', async ({ con
   // below measures the update rather than the initial handshake.
   await expect.poll(async () => Object.keys(await readSync(display)).length).toBeGreaterThan(0);
 
-  // No duration is known here (nothing is playing), so the track spans the
-  // one-hour ceiling: dragging handle A to the middle asks for ~1800 s.
+  // A one-hour timeline, REPORTED rather than invented (F1): dragging handle A
+  // to the middle asks for ~1800 s of a length the display actually published.
+  await expect(remote.getByTestId('scrubber')).toHaveAttribute('data-scale', 'known');
   const box = await boxOf(remote.locator('.kh-scrub__track'));
   const from = await boxOf(remote.getByTestId('loop-handle-a'));
 
@@ -409,6 +454,7 @@ test('a dragged loop handle reaches the display in under a second', async ({ con
  */
 test('the loop handles are reachable and adjustable from the keyboard', async ({ context }) => {
   const remote = await context.newPage();
+  await seedDuration(remote, 600);
   await remote.goto(remoteUrl('JKLM1234'));
   await expect(remote.getByTestId('paired-summary')).toBeVisible();
 

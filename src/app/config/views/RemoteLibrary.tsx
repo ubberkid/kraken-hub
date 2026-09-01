@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { NOTHING_KEPT } from '../../../config/vocabulary';
+import { NOTHING_KEPT, OFFLINE_PROMISE } from '../../../config/vocabulary';
 import { Button, Notice } from '../../../ui';
 import {
   NO_PENDING,
@@ -11,7 +11,7 @@ import {
   type Pending,
 } from '../curationOptimistic';
 import { buildLibraryTiles, tileDetail } from '../libraryItems';
-import { nowShowingBadge, type PanelPresence } from '../panelPresence';
+import { nowShowingBadge } from '../panelClaims';
 import { activeTileKey, showTile } from '../showTile';
 import { libraryFromWire } from '../wireLibrary';
 
@@ -21,6 +21,7 @@ import { RemoteTileArt } from './TileArt';
 import type { Store } from '../../../state/store';
 import type { CmdOp } from '../../../sync/types';
 import type { LibraryTile } from '../libraryItems';
+import type { PanelPresence } from '../panelPresence';
 import type { ReactNode } from 'react';
 
 /**
@@ -325,16 +326,23 @@ export function RemoteLibrary({
       {notice !== null && <Notice tone="warn">{notice}</Notice>}
 
       {tiles.length === 0 ? (
-        <p className="kh-hint" data-testid="remote-library-empty">
+        <div className="kh-empty" data-testid="remote-library-empty">
           {/*
-            The same sentence CAM's empty shelf uses, from `vocabulary.ts`.
+            The same sentence CAM's empty shelf uses, in the same FRAME — round
+            7's minors.
 
             "Nothing kept here" is true on a phone for exactly the same reason it
-            is true in CAM — there is one library and it holds nothing — which is
-            the entire point of saying it in the same words.
+            is true in CAM: there is one library and it holds nothing. Round 5
+            unified the words and left the shape alone, and the audit's
+            screenshots show what that is worth — CAM draws a bordered card with
+            a title and the offline promise inside it, and the phone drew one
+            grey line of body text flush against the Add button, reading as a
+            caption for the control above rather than as the state of the shelf
+            below. One library, one empty state.
           */}
-          {NOTHING_KEPT}
-        </p>
+          <p className="kh-empty__title">{NOTHING_KEPT}</p>
+          <p className="kh-hint">{OFFLINE_PROMISE}</p>
+        </div>
       ) : (
         <ul className="kh-grid kh-grid--remote" data-testid="remote-library-grid">
           {tiles.map((tile) => (

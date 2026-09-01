@@ -4,10 +4,11 @@ import { SAME_NETWORK_NOTE } from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
 import { Button, Meter, Notice } from '../../../ui';
 import { RECEIPT_LINGER_MS } from '../homeState';
-import { linkReceipt, type PanelPresence } from '../panelPresence';
+import { linkReceipt } from '../panelClaims';
 import { pasteAction } from '../pasteLink';
 
 import type { SendStatus, TransferSendHandle } from '../../../transfer/send';
+import type { PanelPresence } from '../panelPresence';
 import type { ConfigRuntime } from '../runtime';
 import type { SyncHandle } from '../useSync';
 
@@ -90,6 +91,9 @@ export function RemoteAdd({
   runtime,
   sync,
   presence,
+  narrow,
+  open,
+  onOpenChange,
 }: {
   runtime: ConfigRuntime;
   sync: SyncHandle;
@@ -102,6 +106,25 @@ export function RemoteAdd({
    * from, and two derivations of one fact is how the fact stops being one.
    */
   presence: PanelPresence;
+  /**
+   * Is this a phone-width window? — round 7's minors.
+   *
+   * The long placeholder ("Paste a picture link — JPG, PNG, WebP, GIF…") is
+   * written for a desk and truncates mid-word on a 390 px screen, which reads as
+   * a rendering bug. `pasteAction` has taken this option since round 5 and every
+   * caller passed it except this one — the panel that only ever renders on a
+   * phone. Passed down rather than sampled here so the page has one answer.
+   */
+  narrow: boolean;
+  /**
+   * Owned by the surface, because what it hides is not in this component.
+   *
+   * The essentials section below carries the same module's link field, so
+   * opening this panel used to put two boxes for one link on one screen. The
+   * page needs to know, so the page holds the state.
+   */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const state = runtime.store.getSnapshot();
   /**
@@ -111,8 +134,7 @@ export function RemoteAdd({
    * becomes the same quiet switch the other two surfaces show, rather than a
    * field asking a sofa for a video link while a clock is on the panel.
    */
-  const action = pasteAction(runtime, state.activeModuleId);
-  const [open, setOpen] = useState(false);
+  const action = pasteAction(runtime, state.activeModuleId, { narrow });
   const [draft, setDraft] = useState(() =>
     action === null || action.clearOnAccept ? '' : action.value,
   );
@@ -247,7 +269,7 @@ export function RemoteAdd({
           aria-controls="kh-remote-add"
           title={open ? 'Close' : 'Add a link or a file'}
           onClick={() => {
-            setOpen((was) => !was);
+            onOpenChange(!open);
             setLinkNote(null);
           }}
         >

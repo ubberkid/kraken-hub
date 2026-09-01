@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { LINK_RECEIPT, LINK_RECEIPT_UNSEEN } from '../../config/vocabulary';
-
 import {
   PRESENCE_FRESH_MS,
-  linkReceipt,
   panelIsKnown,
   panelIsLive,
   panelPresence,
-  playingLine,
-  settledReceipt,
   type PanelPresence,
 } from './panelPresence';
 
@@ -68,7 +63,7 @@ describe('panelPresence', () => {
   });
 });
 
-describe('what each state lets the app say', () => {
+describe('what each state permits', () => {
   const ALL: readonly PanelPresence[] = ['never-seen', 'quiet', 'live'];
 
   it('permits the present tense only when telemetry is fresh', () => {
@@ -77,39 +72,5 @@ describe('what each state lets the app say', () => {
 
   it('permits naming a destination for anything but a Kraken never seen', () => {
     expect(ALL.filter(panelIsKnown)).toEqual(['quiet', 'live']);
-  });
-
-  /**
-   * C2 — the ladder's last card.
-   *
-   * The two shapes are asserted as a pair, in both directions: a settled story
-   * on a window that has never met a Kraken must not claim a screen, and one
-   * that has must not be demoted to a promise.
-   */
-  it('settles on a screen only when one has been seen', () => {
-    expect(settledReceipt('live').headline).toBe('On screen now');
-    expect(settledReceipt('quiet').headline).toBe('On screen now');
-    const unseen = settledReceipt('never-seen');
-    expect(unseen.headline).toBe('Saved');
-    expect(unseen.sub).toBe('Plays when your Kraken connects');
-    expect(unseen.sub).not.toContain('Playing');
-  });
-
-  /** C5 — the link receipt, on all three fields that print one. */
-  it('promises a tile only into a room something is listening in', () => {
-    expect(linkReceipt('live')).toBe(LINK_RECEIPT);
-    expect(linkReceipt('quiet')).toBe(LINK_RECEIPT);
-    expect(linkReceipt('never-seen')).toBe(LINK_RECEIPT_UNSEEN);
-    // The one word the unseen receipt must never contain: it is the claim the
-    // window cannot check.
-    expect(LINK_RECEIPT_UNSEEN).not.toContain('shortly');
-  });
-
-  /** C3 — the remote's sub-line is a claim about this exact second. */
-  it('says nothing at all about playback unless telemetry is fresh', () => {
-    expect(playingLine('never-seen', false)).toBeNull();
-    expect(playingLine('quiet', false)).toBeNull();
-    expect(playingLine('live', false)).toBe('Playing on your Kraken');
-    expect(playingLine('live', true)).toBe('Holding on your Kraken');
   });
 });

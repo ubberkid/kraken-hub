@@ -4,6 +4,7 @@ import {
   PLACEHOLDER,
   buildTile,
   cToF,
+  dialLabelRepeats,
   formatLoad,
   formatRpm,
   formatTemp,
@@ -177,5 +178,38 @@ describe('validateStatsConfig', () => {
     expect(once.layout).toBe('grid');
     expect(once.unit).toBe('f');
     expect(validateStatsConfig(once)).toEqual(once);
+  });
+});
+
+describe('a dial is labelled once', () => {
+  /**
+   * Round 7's minors. The audit's display capture shows **CPU 17%** in the arc
+   * gap and **CPU** again under the number, on both dials, on the 640 px panel
+   * where a repeated word costs the most.
+   */
+  it('drops the standalone label when the sub-line already names the same thing', () => {
+    const dual: StatsConfig = { ...cfg, layout: 'dual' };
+    for (const tile of tilesFor(dual, feed())) {
+      const secondary = secondaryFor(tile, dual, feed());
+      expect(secondary?.label).toBe(tile.label);
+      expect(dialLabelRepeats(tile, secondary)).toBe(true);
+    }
+  });
+
+  /** …and keeps it wherever the two lines genuinely name different things. */
+  it('keeps a label the sub-line does not repeat', () => {
+    const single: StatsConfig = { ...cfg, layout: 'single', primary: 'liquidTemp' };
+    const [tile] = tilesFor(single, feed());
+    const secondary = tile === undefined ? null : secondaryFor(tile, single, feed());
+    expect(secondary?.label).not.toBe(tile?.label);
+    expect(tile === undefined ? true : dialLabelRepeats(tile, secondary)).toBe(false);
+  });
+
+  /** The grid has no sub-line at all, so its long labels always stand. */
+  it('always labels the grid, which has no second line', () => {
+    const grid: StatsConfig = { ...cfg, layout: 'grid' };
+    for (const tile of tilesFor(grid, feed())) {
+      expect(dialLabelRepeats(tile, secondaryFor(tile, grid, feed()))).toBe(false);
+    }
   });
 });

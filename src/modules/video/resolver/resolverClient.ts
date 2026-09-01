@@ -23,6 +23,7 @@ import { createLogger } from '../../../lib/log';
 import { readSessionRaw, writeSessionRaw } from '../../../platform/storage';
 import { publish } from '../telemetry/videoTelemetry';
 
+import { probeLoopback } from './loopbackProbe';
 import {
   DEFAULT_RETRY_AFTER_MS,
   RESOLVER_API_VERSION,
@@ -181,14 +182,39 @@ export async function checkHealth(
     return session;
   }
 
-  const doFetch = opts.fetchImpl ?? globalThis.fetch;
+  /*
+   * The probe runs OFF the main thread when it can — round 7's minors.
+   *
+   * Not running is the normal case, and the renderer logs every failed
+   * subresource load as an error before our `catch` ever sees the rejection. So
+   * a user with no companion — nearly all of them — collected a red
+   * `net::ERR_CONNECTION_REFUSED` in their console for a feature behaving
+   * exactly as §6.4 specifies. `loopbackProbe` asks the same question from a
+   * dedicated worker, whose failures do not reach the page console; a caller
+   * that injects `fetchImpl` (every unit test) and any environment without
+   * workers still take the direct path.
+   */
+  const injected = opts.fetchImpl;
   let state: HealthState;
   try {
-    const res = await doFetch(`${base}/health`, {
-      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
-      headers: headers(cfg),
-    });
-    const health = res.ok ? parseHealth(await res.json()) : null;
+    let res: { ok: boolean; status: number; body: unknown };
+    if (injected === undefined) {
+      const probe = await probeLoopback(`${base}/health`, {
+        headers: headers(cfg),
+        timeoutMs: HEALTH_TIMEOUT_MS,
+      });
+      // `null` is "nothing answered", which is the `catch` below's case reached
+      // without an exception. One shape, two routes.
+      if (probe === null) throw new Error('no answer');
+      res = { ok: probe.ok, status: probe.status, body: probe.ok ? JSON.parse(probe.body) : null };
+    } else {
+      const got = await injected(`${base}/health`, {
+        signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+        headers: headers(cfg),
+      });
+      res = { ok: got.ok, status: got.status, body: got.ok ? await got.json() : null };
+    }
+    const health = res.ok ? parseHealth(res.body) : null;
     if (health === null) {
       state = {
         healthy: false,

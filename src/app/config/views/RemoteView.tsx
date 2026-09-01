@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ytPosterUrls } from '../../../config/knownHosts';
+import { UNPAIR_NOTE } from '../../../config/vocabulary';
 import { localImageId, validateImageConfig } from '../../../modules/image/schema';
 import { listModules } from '../../../modules/registry';
 import { detect } from '../../../modules/video/routing/detect';
@@ -28,11 +29,13 @@ import {
 } from '../../../ui';
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
 import { RECEIPT_LINGER_MS, sourceName } from '../homeState';
-import { PRESENCE_FRESH_MS, linkReceipt, panelPresence, playingLine } from '../panelPresence';
+import { linkReceipt, panelVerb, playingLine } from '../panelClaims';
+import { PRESENCE_FRESH_MS, panelPresence } from '../panelPresence';
 import { pasteAction, type PasteIssue } from '../pasteLink';
 import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
 import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom';
 import { currentHash, hashQuery, subscribeRoute } from '../router';
+import { ownsBytes } from '../surface';
 import { PHONE_QUERY, useNarrow } from '../useNarrow';
 import { useSync } from '../useSync';
 
@@ -666,6 +669,30 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const offerInstall = !live && !narrow && !runtime.camDetected;
 
   /**
+   * …and round 7's F5: WHICH WINDOW is asking for the remote?
+   *
+   * `#/remote` served one page to every surface, and in CAM's Configuration
+   * Browser that page was a remote control for the machine it was running on.
+   * The audit's screenshots are the argument: a replica ring above CAM's own
+   * live mirror, a scrubber and a ±10 for a panel whose real transport is one
+   * click away on the home screen, a **Library** that is the very database this
+   * window owns, and a card announcing **Paired with your PC** — to the PC. The
+   * unpaired state was worse, because it was advice: *"scan it from the CAM
+   * window on your PC"*, printed inside the CAM window on that PC.
+   *
+   * `docs/remote-control.md` has always described the right flow — press
+   * **Create a code** in CAM, then point your phone's camera at the QR — and the
+   * UI hid the QR behind a disclosure under a self-pairing headline. So the two
+   * surfaces are two pages: CAM gets PAIRING, with the square it exists to show
+   * at the size a camera needs, and everything that drives the Kraken from
+   * somewhere else keeps the instrument.
+   *
+   * `ownsBytes` rather than a fifth signal: the window whose IndexedDB the LCD
+   * reads is exactly the window that is not remote from it (`surface.ts`).
+   */
+  const pairingSurface = ownsBytes(runtime);
+
+  /**
    * The link row, in the active module's own noun — round 5's S1.
    *
    * The SAME object CAM's home row is built from (`pasteAction`), so the two
@@ -685,6 +712,22 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    * carry a picture URL into the video field, and arriving on a module shows
    * what that module is holding.
    */
+  /**
+   * Is the **Add** panel open? — round 7's minors, "one field per screen".
+   *
+   * The state is lifted out of `RemoteAdd` because the thing it has to hide is
+   * not inside `RemoteAdd`: pressing **+ Add** opened a panel with a link field
+   * in it while the essentials section below kept its own link field for the
+   * same module, so a 390 px screen carried two boxes asking for one picture
+   * link, 200 px apart, with two different placeholders. Whichever one you type
+   * into does exactly the same thing, which is the tell that there should be
+   * one.
+   *
+   * The Add panel wins while it is open because it is the one the user just
+   * asked for, and it is the one that also offers **Send a file**.
+   */
+  const [addOpen, setAddOpen] = useState(false);
+
   const [draftOwner, setDraftOwner] = useState(state.activeModuleId);
   if (draftOwner !== state.activeModuleId) {
     setDraftOwner(state.activeModuleId);
@@ -708,27 +751,45 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   };
 
   return (
-    <div className="kh-remote" data-testid="remote" data-live={live ? 'true' : 'false'}>
-      <RemoteRing
-        moduleId={state.activeModuleId}
-        config={state.modules[state.activeModuleId]?.cfg ?? null}
-        render={state.render}
-        display={sync.monitor?.display ?? null}
-        monitor={sync.monitor?.snapshot ?? null}
-        monitorAt={sync.monitor?.at ?? 0}
-        posterUrl={isVideo ? posterUrl : null}
-        /*
+    <div
+      className="kh-remote"
+      data-testid="remote"
+      data-live={live ? 'true' : 'false'}
+      /* Which of the two pages this is — F5. The e2e suite asserts the state. */
+      data-surface={pairingSurface ? 'pairing' : 'instrument'}
+    >
+      {/*
+        No instrument for the machine it runs on (F5).
+
+        Everything from here to the pairing card is a way to drive a Kraken from
+        somewhere else: a replica of the panel, a transport for it, and a shelf
+        drawn from the wire. In CAM every one of those has a truer version on the
+        home screen — a live iframe of the real display page, the real ops strip,
+        and the actual database. A second, worse copy of all three is not a
+        remote control, it is a second app.
+      */}
+      {!pairingSurface && (
+        <RemoteRing
+          moduleId={state.activeModuleId}
+          config={state.modules[state.activeModuleId]?.cfg ?? null}
+          render={state.render}
+          display={sync.monitor?.display ?? null}
+          monitor={sync.monitor?.snapshot ?? null}
+          monitorAt={sync.monitor?.at ?? 0}
+          posterUrl={isVideo ? posterUrl : null}
+          /*
           The name the ring's fallback card carries, or `''` for "nothing to
           name". Video with no source is the one case that must stay blank: the
           status line already says "Ready to play the demo clip", and the card
           printing the same four words six pixels away is round 2's R11.
         */
-        name={isVideo && videoCfg.url.trim() === '' ? '' : title}
-        progress={ringProgress}
-        held={held}
-      />
+          name={isVideo && videoCfg.url.trim() === '' ? '' : title}
+          progress={ringProgress}
+          held={held}
+        />
+      )}
 
-      {live && (
+      {!pairingSurface && live && (
         <>
           <h2 className="kh-remote__title" data-testid="remote-title">
             {title}
@@ -778,25 +839,40 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                 positionSec={seekBarValue}
                 loop={videoCfg.loop}
                 onLoopChange={publishLoop}
-                onSeek={(next) => {
-                  /*
-                   * The echo guard.
-                   *
-                   * React delivers BOTH `input` and `change` for a controlled range, and
-                   * by the time the second one runs the component has already re-rendered
-                   * with the telemetry-anchored position — so the echo arrives carrying
-                   * the value the bar snapped back to, not the one the user chose. Acting
-                   * on it seeks the display back to where it already was.
-                   *
-                   * The tolerance is half a step, not exact equality, because the two
-                   * numbers are not the same number: the bar renders a continuous
-                   * `3.503996` and the input reports the grid value `3.5`. Half a step is
-                   * also exactly the widest a real gesture can never be.
-                   */
-                  if (Math.abs(next - seekBarValue) < SEEK_SLIDER_STEP_SEC / 2) return;
-                  sync.sendCmd('seekTo', next);
-                  publishSeek(next);
-                }}
+                /*
+                  One group, one answer — round 7's F3.
+
+                  The three transport buttons greyed out on `displayOnline` and
+                  the rail beside them did not: a tap on a dead link moved the
+                  thumb, sent a `seekTo` into a room with nobody in it, and left
+                  the bar showing a position no display had ever reported. It is
+                  the same question about the same panel, so it is the same
+                  answer — and `LoopScrubber` already turns an absent `onSeek`
+                  into a read-only rail with the honest tooltip.
+                */
+                onSeek={
+                  !displayOnline
+                    ? undefined
+                    : (next) => {
+                        /*
+                         * The echo guard.
+                         *
+                         * React delivers BOTH `input` and `change` for a controlled range, and
+                         * by the time the second one runs the component has already re-rendered
+                         * with the telemetry-anchored position — so the echo arrives carrying
+                         * the value the bar snapped back to, not the one the user chose. Acting
+                         * on it seeks the display back to where it already was.
+                         *
+                         * The tolerance is half a step, not exact equality, because the two
+                         * numbers are not the same number: the bar renders a continuous
+                         * `3.503996` and the input reports the grid value `3.5`. Half a step is
+                         * also exactly the widest a real gesture can never be.
+                         */
+                        if (Math.abs(next - seekBarValue) < SEEK_SLIDER_STEP_SEC / 2) return;
+                        sync.sendCmd('seekTo', next);
+                        publishSeek(next);
+                      }
+                }
               />
 
               <div className="kh-transport" role="group" aria-label="Playback">
@@ -880,7 +956,23 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
               pipeline CAM's own drop target uses, so the sentence is retired and
               the control that makes it untrue stands where it stood.
             */
-            add={<RemoteAdd runtime={runtime} sync={sync} presence={presence} />}
+            add={
+              <RemoteAdd
+                runtime={runtime}
+                sync={sync}
+                presence={presence}
+                /*
+                  The phone's own Add panel had the DESKTOP placeholder — "Paste
+                  a picture link — JPG, PNG, WebP, GIF…" — because it was the one
+                  `pasteAction` call site in the product that never passed the
+                  width. `useNarrow` lives up here, so the answer travels down
+                  rather than being sampled a second time.
+                */
+                narrow={narrow}
+                open={addOpen}
+                onOpenChange={setAddOpen}
+              />
+            }
           />
 
           {/*
@@ -896,57 +988,70 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         `ui/Framing`, so the same setting is never learned twice.
       */}
           <section className="kh-remote__ess" data-testid="remote-essentials" aria-label="Controls">
-            {action === null ? (
-              /*
+            {/*
+              One field per screen (round 7, minors).
+
+              This row and the Add panel's row are the same control for the same
+              module; the Add panel is the one the user opened, so this one steps
+              out of the way while it is up rather than shouting the same request
+              twice with two different placeholders.
+            */}
+            {!addOpen &&
+              (action === null ? (
+                /*
                 Clock and Stats have nothing to be handed — the home screen's
                 answer, on the screen that never got it (S1). A field asking a
                 sofa for a video link while the panel shows a clock is the most
                 prominent control on the page addressing a module that cannot
                 use it.
               */
-              <p className="kh-remote__src kh-remote__src--quiet">
-                <button
-                  type="button"
-                  className="kh-quiet"
-                  data-testid="remote-paste-switch"
-                  onClick={() => {
-                    commit((s) => ({ ...s, activeModuleId: VIDEO_ID }));
-                    wantsPaste.current = true;
+                <p className="kh-remote__src kh-remote__src--quiet">
+                  <button
+                    type="button"
+                    className="kh-quiet"
+                    data-testid="remote-paste-switch"
+                    onClick={() => {
+                      commit((s) => ({ ...s, activeModuleId: VIDEO_ID }));
+                      wantsPaste.current = true;
+                    }}
+                  >
+                    Play something
+                  </button>
+                </p>
+              ) : (
+                <form
+                  className="kh-remote__src"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submitLink();
                   }}
                 >
-                  Play something
-                </button>
-              </p>
-            ) : (
-              <form
-                className="kh-remote__src"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  submitLink();
-                }}
-              >
-                <label className="kh-sr" htmlFor="remote-src">
-                  {action.label}
-                </label>
-                <TextInput
-                  id="remote-src"
-                  inputRef={pasteRef}
-                  value={urlValue}
-                  /* The spine's fingerprint — see `pasteLink.ts` and C1. */
-                  pasteField={action.moduleId}
-                  placeholder={action.placeholder}
-                  onChange={(next) => {
-                    setUrlDraft(next);
-                    setUrlIssue(null);
-                    setReceipt(false);
-                  }}
-                />
-                <button type="submit" className="kh-btn kh-btn--primary" data-testid="remote-play">
-                  {action.submitLabel}
-                </button>
-              </form>
-            )}
-            {urlIssue !== null && (
+                  <label className="kh-sr" htmlFor="remote-src">
+                    {action.label}
+                  </label>
+                  <TextInput
+                    id="remote-src"
+                    inputRef={pasteRef}
+                    value={urlValue}
+                    /* The spine's fingerprint — see `pasteLink.ts` and C1. */
+                    pasteField={action.moduleId}
+                    placeholder={action.placeholder}
+                    onChange={(next) => {
+                      setUrlDraft(next);
+                      setUrlIssue(null);
+                      setReceipt(false);
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="kh-btn kh-btn--primary"
+                    data-testid="remote-play"
+                  >
+                    {action.submitLabel}
+                  </button>
+                </form>
+              ))}
+            {!addOpen && urlIssue !== null && (
               <Notice tone={urlIssue.severity === 'error' ? 'error' : 'warn'}>
                 {urlIssue.message}
               </Notice>
@@ -961,7 +1066,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
               `linkReceipt` is the same chooser CAM's Library and the phone's
               Add panel print through.
             */}
-            {receipt && urlIssue === null && (
+            {!addOpen && receipt && urlIssue === null && (
               <p className="kh-hint" data-testid="remote-receipt">
                 {linkReceipt(presence)}
               </p>
@@ -974,7 +1079,14 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
           the same two settings in.
         */}
             <div className="kh-remote__pair2">
-              <GroupField label="Showing" id="remote-module">
+              {/*
+                The same word the status line uses, from the same place.
+
+                "Showing" was typed here and again in `HomeView.describeStatus`
+                — one vocabulary, two files, free to drift. `panelVerb` owns it,
+                and asking for it means naming what this window knows.
+              */}
+              <GroupField label={panelVerb(presence, 'showing')} id="remote-module">
                 <Segmented
                   id="remote-module"
                   wrap
@@ -1019,6 +1131,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
 
       <PairingCard
         paired={paired}
+        surface={pairingSurface ? 'pairing' : 'instrument'}
         roomCode={roomCode}
         remoteUrl={remoteUrl}
         // The gap between "this device knows the room" and "the transport is
@@ -1138,6 +1251,7 @@ function LinkStatus({ sync, now, online }: { sync: SyncHandle; now: number; onli
  */
 function PairingCard({
   paired,
+  surface,
   roomCode,
   remoteUrl,
   connecting,
@@ -1146,6 +1260,22 @@ function PairingCard({
   onForget,
 }: {
   paired: boolean;
+  /**
+   * Which window is reading this card — round 7's F5.
+   *
+   * `'pairing'` is CAM's Configuration Browser, where this card is the entire
+   * page and the QR is the thing it exists to show: the square goes up front, at
+   * the size a phone camera resolves, under a heading that names the gesture.
+   * `'instrument'` is every window that is remote from the Kraken, where the
+   * card is a credential at the bottom of a remote control and collapses to one
+   * line.
+   *
+   * The self-pairing wording lives entirely on the other side of this flag.
+   * *"Paired with your PC"*, shown to the PC, and *"scan it from the CAM window
+   * on your PC"*, shown inside that window, are both true sentences addressed to
+   * the wrong reader.
+   */
+  surface: 'pairing' | 'instrument';
   roomCode: string | null;
   remoteUrl: string | null;
   connecting: boolean;
@@ -1270,6 +1400,67 @@ function PairingCard({
     </Field>
   );
 
+  const qrBlock =
+    qr !== null && remoteUrl !== null ? (
+      <div className="kh-roomcard__qr" data-testid="pair-qr">
+        <QrCode qr={qr} payload={remoteUrl} />
+        <small className="kh-roomcard__caption">
+          Point your phone’s camera at this to pair it.
+        </small>
+      </div>
+    ) : null;
+
+  const roomActions =
+    remoteUrl === null ? null : (
+      <>
+        <Code>{remoteUrl}</Code>
+        <Row>
+          <Button testId="pair-copy" onClick={copyLink}>
+            {copied ? 'Copied' : 'Copy the link'}
+          </Button>
+          <Button testId="pair-rotate" onClick={onRotate}>
+            Rotate code
+          </Button>
+        </Row>
+      </>
+    );
+
+  /*
+   * CAM, paired — the pairing surface (F5).
+   *
+   * This card IS the page here, so the square is not behind a disclosure and the
+   * heading names the gesture rather than the state. What it does not say is
+   * "Paired with your PC": the reader is the PC, and a machine reporting that it
+   * has paired with itself is the clearest possible sign that a screen was built
+   * without asking who is reading it. What is true and useful is that a code
+   * exists and here is how to get it onto a phone.
+   */
+  if (paired && roomCode !== null && surface === 'pairing') {
+    return (
+      <section
+        className="kh-roomcard kh-roomcard--open"
+        data-testid="pairing-card"
+        data-paired="true"
+      >
+        <h2 className="kh-roomcard__title" data-testid="pairing-title">
+          Scan with your phone
+        </h2>
+        {qrBlock}
+        <div className="kh-roomcard__head" data-testid="paired-summary">
+          <small className="kh-roomcard__code">ROOM {formatRoomCode(roomCode)}</small>
+          <Button testId="pair-forget" onClick={onForget}>
+            Unpair
+          </Button>
+        </div>
+        {roomActions}
+        <Disclosure summary="Pairing options" testId="pairing-options">
+          {codeField}
+          <p className="kh-hint">{UNPAIR_NOTE}</p>
+        </Disclosure>
+      </section>
+    );
+  }
+
   if (paired && roomCode !== null) {
     return (
       <section className="kh-roomcard" data-testid="pairing-card" data-paired="true">
@@ -1302,37 +1493,14 @@ function PairingCard({
             SECOND device is a pairing option, so it lives with the other pairing
             options, one tap down, at the size a camera actually needs.
 
-            It stays 176 px rather than the 56 px thumbnail it once was: a
-            version-4 code is 33 modules plus 8 of quiet zone, and at 56 px each
-            module is roughly one and a half CSS pixels — under a phone camera
-            that is a grey square, not a code.
+            CAM is the exception and it is a whole surface rather than a flag:
+            there the card is the page and the square is the point, so it is not
+            in here at all (F5).
           */}
-          {qr !== null && remoteUrl !== null && (
-            <div className="kh-roomcard__qr" data-testid="pair-qr">
-              <QrCode qr={qr} payload={remoteUrl} />
-              <small className="kh-roomcard__caption">
-                Point your phone’s camera at this to pair it.
-              </small>
-            </div>
-          )}
+          {qrBlock}
           {codeField}
-          {remoteUrl !== null && (
-            <>
-              <Code>{remoteUrl}</Code>
-              <Row>
-                <Button testId="pair-copy" onClick={copyLink}>
-                  {copied ? 'Copied' : 'Copy the link'}
-                </Button>
-                <Button testId="pair-rotate" onClick={onRotate}>
-                  Rotate code
-                </Button>
-              </Row>
-            </>
-          )}
-          <p className="kh-hint">
-            Unpairing clears this device only. Your Kraken keeps playing, and the same code still
-            works if you scan it again.
-          </p>
+          {roomActions}
+          <p className="kh-hint">{UNPAIR_NOTE}</p>
         </Disclosure>
       </section>
     );
@@ -1353,10 +1521,22 @@ function PairingCard({
       data-testid="pairing-card"
       data-paired="false"
     >
-      <h2 className="kh-roomcard__title">Pair with your Kraken</h2>
+      {/*
+        Two readers, two sentences — F5.
+
+        The instrument's copy is advice for somebody holding a phone: go to the
+        CAM window and scan what it shows you. Printed INSIDE that CAM window it
+        was advice to walk to the machine you are standing at, on the one screen
+        whose entire job is to hand a code to a different device. The pairing
+        surface says what happens next from where the reader actually is.
+      */}
+      <h2 className="kh-roomcard__title" data-testid="pairing-title">
+        {surface === 'pairing' ? 'Pair your phone' : 'Pair with your Kraken'}
+      </h2>
       <p className="kh-hint">
-        Create a code here, then scan it from the CAM window on your PC — nothing to type, no
-        account, and no server of ours in between.
+        {surface === 'pairing'
+          ? 'Create a code here, then scan it with your phone — nothing to type, no account, and no server of ours in between.'
+          : 'Create a code here, then scan it from the CAM window on your PC — nothing to type, no account, and no server of ours in between.'}
       </p>
       <Row>
         <Button primary testId="pair-rotate" onClick={onRotate}>

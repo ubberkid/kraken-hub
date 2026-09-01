@@ -24,7 +24,11 @@ export const FIT_SEGMENTS: readonly {
   title: string;
 }[] = [
   { value: 'cover', label: 'Cover', title: 'Fills the panel and crops the edges.' },
-  { value: 'contain', label: 'Contain', title: 'Shows the whole picture, with bars.' },
+  // "Shows the whole picture" was a panel verb in a control's tooltip — true,
+  // but in the family the claims rule owns, and a fit mode is a property of the
+  // framing rather than a statement about what is on the LCD right now. The
+  // sentence describes the crop, like the other three.
+  { value: 'contain', label: 'Contain', title: 'Fits the whole picture in, with bars.' },
   { value: 'contain-circle', label: 'Circle', title: 'Fits inside the round bezel.' },
   { value: 'fill', label: 'Stretch', title: 'Stretches to the panel. Distorts.' },
 ];

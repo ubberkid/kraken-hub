@@ -3156,6 +3156,21 @@ main > .kh-panel .kh-setup {
   cursor: not-allowed;
 }
 
+/*
+ * The rail with no scale behind it — round 7's F1.
+ *
+ * `LOOP_MAX_SEC` draws a track; it does not measure a video. With no reported
+ * duration the loop band, the progress fill and the seek input are not rendered
+ * at all, so what is left is a rail, two parked handles and this line saying
+ * what unlocks them. Centred and quiet: it is an explanation, not an error.
+ */
+.kh-scrub__locked {
+  margin: 0.4rem 0 0;
+  color: var(--kh-muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
 .kh-scrub__lab {
   position: absolute;
   top: 0;
@@ -3555,8 +3570,17 @@ main > .kh-panel .kh-setup {
   margin: 0 0 0.85rem;
 }
 
+/*
+ * …and the width rule does not apply to the surface whose whole job it is.
+ *
+ * Round 7's F5: CAM's `#/remote` is the PAIRING page, not a remote control, and
+ * the square is the reason to be on it. It is scoped to the instrument surface
+ * (`[data-surface='instrument']`) rather than to a width alone, so a narrow CAM
+ * window still shows the code a phone has to read, while a phone still never
+ * shows itself a scan of itself.
+ */
 @media (max-width: 700px) {
-  .kh-roomcard__qr {
+  [data-surface='instrument'] .kh-roomcard__qr {
     display: none;
   }
 }

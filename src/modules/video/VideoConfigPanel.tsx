@@ -24,6 +24,7 @@ import {
   qualityFromOption,
   qualityOptionValue,
   qualityOptions,
+  type QualityReadout,
 } from './quality';
 import { ResolverConnectPanel } from './resolver/ResolverConnectPanel';
 import { LOCAL_CLIP_SCHEME } from './routing/patterns';
@@ -332,10 +333,13 @@ function QualityRow({
   const live = typeof tele?.provider === 'string' ? (tele.provider as ProviderId) : provider;
   const control = qualityControlFor(live);
   const levels = (tele?.levels ?? []).map((l) => ({ height: l.h, label: l.l }));
-  const reading = describeQuality(cfg.quality, {
+  const readout: QualityReadout = {
     reported: tele?.quality ?? null,
     local: cfg.url.startsWith(LOCAL_CLIP_SCHEME),
-  });
+  };
+  const reading = describeQuality(cfg.quality, readout);
+  /** The same reading, minus the word the segment beside it already says. */
+  const pickerReading = describeQuality(cfg.quality, readout, { inPicker: true });
 
   if (control === 'readonly' || control === 'none') {
     return (
@@ -358,7 +362,7 @@ function QualityRow({
       <GroupField
         label={control === 'bias' ? 'Quality bias' : 'Quality'}
         id="video-quality"
-        description={reading}
+        {...(pickerReading === '' ? {} : { description: pickerReading })}
       >
         {/*
           A segmented row rather than a `<select>`: round 2's control-idiom rule

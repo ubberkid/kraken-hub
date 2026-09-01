@@ -29,6 +29,122 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **Design audit round 7 — a claim about the panel is a TYPE, not a phrase.**
+  Round 6 built two spines and this round measured what each one bought. The
+  **paste** spine held, because `pasteLink.ts` owns a door: there is no way to
+  submit a link except `pasteAction`, so a field that bypasses the mapping is a
+  compile error. The **presence** spine leaked, because it was enforced by a
+  two-phrase grep that a file satisfied with a single import — `HomeView.tsx`
+  names `panelPresence` once, so all 1,382 of its lines passed, including
+  `<b>Playing through YouTube</b>` and _"your Kraken is playing it straight from
+  the web"_: two unconditional present-tense claims about a panel the window may
+  never have heard from, six pixels from a card that asks the question properly.
+
+  - **`src/app/config/panelClaims.ts` — the claim, as a type.** A claim is a
+    `PanelClaimSpec`: the same sentence in three tenses, one per presence state
+    — _live_ "Playing through YouTube", _quiet_ "Plays through YouTube",
+    _never-seen_ "Plays through YouTube when your Kraken connects". The only ways
+    to turn one into words (`panelClaimText`, and the `<PanelClaim>` element
+    beside it) **require** a `PanelPresence`, so there is no signature that
+    renders a claim without asking. Where a claim deliberately collapses two
+    states, the triple makes that an explicit, reviewable decision per sentence
+    instead of an accident of whichever boolean the author reached for.
+    `panelPresence.ts` keeps the derivation and nothing else.
+
+    Every claim moved: the spine-wired ones (`settledReceipt`, `linkReceipt`,
+    `nowShowingBadge`, `showingTile`, `handoffHeadline`, `playingLine`), the
+    status line's one-word verb — which was typed in three files — the CORS
+    sub-line, the accepted-link sub-line, the "streaming from the link" headline,
+    the install band's headline, and the tail of all four `failureLine`
+    sentences, whose reason clause stays where it belongs because a full disk is
+    a fact about a machine rather than about a panel.
+
+  - **The enforcement is structural.** `vocabulary.test.ts` no longer greps for
+    two phrases. It extracts every **string literal and JSX text node** from
+    every config surface, keeps the ones that read as prose, matches them against
+    the present-tense panel-verb family (`playing`/`plays`, `showing`/`shows`,
+    `on screen`, `streaming`/`streams`, `fetching`/`fetches`, `picks it up`), and
+    requires each to live in `config/vocabulary.ts` or `app/config/panelClaims.ts`
+    and nowhere else. A raw literal anywhere else fails by existing. A second
+    test reads the claims module's own source and requires every exported
+    function to take a `presence`, because a future `export function
+nowPlaying(name)` would type-check perfectly and reopen the exact hole. The
+    old import check is kept as a belt.
+
+  - **F1 — invented durations, at the three consumers round 2 missed.**
+    `LOOP_MAX_SEC = 3600` is a rail length, not a duration. Round 2 stopped it
+    being _printed_ as a total and left it feeding the seek input's `max` and the
+    handles' range, so a tap two thirds along the bar reported a playhead at
+    forty minutes of a video nobody had measured, and a drag on **B** persisted
+    `loop.end = 2177` into the synced document. Same narrowing as the quality
+    ring: **without a known duration the control withdraws rather than
+    degrading.** The rail is decorative — no seek input, no loop band, no
+    progress fill — the handles are disabled with the honest line _"Loop points
+    unlock when your Kraken reports the length"_, and
+    `src/app/config/loopPoints.ts` is the single guard every write path goes
+    through, unit-tested directly. Both consumers (the phone remote and CAM's
+    home Loop panel) get it, because it is the component's rule rather than a
+    caller's.
+
+  - **F3 — one group, one answer.** The three transport buttons greyed out on
+    `displayOnline` and the rail above them did not: a tap on a dead link moved
+    the thumb, sent a `seekTo` into a room with nobody in it, and left the bar
+    showing a position no display had ever reported. The seek gates on the same
+    freshness.
+
+  - **F4 — a receipt that named a shelf the shelf then denied.**
+    `LINK_RECEIPT_UNSEEN` opened _"Saved to the library — …"_ and the Library
+    page renders it directly above **Nothing kept here**: an announced library
+    entry and an empty shelf, in one frame. Nothing has been fetched and nothing
+    has been kept; what was saved is the choice. It reuses `SAVED_HEADLINE`'s
+    frame — the word the ladder's settled card already uses — so the two receipts
+    cannot drift into two words for one fact, and the old spelling is a retired
+    phrase.
+
+  - **F5 — CAM's `#/remote` is the pairing surface.** One page was served to
+    every window, and in CAM's Configuration Browser that page was a remote
+    control for the machine it was running on: a replica ring above that window's
+    own live mirror, a scrubber for a panel whose real transport is one click
+    away, a Library that IS this window's database, and a card announcing
+    **Paired with your PC** — to the PC. Unpaired it was worse, because it was
+    advice: _"scan it from the CAM window on your PC"_, printed inside that
+    window. CAM now gets pairing and only pairing — **Scan with your phone**, the
+    QR up front at the size a camera resolves, the room, rotate and copy — and
+    every window that really is remote keeps the instrument. `ownsBytes()`
+    decides, so no fifth signal was invented.
+    [`docs/remote-control.md`](docs/remote-control.md) described this flow
+    already; the UI matches it now.
+
+  - **F6 — receipts are keyed to STORY time.** The ladder's retirement timer
+    started on mount, so "four seconds old" meant four seconds since React
+    rendered. Reopening CAM on a day-old stored state replayed the whole ladder —
+    _"Sent to your Kraken · On screen now"_ — narrating yesterday as news, and
+    holding the halo down to a 64 px thumb for four seconds while it did it.
+    `receiptIsCurrent` measures against the flow event's own clock: a download
+    job's `updatedAt`, or the instant this window itself accepted the link. No
+    known moment means no narration, which is why a state committed yesterday, or
+    from a phone, is not replayed — the status line under the halo still carries
+    the steady state.
+
+  - **Minors.** The phone's own **Add** panel had the desktop placeholder (the
+    one `pasteAction` call site that never passed the width) and stood above a
+    second link field for the same module — one field per screen now, the Add
+    panel wins while it is open. The phone's empty shelf is the framed card CAM
+    draws rather than a grey caption under the Add button. The quality row said
+    **Auto** twice within thirty pixels — once as the selected segment, once at
+    the head of the description — so the description now says only the half the
+    segment cannot show. A stats dial is labelled once: the sub-line already
+    opens with the component's name, so the standalone label under the number
+    goes. All four legacy routes (`#/module/<id>`, `#/preview`, `#/sources`,
+    `#/diag`) share one behaviour — two were listed in `mainKey` and two were
+    not, so half of them rewrote their hash and then tore the screen down and
+    rebuilt it. And the companion health probe runs in a **worker**: Chrome logs
+    a failed subresource load from the renderer before any `catch` sees it, so
+    every user without the downloader collected `net::ERR_CONNECTION_REFUSED`
+    for a component behaving exactly as §6.4 specifies. A worker's fetch failures
+    do not reach the page console; the probe, the timeout and the fallback are
+    otherwise unchanged.
+
 - **Design audit round 6 — two missing spines, and the enumerations that keep
   them.** Every previous round named a class, fixed the instances somebody had
   photographed, and watched the class survive on the surfaces nobody had. Round

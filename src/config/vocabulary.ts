@@ -61,23 +61,6 @@ export const KEPT_A_COPY = `kept ${COPY_HOME}`;
 export const LINK_RECEIPT =
   'Sent to your Kraken. It fetches the file and keeps a copy, so a tile appears here shortly.';
 
-/**
- * The same act, said by a window that has never met a Kraken — round 6's C5.
- *
- * `LINK_RECEIPT` makes two claims a window with no display on the other end
- * cannot support: that the link was *sent* somewhere, and that a tile will turn
- * up *shortly*. On a phone paired to a room nobody is listening in — and in a
- * CAM window on a machine where the LCD page has never booted — both are
- * guesses. What is true either way is that the choice is written down and
- * retained, and that the Kraken acts on it the moment it connects.
- *
- * Which of the two is printed is not a decision any surface makes for itself:
- * `app/config/panelPresence.ts` owns the question, and all three link fields
- * ask it.
- */
-export const LINK_RECEIPT_UNSEEN =
-  'Saved to the library — your Kraken picks it up when it connects.';
-
 // ---------------------------------------------------------------------------
 // What is on the panel — the words, in one place
 // ---------------------------------------------------------------------------
@@ -90,7 +73,7 @@ export const LINK_RECEIPT_UNSEEN =
  * where no display had ever published anything: the app describing a panel it
  * had never heard from. The sentence is true when a Kraken has been seen and
  * false when one has not, so it is two sentences, and
- * `panelPresence.settledReceipt()` is the only thing that chooses between them.
+ * `panelClaims.settledReceipt()` is the only thing that chooses between them.
  *
  * `PLAYING_ON_KRAKEN` and `HOLDING_ON_KRAKEN` are shared with the remote's
  * sub-line, which said the same words in its own copy of them.
@@ -104,6 +87,32 @@ export const SAVED_HEADLINE = 'Saved';
 
 /** …and its sub-line. The promise the app CAN keep: the state is retained. */
 export const PLAYS_WHEN_CONNECTED = 'Plays when your Kraken connects';
+
+/**
+ * The same act, said by a window that has never met a Kraken — round 6's C5,
+ * corrected by round 7's F4.
+ *
+ * `LINK_RECEIPT` makes two claims a window with no display on the other end
+ * cannot support: that the link was *sent* somewhere, and that a tile will turn
+ * up *shortly*. On a phone paired to a room nobody is listening in — and in a
+ * CAM window on a machine where the LCD page has never booted — both are
+ * guesses. What is true either way is that the choice is written down and
+ * retained, and that the Kraken acts on it the moment it connects.
+ *
+ * It used to open *"Saved to the library — …"*, which is a THIRD claim, and one
+ * the shelf itself contradicts within 40 px: the Library page prints this
+ * receipt directly above **{@link NOTHING_KEPT}**, so the app announced a
+ * library entry and then showed an empty shelf in the same frame. A pasted link
+ * is not a library entry — nothing has been fetched and nothing has been kept.
+ * What was saved is the CHOICE, which is exactly what {@link SAVED_HEADLINE}
+ * already says for the ladder's settled card, so the two receipts share one
+ * frame and one word rather than inventing a destination each.
+ *
+ * Which of the two is printed is not a decision any surface makes for itself:
+ * `app/config/panelClaims.ts` owns the question, and all three link fields ask
+ * it through `linkReceipt()`.
+ */
+export const LINK_RECEIPT_UNSEEN = `${SAVED_HEADLINE} — your Kraken picks it up when it connects.`;
 
 /**
  * The badge on the tile the panel is showing — and the one on the tile it is
@@ -121,7 +130,7 @@ export const NEXT_UP_BADGE = 'Next up';
 /**
  * The Library's receipt for playing something, in its two honest forms.
  *
- * Composed with the tile's name by `panelPresence.showingTile`, so neither
+ * Composed with the tile's name by `panelClaims.showingTile`, so neither
  * half can be printed without the question being asked.
  */
 export const IS_ON_YOUR_KRAKEN = 'is on your Kraken.';
@@ -177,6 +186,51 @@ export const LIBRARY_NOUN = 'Library';
  * "in your library" and stops there.
  */
 export const IN_YOUR_LIBRARY = 'in your library';
+
+/**
+ * Why a kept copy is worth having — the shelf's one promise.
+ *
+ * Written inline under CAM's empty shelf until round 7. It is a claim in the
+ * panel-verb family ("keeps playing"), so the structural rule in
+ * `vocabulary.test.ts` requires it to live in a words module rather than in a
+ * view — and it is a *habitual* property of a stored file rather than a
+ * statement about what the panel is doing this second, which is why it is a
+ * plain term here and not a `PanelClaim`.
+ */
+export const OFFLINE_PROMISE = 'Whatever lands here keeps playing with the network unplugged.';
+
+/**
+ * The same promise, in the ladder's voice, while the bytes are still moving.
+ *
+ * What keeping a copy BUYS you, said before there is a percentage to report.
+ * It says "plays forever", so the structural rule puts it here beside its
+ * sibling rather than inline in the step-card — and the two being adjacent is
+ * the point: they are one promise told at two moments, and a reader of this
+ * file can see them agree.
+ */
+export const LOCAL_COPY_PITCH = 'Downloading locally — plays forever, no ads, no buffering';
+
+/**
+ * What unpairing does, and — more usefully — what it does not.
+ *
+ * Same reason as `OFFLINE_PROMISE`: it says "your Kraken keeps playing", which
+ * is a panel-verb claim, so it is a term rather than a literal in the pairing
+ * card. It is presence-independent on purpose: it describes the CONSEQUENCE of
+ * a button, which is true whether or not this window has ever seen a display.
+ */
+export const UNPAIR_NOTE =
+  'Unpairing clears this device only. Your Kraken keeps playing, and the same code still works if you scan it again.';
+
+/**
+ * The scrubber's honest line when nothing has reported a length — round 7's F1.
+ *
+ * `LOOP_MAX_SEC` is a rail length, not a duration, and for as long as the
+ * handles wrote against it a drag persisted `loop.end = 2177` for a video
+ * nobody had measured. The controls narrow to a decorative rail instead, and
+ * this says why — naming the ONE thing that unlocks them, which is the same
+ * shape `PLAYS_WHEN_CONNECTED` uses for the receipt.
+ */
+export const LOOP_UNLOCKS_ON_LENGTH = 'Loop points unlock when your Kraken reports the length';
 
 // ---------------------------------------------------------------------------
 // The frame-rate economics, said once
@@ -292,4 +346,7 @@ export const RETIRED_PHRASES: readonly string[] = [
   // hands the Kraken a file directly now, and the only remaining constraint is
   // the network one, which `SAME_NETWORK_NOTE` states when it actually bites.
   'Files are added at your PC',
+  // Round 7, F4 — a receipt that named a destination the shelf underneath it
+  // contradicted in the same frame. See `LINK_RECEIPT_UNSEEN`.
+  'Saved to the library',
 ];

@@ -29,6 +29,7 @@ import { LOCAL_CLIP_RE } from '../../modules/video/routing/patterns';
 import { readTeleMirror } from '../../modules/video/telemetry/videoTelemetry';
 import { DEVICE_PRESETS, type DevicePresetId } from '../../platform/devicePresets';
 
+import { CLAIM_PLAYS_FROM_LINK, panelClaimText, panelVerb } from './panelClaims';
 import { panelIsKnown, type PanelPresence } from './panelPresence';
 
 import type { FlowStage } from './flowStages';
@@ -198,6 +199,54 @@ export function receiptPersists(stage: FlowStage): boolean {
 }
 
 /**
+ * The wall clock, for stamping an EVENT.
+ *
+ * Named, exported and used only from event handlers, which is the whole reason
+ * it exists as a function rather than a bare `Date.now()` at the call site: the
+ * React compiler's purity rule (rightly) refuses an impure call anywhere it
+ * cannot prove is outside render, and the alternative — an inline
+ * `eslint-disable` on the one line that must read a clock — hides the rule
+ * instead of answering it. A receipt is keyed to the moment the user acted, and
+ * this is that moment, on the same epoch clock `receiptIsCurrent` compares
+ * against.
+ */
+export function eventTime(): number {
+  return Date.now();
+}
+
+/**
+ * May a receipt be on the screen at all — round 7's F6.
+ *
+ * `receiptPersists` answers *does this stage earn permanence*; this answers the
+ * question underneath it, which nobody was asking: **when did the thing it
+ * narrates happen?**
+ *
+ * The retirement used to be a `setTimeout` started on mount, so "four seconds
+ * old" meant four seconds since React rendered. Reopening CAM on a day-old
+ * stored state replayed the whole ladder — a finished story from yesterday,
+ * narrated as news, holding the halo down to a 64 px thumbnail while it did it.
+ * A claim about a moment has to be measured against that moment.
+ *
+ * `storyAt` is the flow event's own clock — a download job's `updatedAt`, or the
+ * instant this window itself accepted the link. `null` means **no moment is
+ * known**, and the answer there is `false` rather than "show it anyway": a
+ * ladder that cannot date its own story is exactly what produced the bug.
+ * Nothing is lost — the status line under the halo carries the steady state, and
+ * a stage that has not finished (`downloading`) or went wrong (`unsaved`) is
+ * kept on screen by `receiptPersists` regardless.
+ */
+export function receiptIsCurrent(
+  stage: FlowStage,
+  storyAt: number | null,
+  now: number,
+  lingerMs: number = RECEIPT_LINGER_MS,
+): boolean {
+  if (receiptPersists(stage)) return true;
+  if (storyAt === null) return false;
+  return now - storyAt < lingerMs;
+}
+
+/**
  * A receipt's second line, or `null` when it would only say the headline again.
  *
  * Round 4's minors. The first step-card names what was detected — *"YouTube
@@ -302,17 +351,30 @@ export function resolverHealthyFromTele(
  * Never `err.message`: "Failed to fetch" is Chrome telling a programmer that a
  * promise rejected, and putting it on the home screen is how a working video
  * comes to look like a broken one.
+ *
+ * Two halves, deliberately, and they belong to different files. The REASON is a
+ * fact about this PC's disk — `COPY_HOME` is an owner-only term and this module
+ * is on the owner-surface list because of it. The tail is a claim about the
+ * panel, so it comes from `panelClaims.ts` and is tensed by the one thing that
+ * may tense it: round 7's F2 found all four of these asserting *"your Kraken is
+ * playing it from the link"* in the present progressive, on any window, with no
+ * question asked.
  */
-export function failureLine(entry: DownloadEntry | null): string {
+export function failureLine(entry: DownloadEntry | null, presence: PanelPresence): string {
+  return `${failureReason(entry)}, so ${panelClaimText(CLAIM_PLAYS_FROM_LINK, presence)}`;
+}
+
+/** Why the copy is missing — this machine's answer, and nothing about the panel. */
+function failureReason(entry: DownloadEntry | null): string {
   switch (entry?.reason) {
     case 'quota':
-      return `There is no room left ${COPY_HOME} for a copy, so your Kraken is playing it from the link.`;
+      return `There is no room left ${COPY_HOME} for a copy`;
     case 'network':
-      return 'The download did not finish, so your Kraken is playing it from the link.';
+      return 'The download did not finish';
     case 'store-failed':
-      return `The copy could not be saved ${COPY_HOME}, so your Kraken is playing it from the link.`;
+      return `The copy could not be saved ${COPY_HOME}`;
     default:
-      return 'A copy could not be kept, so your Kraken is playing it from the link.';
+      return 'A copy could not be kept';
   }
 }
 
@@ -470,7 +532,12 @@ export function describeVideoStatus(input: VideoStatusInput): Status {
       end > 0
         ? `${formatSeconds(stats.currentTime)} / ${formatSeconds(end)}`
         : formatSeconds(stats.currentTime);
-    return { live: !stats.held, verb: stats.held ? 'Holding' : 'Playing', name, detail };
+    return {
+      live: !stats.held,
+      verb: panelVerb(input.presence, stats.held ? 'holding' : 'playing'),
+      name,
+      detail,
+    };
   }
 
   if (input.downloading) return { live: false, verb: `${KEEPING_A_COPY} of`, name, detail: null };
@@ -481,8 +548,13 @@ export function describeVideoStatus(input: VideoStatusInput): Status {
     // streaming only when no copy is being kept.
     const local = LOCAL_CLIP_RE.test(input.url.trim());
     const streaming = !local && input.streamingOnly;
-    return { live: false, verb: streaming ? 'Streaming' : 'Playing', name, detail: null };
+    return {
+      live: false,
+      verb: panelVerb(input.presence, streaming ? 'streaming' : 'playing'),
+      name,
+      detail: null,
+    };
   }
 
-  return { live: false, verb: 'Ready to play', name, detail: null };
+  return { live: false, verb: panelVerb(input.presence, 'idle'), name, detail: null };
 }

@@ -770,6 +770,23 @@ function seedFor(stage: string): { url: string; entry: Record<string, unknown> |
   }
 }
 
+/**
+ * A stage with no download job is narrated only where this window witnessed it.
+ *
+ * `youtube-embed` and `accepted` start no job, so nothing on disk records when
+ * they happened, and round 7's F6 stopped the ladder replaying a story it cannot
+ * date. These two stages are therefore produced by the real gesture — which is
+ * what the comment above `seedFor` has always claimed for the other four.
+ */
+async function witnessStage(
+  page: Page,
+  seed: { url: string; entry: Record<string, unknown> | null },
+): Promise<void> {
+  if (seed.entry !== null) return;
+  await page.getByTestId('paste-input').fill(seed.url);
+  await page.getByTestId('paste-submit').click();
+}
+
 test.describe('the page fits CAM’s window in every stage of the paste story', () => {
   for (const stage of FLOW_STAGES) {
     test(`${stage}: the receipt takes the floor without taking the page`, async ({ page }) => {
@@ -797,6 +814,20 @@ test.describe('the page fits CAM’s window in every stage of the paste story', 
         [seed.url, seed.entry] as const,
       );
       await page.goto('/');
+
+      /*
+        A story with no job is narrated only where THIS window witnessed it —
+        round 7's F6.
+
+        `youtube-embed` and `accepted` start no download, so nothing on disk
+        records when they happened; the ladder used to replay them on every
+        mount, which is how reopening CAM on a day-old state announced yesterday
+        as news and held the halo down to a 64 px thumb while it did. The receipt
+        is keyed to the paste now, so these two stages are produced by the real
+        gesture rather than by a seeded URL — which is what the comment above
+        `seedFor` has always claimed for the others.
+      */
+      await witnessStage(page, seed);
 
       const flow = page.getByTestId('paste-flow');
       await expect(flow).toHaveAttribute('data-flow-stage', stage);

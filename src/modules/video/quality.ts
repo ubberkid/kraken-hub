@@ -227,7 +227,23 @@ export interface QualityReadout {
  * reads as "1080p (asked)", because "1080p" would be a claim about the picture
  * and all we know is what we requested.
  */
-export function describeQuality(cfg: QualityConfig, readout: QualityReadout): string {
+export function describeQuality(
+  cfg: QualityConfig,
+  readout: QualityReadout,
+  opts: {
+    /**
+     * True when this line sits directly above the picker — round 7's minors.
+     *
+     * The Auto **segment** is right there, selected, saying the word: printing
+     * "Auto — 720p right now" as the row's description put the same word twice
+     * within thirty pixels, once as a label for a control and once as prose
+     * about it. What the description is FOR is the half the segment cannot show
+     * — what Auto is choosing at this moment — so in a picker that is all it
+     * says, and it says nothing at all when nothing has been reported.
+     */
+    inPicker?: boolean;
+  } = {},
+): string {
   const now = readout.reported?.height ?? null;
   const nowText =
     now !== null && now > 0
@@ -244,6 +260,7 @@ export function describeQuality(cfg: QualityConfig, readout: QualityReadout): st
   // Just "Auto". The trailing "— quality not reported yet" was an apology for
   // the setting doing exactly what it says: the display picks. There is nothing
   // for the reader to do about it and nothing being waited for (round 4, minors).
+  if (opts.inPicker === true) return nowText === null ? '' : `${nowText} right now${suffix}`;
   if (nowText === null) return `Auto${suffix}`;
   return `Auto — ${nowText} right now${suffix}`;
 }

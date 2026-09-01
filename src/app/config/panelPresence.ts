@@ -49,25 +49,16 @@
  *    packet has arrived on this connection at all, and freshness is when the
  *    last one landed on THIS device's clock.
  *
- * Keeping the derivation pure is what lets it be one rule: the file has no
- * imports beyond the words, no storage access and no clock of its own.
+ * ## The words are not here — round 7
+ *
+ * This file used to own both the question and the answers, and that is exactly
+ * how the spine came to be enforced by a grep for two phrases: a surface
+ * imported `panelPresence` for one sentence and was thereafter free to type any
+ * other sentence it liked. The claims live in `panelClaims.ts` now, as typed
+ * three-tense objects that cannot be rendered without a `PanelPresence`, and
+ * this file is the derivation and nothing else — pure, dependency-free
+ * arithmetic over two facts, with no storage access and no clock of its own.
  */
-
-import {
-  HOLDING_ON_KRAKEN,
-  IS_NEXT_UP,
-  IS_ON_YOUR_KRAKEN,
-  LINK_RECEIPT,
-  LINK_RECEIPT_UNSEEN,
-  NEXT_UP_BADGE,
-  ON_SCREEN_BADGE,
-  ON_SCREEN_NOW,
-  PLAYING_ON_KRAKEN,
-  PLAYS_WHEN_CONNECTED,
-  SAVED_FOR_KRAKEN,
-  SAVED_HEADLINE,
-  SENT_TO_KRAKEN,
-} from '../../config/vocabulary';
 
 export type PanelPresence = 'never-seen' | 'quiet' | 'live';
 
@@ -140,71 +131,4 @@ export function panelIsLive(presence: PanelPresence): boolean {
  */
 export function panelIsKnown(presence: PanelPresence): boolean {
   return presence !== 'never-seen';
-}
-
-/**
- * The download ladder's last card — C2.
- *
- * Two lines, so the caller cannot compose a third wording out of them.
- */
-export function settledReceipt(presence: PanelPresence): { headline: string; sub: string } {
-  return panelIsKnown(presence)
-    ? { headline: ON_SCREEN_NOW, sub: PLAYING_ON_KRAKEN }
-    : { headline: SAVED_HEADLINE, sub: PLAYS_WHEN_CONNECTED };
-}
-
-/**
- * The receipt a link gets, wherever it was handed over — C5.
- *
- * All three link fields (the phone's Add panel, CAM's Library Add panel, the
- * remote's source row) print whichever of the two this returns, so the sentence
- * cannot be right on one surface and wrong on the next.
- */
-export function linkReceipt(presence: PanelPresence): string {
-  return panelIsKnown(presence) ? LINK_RECEIPT : LINK_RECEIPT_UNSEEN;
-}
-
-/**
- * The badge on the highlighted tile, on BOTH shelves.
- *
- * The two shelves each typed "On screen" into their own tile, and neither had
- * asked whether there was a screen: the badge is derived from the configured
- * module and source, which is what the panel WILL show, not evidence that it
- * is showing it. On a window that has never heard from a Kraken the honest
- * word is the queue's.
- */
-export function nowShowingBadge(presence: PanelPresence): string {
-  return panelIsKnown(presence) ? ON_SCREEN_BADGE : NEXT_UP_BADGE;
-}
-
-/**
- * The Library's receipt for pressing a tile.
- *
- * *"“dunes.mp4” is on your Kraken."* is the same assertion the ladder's last
- * card makes, printed by a different file, and it was made with the same
- * evidence: none.
- */
-export function showingTile(presence: PanelPresence, name: string): string {
-  return `“${name}” ${panelIsKnown(presence) ? IS_ON_YOUR_KRAKEN : IS_NEXT_UP}`;
-}
-
-/**
- * The ladder's middle card for an acknowledged link.
- *
- * "Sent to your Kraken" names a hand-off. With nothing ever seen on the other
- * end there has not been one — the URL is in a document waiting to be read.
- */
-export function handoffHeadline(presence: PanelPresence): string {
-  return panelIsKnown(presence) ? SENT_TO_KRAKEN : SAVED_FOR_KRAKEN;
-}
-
-/**
- * The remote's sub-line, which is a claim about this exact second.
- *
- * `null` when the app must not make one — which is every state but `live`, and
- * is why the caller renders nothing rather than a greyed-out sentence.
- */
-export function playingLine(presence: PanelPresence, held: boolean): string | null {
-  if (!panelIsLive(presence)) return null;
-  return held ? HOLDING_ON_KRAKEN : PLAYING_ON_KRAKEN;
 }

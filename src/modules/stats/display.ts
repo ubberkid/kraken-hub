@@ -24,7 +24,14 @@
 
 import { clamp } from '../../lib/clamp';
 
-import { PLACEHOLDER, secondaryFor, statsPaintKey, tilesFor, type StatsTile } from './format';
+import {
+  PLACEHOLDER,
+  dialLabelRepeats,
+  secondaryFor,
+  statsPaintKey,
+  tilesFor,
+  type StatsTile,
+} from './format';
 import { STATS_PALETTES, type StatsConfig } from './schema';
 
 import type { Geometry } from '../../platform/geometry';
@@ -258,9 +265,19 @@ export function createRenderer(): DisplayRenderer<StatsConfig> {
       // temperature reading that happens to be absent, which is a stronger claim
       // than we can make when the sensor is simply not there.
       node.unit.textContent = tile.value === PLACEHOLDER ? '' : tile.unit;
-      node.label.textContent = cfg.layout === 'grid' ? tile.longLabel : tile.label;
-
       const secondary = secondaryFor(tile, cfg, latest);
+      /*
+        The dial is labelled ONCE — round 7's minors.
+
+        The sub-line already opens with the component's name ("CPU 17%"), so on
+        the dual and single layouts the label underneath was the same word a
+        second time, 40 px away. `dialLabelRepeats` decides; hiding rather than
+        emptying keeps the box out of the flex flow so the number re-centres.
+      */
+      const repeats = dialLabelRepeats(tile, secondary);
+      node.label.textContent = repeats ? '' : cfg.layout === 'grid' ? tile.longLabel : tile.label;
+      node.label.hidden = repeats;
+
       node.sub.textContent =
         secondary === null
           ? ''

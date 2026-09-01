@@ -308,6 +308,136 @@ describe('the app has one vocabulary', () => {
     expect(consumers).toContain('app/config/views/RemoteView.tsx');
   });
 
+  /**
+   * ── SPINE 2, STRUCTURALLY ─────────────────────────────────────────────────
+   *
+   * The rule above is a two-phrase grep, and round 7 measured exactly what a
+   * grep buys. It is satisfied **per file, by an import**: `HomeView.tsx`
+   * contains the word `panelPresence`, so all 1,382 of its lines pass — and two
+   * of them were `<b>Playing through YouTube</b>` and *"your Kraken is playing
+   * it straight from the web"*, unconditional present-tense claims about a
+   * panel this window may never have heard from, six pixels from a card that
+   * asks the question properly.
+   *
+   * Compare the PASTE spine, which held through the same audit: there is no way
+   * to submit a link except `pasteAction`, so a field that bypasses the mapping
+   * cannot be written, let alone shipped. The difference is not diligence, it is
+   * that one spine owns a door and the other owned a phrase.
+   *
+   * So this rule is about STRUCTURE. A sentence in the panel-verb family may
+   * exist in exactly two modules — `config/vocabulary.ts`, which owns the words,
+   * and `app/config/panelClaims.ts`, which owns the tensed claims and cannot
+   * render one without a `PanelPresence`. Everywhere else a claim is a *named
+   * import*, never a literal, so "did you ask before you said it" is a property
+   * of the type system and this test only has to prove that no literal escaped.
+   *
+   * ## What counts as a claim
+   *
+   * The panel-verb family, over the string literals and JSX text of every config
+   * surface. Both halves matter: `title="…"`, an `aria-label` and a rendered
+   * sentence fail identically for the reader, and a scanner that knows the
+   * difference is a scanner with a gap in it.
+   *
+   * A literal is only considered if it reads as prose — it contains a space, or
+   * it starts with a capital. That is what keeps `case 'streaming':` (a
+   * `FlowStage` id) out of it while keeping `verb: 'Playing'` in, which is a
+   * one-word claim and was written in three files.
+   */
+  const PANEL_VERB_RE =
+    /\b(?:playing|plays|showing|shows|streaming|streams|fetching|fetches|picks it up|picks them up)\b|\bon screen\b/i;
+
+  /** The two modules that may hold the words themselves. */
+  const CLAIM_MODULES = new Set(['config/vocabulary.ts', 'app/config/panelClaims.ts']);
+
+  /**
+   * Where the app speaks to a person: the config views and the state they
+   * render from, plus the shared widget library they render with.
+   *
+   * `src/modules`, `src/render` and `src/diag` run ON the panel and invariant I8
+   * forbids them importing `src/app/config` at all — a page running on the
+   * Kraken does not have to wonder whether the Kraken is there. The exclusion is
+   * the architecture saying so, not somebody's memory of which files were fine.
+   */
+  const CONFIG_SURFACE = /^(?:app\/config|ui)\//;
+
+  /**
+   * String literals and JSX text, comments already stripped.
+   *
+   * Template literals are taken a line at a time and their `${…}` holes removed,
+   * so an interpolated sentence is scanned for what it SAYS rather than for the
+   * expression it says it with.
+   */
+  function spokenText(text: string): string[] {
+    const out: string[] = [];
+    const quoted = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\\n]|\\.)*)`/g;
+    let m: RegExpExecArray | null;
+    while ((m = quoted.exec(text)) !== null) {
+      out.push((m[1] ?? m[2] ?? m[3] ?? '').replace(/\$\{[^}]*\}/g, ' '));
+    }
+    // JSX text: whatever sits between two tags on one line, with no braces in
+    // it — `<b>Playing through YouTube</b>` and the prose of a paragraph.
+    const jsx = />([^<>{}\n]*[A-Za-z][^<>{}\n]*)</g;
+    while ((m = jsx.exec(text)) !== null) out.push(m[1] ?? '');
+    return out;
+  }
+
+  /** Prose, rather than an identifier that happens to spell a verb. */
+  function readsAsProse(s: string): boolean {
+    return /\s/.test(s) || /^[A-Z]/.test(s);
+  }
+
+  const SPOKEN = FILES.filter((f) => CONFIG_SURFACE.test(f.rel) && !/\.test\.tsx?$/.test(f.rel));
+
+  it('finds config surfaces to read at all', () => {
+    // A renamed directory would make every assertion below vacuously true.
+    expect(SPOKEN.length).toBeGreaterThan(20);
+    expect(SPOKEN.map((f) => f.rel)).toContain('app/config/views/HomeView.tsx');
+    expect(SPOKEN.map((f) => f.rel)).toContain('app/config/views/RemoteView.tsx');
+  });
+
+  it('finds panel-verb sentences in the claim modules, so the family is real', () => {
+    // The regex matching nothing would make the rule below pass by describing
+    // no sentences at all — the way an enumeration stops enumerating.
+    const inClaims = FILES.filter((f) => CLAIM_MODULES.has(f.rel)).flatMap((f) =>
+      spokenText(f.text).filter((s) => readsAsProse(s) && PANEL_VERB_RE.test(s)),
+    );
+    expect(inClaims.length).toBeGreaterThan(10);
+  });
+
+  it('renders no present-tense panel claim from a raw literal', () => {
+    const strays: string[] = [];
+    for (const file of SPOKEN) {
+      if (CLAIM_MODULES.has(file.rel)) continue;
+      for (const said of spokenText(file.text)) {
+        const s = said.trim();
+        if (s === '' || !readsAsProse(s) || !PANEL_VERB_RE.test(s)) continue;
+        strays.push(`${file.rel}: ${JSON.stringify(s)}`);
+      }
+    }
+    expect(
+      strays,
+      'a claim about the panel is a PanelClaim, not a string — see app/config/panelClaims.ts',
+    ).toEqual([]);
+  });
+
+  /**
+   * …and the claim module's own door is shut.
+   *
+   * Every exported way to turn a claim into words takes the presence as an
+   * argument. This reads the module's source rather than its types because that
+   * is the assertion with teeth: a future `export function nowPlaying(name)`
+   * would type-check perfectly and reopen the exact hole this round closed.
+   */
+  it('exposes no way to render a claim without asking what is known', () => {
+    const source = FILES.find((f) => f.rel === 'app/config/panelClaims.ts');
+    expect(source, 'the claims module must exist').toBeDefined();
+    const signatures = [...(source?.text.matchAll(/export function (\w+)\(([^)]*)\)/g) ?? [])];
+    expect(signatures.length).toBeGreaterThan(5);
+    for (const [, name, params] of signatures) {
+      expect(params, `${String(name)}() must take a PanelPresence`).toMatch(/presence/);
+    }
+  });
+
   it('composes the destination into every phrase that names one', () => {
     expect(KEEPING_A_COPY_NOW).toContain(COPY_HOME);
     expect(KEPT_A_COPY).toContain(COPY_HOME);

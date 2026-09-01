@@ -5,7 +5,12 @@ import {
   CAM_FRAME_RATE_TAIL,
   CAM_PATH_FRAME_RATE,
 } from '../../../config/camPaths';
-import { KEEPING_A_COPY, KEPT_A_COPY, LIBRARY_NOUN } from '../../../config/vocabulary';
+import {
+  KEEPING_A_COPY,
+  KEPT_A_COPY,
+  LIBRARY_NOUN,
+  LOCAL_COPY_PITCH,
+} from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
 import { validateClock } from '../../../modules/clock/schema';
 import { validateImageConfig } from '../../../modules/image/schema';
@@ -26,30 +31,34 @@ import { Meter, Notice, Segmented } from '../../../ui';
 import { FitControl } from '../../../ui/Framing';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import {
-  RECEIPT_LINGER_MS,
   TELE_FRESH_MS,
   describeFlow,
+  eventTime,
   describeVideoStatus,
   failureLine,
   formatSeconds,
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
-  receiptPersists,
+  receiptIsCurrent,
   receiptSubLine,
   resolverHealthyFromTele,
   sourceName,
-  type FlowStage,
   type FlowState,
   type Status,
 } from '../homeState';
+import { PanelClaim } from '../PanelClaim';
 import {
+  CLAIM_HANDOFF_PICKUP,
+  CLAIM_STREAMING_HEADLINE,
+  CLAIM_STREAMING_NO_COPY,
+  CLAIM_YOUTUBE_EMBED,
   handoffHeadline,
-  panelIsKnown,
-  panelPresence,
+  panelClaimText,
+  panelVerb,
   settledReceipt,
-  type PanelPresence,
-} from '../panelPresence';
+} from '../panelClaims';
+import { panelPresence, type PanelPresence } from '../panelPresence';
 import { pasteAction, type PasteAction, type PasteIssue } from '../pasteLink';
 import { ownsBytes } from '../surface';
 import { PHONE_QUERY, useNarrow } from '../useNarrow';
@@ -428,6 +437,23 @@ export function HomeView({
     if (action === null) return;
     const outcome = action.submit(draft);
     setIssue(outcome.issue);
+    /*
+      The one place a link's story gets a timestamp on this window (F6).
+
+      A pasted link that starts no download job has no moment recorded anywhere
+      — `state.updatedAt` moves for every unrelated commit, so it is not one —
+      and a ladder that narrates an event it cannot date is what replayed a
+      day-old story on a cold open. This is the event, so this is where it is
+      stamped: the committed URL — read back from the store, because the typed
+      string is not necessarily the stored one (an `http://` link has already
+      been upgraded by `validateUrl`, §7.1) — and when.
+    */
+    if (outcome.accepted) {
+      const committed = validateVideoConfig(
+        runtime.store.getSnapshot().modules[videoModule.id]?.cfg,
+      ).url;
+      setPasted({ url: committed, at: eventTime() });
+    }
     if (outcome.accepted && action.clearOnAccept) setDraft('');
   };
 
@@ -496,22 +522,32 @@ export function HomeView({
    * object on this screen, and it could not see this one because the fact that
    * the receipt was up was a `useState` two components down.
    *
-   * Keyed on `stage` so a story that moves on — downloading → stored — restarts
-   * the clock rather than inheriting a timer from a stage that has passed.
+   * ## Round 7's F6 — a receipt is keyed to STORY time, not to mount time
+   *
+   * The timer used to start on mount, which made "four seconds old" mean *four
+   * seconds since this component rendered*. Reopening CAM on a day-old stored
+   * state therefore replayed the entire ladder — "Sent to your Kraken · On
+   * screen now" — narrating an event from yesterday as though it had just
+   * happened, and taking the floor from the halo for four seconds while it did
+   * it, so the first thing a returning user saw was a 64 px thumbnail under a
+   * stale narration.
+   *
+   * A receipt is a claim about a MOMENT, so the moment is what it is measured
+   * against, and there are only two kinds of moment here:
+   *
+   *  - a download job has one — `updatedAt`, the last time the story actually
+   *    moved, which is also what makes `downloading → stored` restart the clock
+   *    without a `stage` key to hang it on;
+   *  - a link that produced no job has none *on disk*, and inventing one would
+   *    be the same lie in a new place. What is true is that **this window** was
+   *    handed the link: `pasted` is stamped by `submit()` and by nothing else,
+   *    so a state committed yesterday, or from a phone, is not narrated here.
+   *    It is still on the panel, and the status line under the halo says so.
    */
   const stage = flow?.stage ?? null;
-  const [retiredStage, setRetiredStage] = useState<FlowStage | null>(null);
-  useEffect(() => {
-    if (stage === null) return undefined;
-    // Not a list of stages: a question about one. See `homeState.receiptPersists`.
-    if (receiptPersists(stage)) return undefined;
-    const timer = setTimeout(() => {
-      setRetiredStage(stage);
-    }, RECEIPT_LINGER_MS);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [stage]);
+  const [pasted, setPasted] = useState<{ url: string; at: number } | null>(null);
+  const storyAt =
+    flow?.entry?.updatedAt ?? (pasted !== null && pasted.url === videoCfg.url ? pasted.at : null);
   /**
    * True while the ladder is taking room, whatever stage it is telling.
    *
@@ -529,7 +565,8 @@ export function HomeView({
    * Library carries the progress bar and the retry, and if the story is still
    * running when the panel closes the ladder is still there to come back to.
    */
-  const receiptUp = stage !== null && retiredStage !== stage && !openOps && !loopOpen;
+  const receiptUp =
+    stage !== null && receiptIsCurrent(stage, storyAt, now) && !openOps && !loopOpen;
 
   /**
    * The halo yields the floor when something opens in its place.
@@ -662,7 +699,9 @@ export function HomeView({
         appears here again — see `displaySeen.ts` for why the trigger is evidence
         rather than a dismiss button.
       */}
-      {!setupDone && <CamSetupCard runtime={runtime} variant="first-run" dense={compact} />}
+      {!setupDone && (
+        <CamSetupCard runtime={runtime} variant="first-run" presence={presence} dense={compact} />
+      )}
 
       {action === null ? (
         /*
@@ -1197,7 +1236,14 @@ function DownloadFlow({
             ▸
           </span>
           <span className="kh-step__text">
-            <b>Playing through YouTube</b>
+            {/*
+              Round 7's F2. This was `<b>Playing through YouTube</b>` — flat, in
+              the present progressive, on every window, including a first-run one
+              whose NEXT card was at that same moment correctly refusing to claim
+              a screen. The claim is a type now: there is no way to render it
+              without handing over what this window knows.
+            */}
+            <PanelClaim claim={CLAIM_YOUTUBE_EMBED} presence={presence} as="b" />
           </span>
         </li>
       ) : (
@@ -1211,15 +1257,22 @@ function DownloadFlow({
           </span>
           <span className="kh-step__text">
             <b>{secondHeadline(stage, presence)}</b>
+            {/*
+              …and the other half of round 7's F2.
+
+              "so your Kraken is playing it straight from the web" was the same
+              unasked present-tense claim, in a sub-line, and `failureLine`'s
+              four sentences ended in a third copy of it. All three go through
+              `panelClaims` now; the CORS fact and the disk fact are unchanged in
+              every tense, because those are facts about a server and a disk.
+            */}
             <small>
               {stage === 'streaming'
-                ? 'This server does not allow saving a copy, so your Kraken is playing it straight from the web.'
+                ? panelClaimText(CLAIM_STREAMING_NO_COPY, presence)
                 : stage === 'accepted'
-                  ? panelIsKnown(presence)
-                    ? 'Your Kraken picks it up straight away.'
-                    : 'Your Kraken picks it up as soon as it connects.'
+                  ? panelClaimText(CLAIM_HANDOFF_PICKUP, presence)
                   : stage === 'unsaved'
-                    ? failureLine(entry)
+                    ? failureLine(entry, presence)
                     : entry === null
                       ? ''
                       : downloadingLine(entry, pct)}
@@ -1274,7 +1327,7 @@ function secondHeadline(stage: FlowState['stage'], presence: PanelPresence): str
   // "Sent to your Kraken" names a hand-off, and a hand-off needs somebody to
   // hand it TO. `handoffHeadline` is the same question the card below asks.
   if (stage === 'accepted') return handoffHeadline(presence);
-  return 'Streaming from the link';
+  return panelClaimText(CLAIM_STREAMING_HEADLINE, presence);
 }
 
 /** The first step's second line before any job exists to name the file. */
@@ -1317,7 +1370,7 @@ function detectedHeadline(url: string): string {
  * than a sentence.
  */
 function downloadingLine(entry: DownloadEntry, pct: number | null): string {
-  const pitch = 'Downloading locally — plays forever, no ads, no buffering';
+  const pitch = LOCAL_COPY_PITCH;
   if (entry.state === 'queued') return pitch;
   if (entry.state === 'done') return `${formatBytes(entry.receivedBytes)} · ${KEPT_A_COPY}`;
   /*
@@ -1357,7 +1410,9 @@ function describeStatus(input: {
     const mod = getModule(input.activeId);
     return {
       live: true,
-      verb: 'Showing',
+      // The word was typed here and again as the remote's module-picker label.
+      // One claim, one place — `panelClaims.panelVerb` (round 7).
+      verb: panelVerb(input.presence, 'showing'),
       name: mod === null ? 'this module' : (mod.chipName ?? mod.name),
       detail: null,
     };

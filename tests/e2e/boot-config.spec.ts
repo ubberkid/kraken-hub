@@ -487,12 +487,42 @@ test.describe('config boot', () => {
     await page.setViewportSize({ width: 866, height: 537 });
     await page.addInitScript(() => {
       localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+      /*
+        A REPORTED duration — round 7's F1.
+
+        The scrubber's handles write loop points, and a loop point is a position
+        on a timeline. Without a length somebody measured there is no timeline,
+        only `LOOP_MAX_SEC` drawing a rail, so the handles are disabled and
+        nothing is persisted from the invented scale (see `loopPoints.ts` and
+        the narrowing test below). This test is about the op OPENING and a
+        handle SETTING a loop, so it seeds the one fact that makes a loop point
+        mean something — through the real telemetry mirror the display writes.
+      */
+      localStorage.setItem(
+        'kraken-hub:v1:video:tele',
+        JSON.stringify({
+          ch: 'tele',
+          kind: 'videoStats',
+          ts: Date.now(),
+          provider: 'direct-file',
+          display: { w: 640, h: 640, shape: 'circle', targetFps: 40 },
+          stats: {
+            currentTime: 12,
+            durationSec: 182,
+            bufferedEnd: 182,
+            held: false,
+            loopCrossings: 0,
+            maskVisiblePct: 0,
+          },
+        }),
+      );
     });
     await page.goto('/');
 
     await expect(page.getByTestId('ops-loop-panel')).toHaveCount(0);
     await page.getByTestId('ops-loop-button').click();
     await expect(page.getByTestId('scrubber')).toBeVisible();
+    await expect(page.getByTestId('scrubber')).toHaveAttribute('data-scale', 'known');
     // The halo stays put — that is the entire difference from the old path.
     await expect(page.getByTestId('mirror')).toBeInViewport();
 

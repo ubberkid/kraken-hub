@@ -6,6 +6,7 @@ import {
   KEEPING_A_COPY_NOW,
   KEPT_VERB,
   NOTHING_KEPT,
+  OFFLINE_PROMISE,
 } from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
 import { imageModule } from '../../../modules/image';
@@ -50,10 +51,12 @@ import { Button, Chip, Meter, Notice } from '../../../ui';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import { RECEIPT_LINGER_MS, failureLine } from '../homeState';
 import { buildLibraryTiles, tileDetail, type LibraryTile } from '../libraryItems';
-import { linkReceipt, nowShowingBadge, panelPresence, showingTile } from '../panelPresence';
+import { linkReceipt, nowShowingBadge, showingTile } from '../panelClaims';
+import { panelPresence } from '../panelPresence';
 import { pasteAction } from '../pasteLink';
 import { activeTileKey, showTile } from '../showTile';
 import { ownsBytes } from '../surface';
+import { PHONE_QUERY, useNarrow } from '../useNarrow';
 import { useSync } from '../useSync';
 
 import { ConfirmSheet } from './ConfirmSheet';
@@ -61,6 +64,7 @@ import { RemoteAdd } from './RemoteAdd';
 import { RemoteLibrary } from './RemoteLibrary';
 import { TreatedArt } from './TileArt';
 
+import type { PanelPresence } from '../panelPresence';
 import type { ConfigRuntime } from '../runtime';
 
 /**
@@ -438,6 +442,14 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
   );
 
   /**
+   * The remote branch mounts the same **Add** panel the phone remote does, so it
+   * hands it the same two page-level facts: the window's width (for the
+   * placeholder) and the panel's open state, which this page already tracked for
+   * its own `+` button.
+   */
+  const narrow = useNarrow(PHONE_QUERY);
+
+  /**
    * ONE shelf, from whichever source this window can actually see — A2.
    *
    * `buildLibraryTiles` is the same pure function on both branches, fed the same
@@ -549,7 +561,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
     void downloadToClip(entry.sourceUrl, { provider: detect(entry.sourceUrl).provider }).then(
       (result) => {
         refresh();
-        if (!result.ok) setMessage({ tone: 'warn', text: failureLine(result.entry) });
+        if (!result.ok) setMessage({ tone: 'warn', text: failureLine(result.entry, presence) });
       },
     );
   };
@@ -714,7 +726,16 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
           videoUrl={videoCfg.url}
           imageId={localImageId(imageCfg.url)}
           presence={presence}
-          add={<RemoteAdd runtime={runtime} sync={sync} presence={presence} />}
+          add={
+            <RemoteAdd
+              runtime={runtime}
+              sync={sync}
+              presence={presence}
+              narrow={narrow}
+              open={addOpen}
+              onOpenChange={setAddOpen}
+            />
+          }
         />
       </section>
     );
@@ -955,7 +976,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
             same screen, at the same moment. It is said once, here, where there
             is nothing else to look at.
           */}
-          <p className="kh-hint">Whatever lands here keeps playing with the network unplugged.</p>
+          <p className="kh-hint">{OFFLINE_PROMISE}</p>
         </div>
       ) : (
         <ul className="kh-grid" data-testid="library-grid">
@@ -966,6 +987,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
               owns={owns}
               active={tile.key === activeKey}
               activeLabel={nowShowingBadge(presence)}
+              presence={presence}
               onShow={show}
               onPin={togglePin}
               onDelete={setConfirming}
@@ -1060,6 +1082,7 @@ function Tile({
   owns,
   active,
   activeLabel,
+  presence,
   onShow,
   onPin,
   onDelete,
@@ -1078,6 +1101,13 @@ function Tile({
   active: boolean;
   /** What the badge says — "On screen", or the truth (`nowShowingBadge`). */
   activeLabel: string;
+  /**
+   * What this window may claim about the panel.
+   *
+   * The tile's failure line ends in one — *"…so your Kraken is playing it from
+   * the link"* — and `failureLine` cannot be called without it (round 7).
+   */
+  presence: PanelPresence;
   onShow: (tile: LibraryTile) => void;
   onPin: (tile: LibraryTile) => void;
   onDelete: (tile: LibraryTile) => void;
@@ -1225,7 +1255,7 @@ function Tile({
             on this PC, which is what the Kraken then reads.
           */}
           {tile.state === 'failed'
-            ? failureLine(entry)
+            ? failureLine(entry, presence)
             : tile.state === 'downloading'
               ? KEEPING_A_COPY_NOW
               : tileDetail(tile)}
@@ -1291,7 +1321,7 @@ function Tile({
         {owns && tile.state === 'downloading' && entry !== null && (
           <Button
             testId="tile-cancel"
-            title="Stop fetching this"
+            title="Stop this download"
             onClick={() => {
               onCancel(entry.id);
             }}
@@ -1303,7 +1333,7 @@ function Tile({
           <>
             <Button
               testId="tile-retry"
-              title="Try fetching the bytes again"
+              title="Try the download again"
               onClick={() => {
                 onRetry(entry);
               }}

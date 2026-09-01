@@ -16,17 +16,26 @@ up for — and the broker in the middle cannot read a single thing you send.
 
 1. On the machine running CAM, open kraken-hub's configuration page (the one CAM
    opens for you, or the same URL in any browser) and follow **Remote** in the
-   row under the halo.
+   row under the halo. In CAM this page is **pairing**, not a remote control:
+   a window is not a remote for the machine it runs on, and everything a remote
+   offers — a mirror of the panel, a transport, the library — is already on the
+   home screen in a truer form, one click away.
 2. Press **Create a code**. You get eight characters, like `H4KM7Q2V`, and the
-   card collapses to a single paired line — _Paired with your PC_ and the room —
-   with the QR one tap down under **Pairing options**. Pairing a second device
-   is a pairing option, so it lives with the other pairing options rather than
-   dominating a card whose whole message, once you are paired, is one line.
-3. Open **Pairing options** and point your phone's camera at the QR. **That is
-   the whole step** — the phone opens the remote and joins before the card first
-   paints. Nothing to type, no Join button, no account.
-4. The line under the transport reads _Linked to your Kraken_. You are paired,
-   and you stay paired: a bookmark to that page reconnects on its own.
+   card becomes the thing you came for: **Scan with your phone**, the QR at the
+   size a camera resolves, the room underneath it, and **Rotate code** and
+   **Copy the link** beside it.
+3. Point your phone's camera at the QR. **That is the whole step** — the phone
+   opens the remote and joins before the card first paints. Nothing to type, no
+   Join button, no account.
+4. On the phone, the line under the transport reads _Linked to your Kraken_. You
+   are paired, and you stay paired: a bookmark to that page reconnects on its
+   own.
+
+On a phone or a second browser — any window that really is remote from the
+Kraken — the same route is the remote control, and its pairing card collapses to
+one line (_Paired with your PC_ and the room) with the square one tap down under
+**Pairing options**. Pairing a second device is a pairing option there, because
+the card's whole message once you are paired is that one line.
 
 The QR encodes an ordinary link of the form
 `https://<your-site>/#/remote?room=H4KM7Q2V`. The code rides in the **fragment**,
@@ -36,9 +45,11 @@ QR is generated **on your own machine** (`src/app/config/qr.ts`), never fetched
 from a QR service, because the room code is the only secret in this design.
 
 It is drawn as dark modules on a white tile — the rest of the app is dark, and
-an inverted code is one a phone camera will not offer to open — and it appears
-only on windows wider than 700 px. On a phone the pairing card is already the
-remote, so a QR there would be the page offering you a scan of itself.
+an inverted code is one a phone camera will not offer to open. On the **remote**
+surface it appears only above 700 px: there the pairing card is already the
+remote, so a QR would be the page offering you a scan of itself. On CAM's
+**pairing** surface it is always shown, at any window width, because it is the
+entire reason that page exists.
 
 If the camera route is not available — a desktop second browser, a locked-down
 phone — the same card has a **Type a code instead** disclosure holding a
@@ -69,8 +80,8 @@ that opened it.
 
 ### Rotating a code
 
-**Rotate code**, under **Pairing options** beside the QR and the copyable link,
-replaces it immediately. Anyone still holding the old code lands
+**Rotate code** — beside the QR and the copyable link on CAM's pairing surface,
+and under **Pairing options** on a remote — replaces it immediately. Anyone still holding the old code lands
 on a different topic and simply sees nothing — there is nothing to revoke and no
 list to update. Do this if you have ever shown the code on stream.
 
@@ -124,9 +135,18 @@ changed nothing on the panel (round 5, S1).
 sentence and **Create a code** — with _Type a code instead_ behind a quiet
 disclosure and nothing else at all. A scrubber reading `0:00 / 60:00` for a
 duration nobody had reported, three greyed-out transport buttons and two status
-lines both saying "waiting" is not a remote; it is a screenshot of one. Where a
-duration is genuinely unknown the scrubber now shows **no total** rather than
-inventing an hour.
+lines both saying "waiting" is not a remote; it is a screenshot of one.
+
+**Where a duration is genuinely unknown, the scrubber withdraws.** It used to
+show no total and keep everything else, which left the invented hour running the
+controls: the seek input's `max` was 3600, so a tap two thirds along the bar
+reported a playhead at forty minutes, and dragging **B** persisted `loop.end =
+2177` for a video nobody had measured. The rail is decorative in that state —
+no seek input, no loop band, the two handles parked and disabled — with one line
+saying what unlocks them: _Loop points unlock when your Kraken reports the
+length_. Nothing is written from a scale nobody reported
+(`src/app/config/loopPoints.ts`). The seek gates on the same freshness the
+transport buttons do, because it is the same question about the same panel.
 
 There used to be a `More controls` disclosure holding a second complete copy of
 the app: fourteen controls duplicating the configuration page in different words,

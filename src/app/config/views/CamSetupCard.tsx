@@ -7,7 +7,10 @@ import {
 } from '../../../config/camPaths';
 import { camInstallUrl } from '../../../config/knownHosts';
 import { Chip, Code } from '../../../ui';
+import { PanelClaim } from '../PanelClaim';
+import { CLAIM_NO_KRAKEN_HERE } from '../panelClaims';
 
+import type { PanelPresence } from '../panelPresence';
 import type { ConfigRuntime } from '../runtime';
 
 /**
@@ -47,25 +50,44 @@ import type { ConfigRuntime } from '../runtime';
  * The words differ between the variants; the substance never does — a user who
  * needs the URL must not have to discover that the two places disagree.
  */
-export function CamSetupCard({
-  runtime,
-  variant,
-  dense = false,
-}: {
-  runtime: ConfigRuntime;
-  variant: 'first-run' | 'quiet';
-  /**
-   * The band, while something else on the page has the floor (round 3, F2).
-   *
-   * Two objects cannot both have 537 px. When the options panel opens, the halo
-   * shrinks to a thumb and the band drops to the half of its sentence that is
-   * news — *your Kraken has not shown up yet* — keeping its one action. The
-   * instruction it drops is the same instruction the button carries out, and it
-   * comes back the moment the panel closes. `first-run` only; the quiet variant
-   * lives on a page of its own where nothing is competing with it.
-   */
-  dense?: boolean;
-}) {
+/**
+ * The two variants are two prop shapes, not one shape with optional halves.
+ *
+ * `first-run` renders a claim about the panel, so it REQUIRES a
+ * {@link PanelPresence}; `quiet` renders an address and a button, and asking
+ * `AboutView` to derive a presence it does not otherwise need would be exactly
+ * the ceremonial plumbing that teaches people to pass a plausible default. A
+ * union makes the requirement local to the variant that has one.
+ */
+type CamSetupCardProps =
+  | {
+      runtime: ConfigRuntime;
+      variant: 'first-run';
+      /**
+       * What this window may say about the panel — round 7's core.
+       *
+       * The band's headline is a sentence about the LCD, so it is a
+       * `PanelClaim`, and a claim cannot be rendered without one of these. In
+       * practice the band only mounts where nothing has ever been seen, which
+       * is precisely why the argument is required rather than assumed: the
+       * assumption is what the last six rounds were made of.
+       */
+      presence: PanelPresence;
+      /**
+       * The band, while something else on the page has the floor (round 3, F2).
+       *
+       * Two objects cannot both have 537 px. When the options panel opens, the
+       * halo shrinks to a thumb and the band drops to the half of its sentence
+       * that is news — *your Kraken has not shown up yet* — keeping its one
+       * action. The instruction it drops is the same instruction the button
+       * carries out, and it comes back the moment the panel closes.
+       */
+      dense?: boolean;
+    }
+  | { runtime: ConfigRuntime; variant: 'quiet' };
+
+export function CamSetupCard(props: CamSetupCardProps) {
+  const { runtime } = props;
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
 
@@ -92,7 +114,7 @@ export function CamSetupCard({
     </Chip>
   );
 
-  if (variant === 'first-run') {
+  if (props.variant === 'first-run') {
     return (
       <section className="kh-band" data-testid="setup-first-run" aria-labelledby="kh-setup-title">
         <div className="kh-band__line">
@@ -108,8 +130,14 @@ export function CamSetupCard({
           */}
           <p className="kh-band__text">
             {/* A resting state describes what IS, without apologising for it. */}
-            <b id="kh-setup-title">No Kraken is showing this page.</b>
-            {!dense && (
+            <PanelClaim
+              claim={CLAIM_NO_KRAKEN_HERE}
+              presence={props.presence}
+              as="b"
+              id="kh-setup-title"
+              testId="setup-headline"
+            />
+            {props.dense !== true && (
               <>
                 {' '}
                 Point CAM at this page, then {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b>{' '}

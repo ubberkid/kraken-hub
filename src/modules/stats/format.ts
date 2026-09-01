@@ -197,6 +197,25 @@ export function secondaryFor(
 }
 
 /**
+ * Does the dial's own label merely repeat the line under it? — round 7's minors.
+ *
+ * The dual layout pairs a temperature with the SAME component's load, so the
+ * `cpuTemp` dial reads **CPU 17%** in the arc gap and **CPU** again under the
+ * number: one word, twice, on a 640 px panel where every glyph is expensive and
+ * the second one adds nothing a reader can act on. The sub-line wins because it
+ * carries the name AND a second reading; the standalone label carries the name
+ * alone.
+ *
+ * A predicate rather than a rule baked into the renderer, so it can be asserted
+ * for every layout without a DOM — and so the answer is derived from the two
+ * tiles rather than from a list of metric pairs somebody has to keep in step
+ * with `secondaryFor`.
+ */
+export function dialLabelRepeats(tile: StatsTile, secondary: StatsTile | null): boolean {
+  return secondary !== null && secondary.label === tile.label;
+}
+
+/**
  * A string identifying everything the module would paint, for the repaint guard.
  *
  * The feed is 1 Hz and the frame clock may be 40 Hz; comparing this is what

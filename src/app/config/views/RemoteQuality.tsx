@@ -71,10 +71,10 @@ export const RemoteQuality = memo(function RemoteQuality({
     typeof rawQuality === 'object' && rawQuality !== null
       ? (rawQuality as { height?: number | null; label?: string | null })
       : null;
-  const reading = describeQuality(cfg.quality, {
-    reported,
-    local: cfg.url.startsWith(LOCAL_CLIP_SCHEME),
-  });
+  const readout = { reported, local: cfg.url.startsWith(LOCAL_CLIP_SCHEME) };
+  const reading = describeQuality(cfg.quality, readout);
+  /** …and the same reading without the word the Auto segment already carries. */
+  const pickerReading = describeQuality(cfg.quality, readout, { inPicker: true });
 
   if (control === 'readonly' || control === 'none') {
     return (
@@ -92,7 +92,7 @@ export const RemoteQuality = memo(function RemoteQuality({
       <GroupField
         label={control === 'bias' ? 'Bias' : 'Quality'}
         id="remote-quality"
-        description={reading}
+        {...(pickerReading === '' ? {} : { description: pickerReading })}
       >
         {/*
           The same segmented ladder the CAM panel draws (R8): the remote was the

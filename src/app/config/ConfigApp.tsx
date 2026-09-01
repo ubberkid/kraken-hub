@@ -88,15 +88,33 @@ function SubPageHeader({ route, title }: { route: string; title: string }) {
 /**
  * Which `<main>` element a route belongs to.
  *
- * Two routes are redirects that render the screen they redirect TO, so they
- * must not get a key of their own: a changed key remounts the screen a tick
- * after it mounted, which replays the rise animation and throws away whatever
- * the deep link had just opened.
+ * The four legacy routes are redirects that render the screen they redirect TO,
+ * so none of them may get a key of its own: a changed key remounts the screen a
+ * tick after it mounted, which replays the rise animation and throws away
+ * whatever the deep link had just opened.
+ *
+ * Round 7's minors — **all four, one behaviour.** Two of them were listed here
+ * (`module`, `diag`) and two were not, so `#/preview` and `#/sources` rewrote
+ * their hash and then tore the screen down and rebuilt it, while `#/module/x`
+ * and `#/diag` cross-faded exactly once. Four routes that exist for the same
+ * reason and are described in the same comment behaved two different ways,
+ * which is what a hand-maintained pair of `if`s always eventually does.
+ *
+ * `LEGACY_ROUTES` is the mapping, in one place, and `router.ts`'s doc-comment
+ * names the same four. `#/sources` resolves to `library` even when `ConfigApp`
+ * sends an unpaired remote to `#/remote` instead: the key only has to keep the
+ * element stable across the rewrite, and the branch below renders `RemoteView`
+ * under both keys anyway.
  */
+const LEGACY_ROUTES: Readonly<Record<string, string>> = {
+  module: 'home',
+  preview: 'home',
+  sources: 'library',
+  diag: 'about',
+};
+
 function mainKey(name: string): string {
-  if (name === 'module') return 'home';
-  if (name === 'diag') return 'about';
-  return name;
+  return LEGACY_ROUTES[name] ?? name;
 }
 
 export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
