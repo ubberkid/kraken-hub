@@ -177,6 +177,7 @@ DOM stacking, one host per ON layer, Chromium composites. Not a single canvas (a
              [frame.shape=circle AND kind.resize=scale] → border-radius:50%; overflow:hidden
              NO will-change on any host (the module's own stage may promote itself — video/image do)
   LowFpsBanner / DebugOverlay / DiagOverlay after the stack, unchanged
+             (all four written as plain DOM since W9 — same classes, same order)
 ```
 
 | layer class | substrate inside host | per-tick cost | clip | notes |
@@ -261,11 +262,13 @@ Stage mask clips the whole stack to the bezel (corners stay flat black — the c
 
 ### 2.8 Live preview channel (from B)
 
-`compositor.preview(id, t)` writes the CSS-only transform. CAM page: the halo is an iframe of the real display; the editor posts `{ kh:'preview', id, t }` with `postMessage(msg, location.origin)`; `src/app/display/mount.tsx` installs the `message` listener **only when `inConfigMirror()`** (moved from `image/display.ts` to `src/platform/env.ts`) and `event.origin === location.origin`. The LCD (top-level window) never has the listener. The next committed `look` (storage event) clears the preview. Phone: replica is in-process → `preview()` called directly.
+`compositor.preview(id, t)` writes the CSS-only transform. CAM page: the halo is an iframe of the real display; the editor posts `{ kh:'preview', id, t }` with `postMessage(msg, location.origin)`; `src/app/display/mount.ts` installs the `message` listener **only when `inConfigMirror()`** (moved from `image/display.ts` to `src/platform/env.ts`) and `event.origin === location.origin`. The LCD (top-level window) never has the listener. The next committed `look` (storage event) clears the preview. Phone: replica is in-process → `preview()` called directly.
 
-### 2.9 `LayerHost.tsx` (replaces `ModuleHost.tsx`, display-shell)
+### 2.9 `LayerStack.ts` (replaces `ModuleHost.tsx`, display-shell)
 
-Props `{ runtime, state }`. Creates the compositor once per runtime; effects: `update(state.look, origin)` on look/modules change, `geometry(g)` on geometry change; `useSyncExternalStore(subscribe, status)` for splash (`!ready`) and `ModuleErrorCard` per failure. `runtime.onReinit`/`onCommand` become `compositor.reinit` / `compositor.command`. `configOf`: base → `mod.validate(applyUrlParams(selectModuleConfig(state, kind), runtime.moduleParams))`; overlay → `mod.validate(migrateConfig?(layer.v, layer.cfg) ?? layer.cfg)`. `DisplayApp`: `motionLevel = max(cost.cadence over ON layers)` mapped back to `'static'|'low'|'full'`; `ownsFpsAdvisory` from the base only; `LowFpsBanner` unchanged otherwise. `display/sync.ts` `default:` branch → `compositor.command(op, arg, arg?.layer)`; `setModule` remains an alias for "replace the base".
+> **W9 update.** This was `LayerStack.tsx`, a component. The display page ships without a framework now (design-architecture.md §2.1), so what follows describes `src/app/display/LayerStack.ts`: the same object graph with the hooks spelled as what they were — the `useRef` is a field, the `useEffect` is the constructor plus a disposer, and the `useSyncExternalStore` is `host.subscribe`.
+
+Takes `{ runtime }` and a memoised `(look, cfgs)` from `DisplayApp`. Creates the compositor once per runtime; `setLook(look, cfgs)` on look/modules change, `setPanel(g)` on geometry change; `host.subscribe(…)` re-reads `host.status()` for the splash (`!ready`) and the module error card per failure. `runtime.onReinit`/`onCommand` become `compositor.reinit` / `compositor.command`. `configOf`: base → `mod.validate(applyUrlParams(selectModuleConfig(state, kind), runtime.moduleParams))`; overlay → `mod.validate(migrateConfig?(layer.v, layer.cfg) ?? layer.cfg)`. `DisplayApp`: `motionLevel = max(cost.cadence over ON layers)` mapped back to `'static'|'low'|'full'`; `ownsFpsAdvisory` from the base only; `LowFpsBanner` unchanged otherwise. `display/sync.ts` `default:` branch → `compositor.command(op, arg, arg?.layer)`; `setModule` remains an alias for "replace the base".
 
 ---
 
@@ -482,12 +485,12 @@ PATH rather than by importer, so both carried code nothing on the first-paint
 path imports:
 
 - **`display-lazy`** (new group) — `src/app/display/sync.ts` and `replicaFeed.ts`.
-  `mount.tsx` reaches `sync.ts` through `await import('./sync')` and only when a
+  `mount.ts` reaches `sync.ts` through `await import('./sync')` and only when a
   room is configured; they sat in `display-shell` because of where the files live.
   `display-shell` 5.82 → 2.98 kB.
 - **`lazy-shared`** (new group) — `platform/{mediaStore,idb,capabilities}.ts`,
   `lib/{curation,chunkedTele,libraryPacket}.ts`, `config/knownHosts.ts`,
-  `modules/replicaThumb.ts`. A static-import walk from `mount.tsx` reaches none of
+  `modules/replicaThumb.ts`. A static-import walk from `mount.ts` reaches none of
   them; every importer is a lazy chunk (the module stores, `display/sync.ts`,
   the diagnostics probes, the config views). `core` 25.67 → 21.91 kB.
   `libraryPacket.ts` is in the list because it statically imports `mediaStore` and

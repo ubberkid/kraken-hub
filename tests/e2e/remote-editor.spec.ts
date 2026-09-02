@@ -229,6 +229,244 @@ test.describe('the ring becomes the canvas', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1b. Two fingers — round 13, F5
+// ---------------------------------------------------------------------------
+
+/**
+ * Pinch and twist, with two fingers that really are two fingers.
+ *
+ * `page.touchscreen` has exactly one finger, and `page.mouse` has none at all,
+ * so nothing in this suite could reach `EditorCanvas`'s second-finger branch —
+ * the whole of §8's pinch-to-scale and two-finger rotate shipped with no
+ * end-to-end coverage, which is how round 13's audit came to report it broken.
+ *
+ * The only way to put two fingers on the glass from Playwright is the DevTools
+ * protocol: `Input.dispatchTouchEvent` takes a LIST of touch points, and Chrome
+ * turns the list into one `pointerdown` per point. That is what the helper
+ * below does, and it is the reason these tests are worth their weight: they
+ * exercise the exact code path a hand does and nothing else in the file can.
+ *
+ * ## What the audit actually saw
+ *
+ * The report was "`t.s` stayed 1 and the selection was dropped". Both halves
+ * are measurement, not defect, and the assertions here are written to say so:
+ *
+ *  - A pinch on a layer whose kind resizes by FRAME (a clock does; `layer.resize`
+ *    in the module manifest) is committed by `endGesture` into `layer.frame`,
+ *    with `t.s` deliberately restored to where it started (`gesture.ts`). The
+ *    scale is there — it is in the field that describes the layer's SIZE, which
+ *    is the field a frame-resizing layer keeps its size in.
+ *  - The selection survives the gesture, which is what these tests assert while
+ *    the fingers are still down. What the audit measured afterwards is the
+ *    two-peers-in-one-browser harness: the display page and the phone page share
+ *    one `localStorage` origin here, and a commit from either settles a second
+ *    or so later — a ONE-finger drag does exactly the same thing.
+ */
+
+/** One finger, in CSS pixels on the page. */
+interface Finger {
+  x: number;
+  y: number;
+}
+
+/** A hand, dispatched through CDP. Playwright's own input has one finger. */
+async function hand(phone: Page): Promise<{
+  down: (points: readonly Finger[]) => Promise<void>;
+  move: (points: readonly Finger[]) => Promise<void>;
+  up: () => Promise<void>;
+}> {
+  const cdp = await phone.context().newCDPSession(phone);
+  const send = async (
+    type: 'touchStart' | 'touchMove' | 'touchEnd',
+    points: readonly Finger[],
+  ): Promise<void> => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map((p, i) => ({ x: p.x, y: p.y, id: i, radiusX: 8, radiusY: 8 })),
+    });
+  };
+  return {
+    down: (points) => send('touchStart', points),
+    move: (points) => send('touchMove', points),
+    up: () => send('touchEnd', []),
+  };
+}
+
+/** The document, layers and all — `look()` above keeps only what it needs. */
+async function layers(page: Page): Promise<
+  {
+    id: string;
+    kind: string;
+    frame: { w: number; h: number } | 'panel';
+    t: Record<string, number>;
+  }[]
+> {
+  return page.evaluate(() => {
+    const raw = localStorage.getItem('kraken-hub:v1:state');
+    return raw === null
+      ? []
+      : (
+          JSON.parse(raw) as {
+            look: {
+              layers: {
+                id: string;
+                kind: string;
+                frame: { w: number; h: number } | 'panel';
+                t: Record<string, number>;
+              }[];
+            };
+          }
+        ).look.layers;
+  });
+}
+
+/**
+ * A layer's own box, insisted on.
+ *
+ * The base wears `frame: 'panel'` and has no box of its own; an overlay always
+ * has one. Narrowing HERE rather than in the test keeps the assertions free of
+ * branches — a conditional inside a test is a test with two meanings.
+ */
+function frameOf(layer: { frame: { w: number; h: number } | 'panel' } | undefined): {
+  w: number;
+  h: number;
+} {
+  const frame = layer?.frame;
+  expect(frame, 'the clock overlay is gone').toBeDefined();
+  expect(frame, 'the clock overlay lost its own box').not.toBe('panel');
+  return frame === undefined || frame === 'panel' ? { w: 0, h: 0 } : frame;
+}
+
+/** An editing phone with one clock overlay on it, selected, and where it is. */
+async function phoneWithClock(
+  context: BrowserContext,
+  room: string,
+): Promise<{ phone: Page; centre: Finger }> {
+  const phone = await editingPhone(context, room);
+  await phone.getByTestId('remote-add-layer').tap();
+  await phone.getByTestId('add-tile-clock').tap();
+  // The box only exists once the layer is committed AND selected, so waiting
+  // for it is waiting for both.
+  const box = phone.getByTestId('editor-selection');
+  await expect(box).toBeVisible();
+  await expect.poll(async () => (await layers(phone)).length).toBe(2);
+  const rect = await box.boundingBox();
+  expect(rect).not.toBeNull();
+  return {
+    phone,
+    centre: {
+      x: (rect?.x ?? 0) + (rect?.width ?? 0) / 2,
+      y: (rect?.y ?? 0) + (rect?.height ?? 0) / 2,
+    },
+  };
+}
+
+test.describe('two fingers on the phone canvas', () => {
+  test('a pinch scales the selected layer, and the selection survives it', async ({ context }) => {
+    const { phone, centre } = await phoneWithClock(context, 'EDITG234');
+    const before = (await layers(phone))[1];
+
+    const touch = await hand(phone);
+    // Both fingers land ON the layer, 60 px apart, and spread to 120 px: a
+    // factor of two, comfortably past `PINCH_DEADZONE_LN`.
+    const r0 = 30;
+    const r1 = 60;
+    await touch.down([
+      { x: centre.x - r0, y: centre.y },
+      { x: centre.x + r0, y: centre.y },
+    ]);
+    for (let i = 1; i <= 12; i++) {
+      const g = r0 + ((r1 - r0) * i) / 12;
+      await touch.move([
+        { x: centre.x - g, y: centre.y },
+        { x: centre.x + g, y: centre.y },
+      ]);
+    }
+    // Still selected with the hand on the glass — the box has not been dropped
+    // by the second finger, which is what the audit believed had happened.
+    await expect(phone.getByTestId('editor-selection')).toBeVisible();
+    await touch.up();
+
+    await expect
+      .poll(async () => frameOf((await layers(phone))[1]).w)
+      .toBeGreaterThan(frameOf(before).w);
+
+    const after = (await layers(phone))[1];
+    // The ratio the two fingers described, in the field a frame-resizing kind
+    // keeps its size in. Loose, because `setFrame` clamps against the panel.
+    const grew = frameOf(after).w / frameOf(before).w;
+    expect(grew).toBeGreaterThan(1.5);
+    expect(frameOf(after).h / frameOf(before).h).toBeCloseTo(grew, 3);
+    // …and NOT in `t.s`, which `endGesture` restores on a frame resize. This
+    // assertion is the audit's finding, written down as the intended design.
+    expect(after?.t['s']).toBe(before?.t['s']);
+  });
+
+  test('two fingers twisting snap the layer to a rotation tick', async ({ context }) => {
+    const { phone, centre } = await phoneWithClock(context, 'EDITH234');
+    expect((await layers(phone))[1]?.t['r']).toBe(0);
+
+    const touch = await hand(phone);
+    const r = 45;
+    const at = (deg: number): Finger[] => {
+      const a = (deg * Math.PI) / 180;
+      return [
+        { x: centre.x - r * Math.cos(a), y: centre.y - r * Math.sin(a) },
+        { x: centre.x + r * Math.cos(a), y: centre.y + r * Math.sin(a) },
+      ];
+    };
+    await touch.down(at(0));
+    for (let i = 1; i <= 12; i++) await touch.move(at((30 * i) / 12));
+    await expect(phone.getByTestId('editor-selection')).toBeVisible();
+    await touch.up();
+
+    await expect.poll(async () => (await layers(phone))[1]?.t['r']).not.toBe(0);
+    const r1 = (await layers(phone))[1]?.t['r'] ?? 0;
+    // The ladder is every 15° (`snap.ts`), shared with the desktop rotate
+    // handle: the phone does not get a snapping model of its own.
+    expect(r1 % 15).toBe(0);
+    expect(Math.abs(r1)).toBeLessThanOrEqual(45);
+    // A twist is a rotation and NOT a resize — the intent is decided once.
+    expect((await layers(phone))[1]?.t['s']).toBe(1);
+  });
+
+  test('the second finger may land late, the way a hand actually does', async ({ context }) => {
+    const { phone, centre } = await phoneWithClock(context, 'EDITI234');
+    const before = (await layers(phone))[1];
+
+    const touch = await hand(phone);
+    /*
+     * Nobody puts two fingers down on the same millisecond. The first one lands
+     * on the layer and starts a MOVE; the second converts that press into a
+     * two-finger gesture, and the move it interrupted is put back rather than
+     * being applied on top of the pinch (`abandonGesture`).
+     */
+    await touch.down([{ x: centre.x - 30, y: centre.y }]);
+    await phone.waitForTimeout(60);
+    await touch.down([
+      { x: centre.x - 30, y: centre.y },
+      { x: centre.x + 30, y: centre.y },
+    ]);
+    for (let i = 1; i <= 12; i++) {
+      const g = 30 + (30 * i) / 12;
+      await touch.move([
+        { x: centre.x - g, y: centre.y },
+        { x: centre.x + g, y: centre.y },
+      ]);
+    }
+    await expect(phone.getByTestId('editor-selection')).toBeVisible();
+    await touch.up();
+
+    await expect
+      .poll(async () => frameOf((await layers(phone))[1]).w)
+      .toBeGreaterThan(frameOf(before).w);
+    // The first finger's travel is not also applied: the layer grew where it
+    // stood, rather than sliding 30 px left as well.
+    expect((await layers(phone))[1]?.t['x']).toBe(before?.t['x']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2 & 3. The enumerations
 // ---------------------------------------------------------------------------
 

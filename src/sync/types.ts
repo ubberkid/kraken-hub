@@ -52,7 +52,25 @@ export const ROLES: readonly Role[] = ['display', 'config', 'remote'];
 export interface Envelope<T = unknown> {
   v: 2;
   ch: Channel;
-  /** Epoch ms on the SENDER's clock. Never trusted for ordering, only for age. */
+  /**
+   * Epoch ms in ROOM time — the sender's `Date.now()` plus its best reading of
+   * how far ahead the room is (`appSync`'s `roomNow()`), which for a device
+   * that has heard nobody is exactly its own wall clock.
+   *
+   * Never trusted for ordering. Two things read it, and NEITHER of them
+   * subtracts one device's reading from another's any more:
+   *
+   *  - the room-offset sample every receiver folds (`appSync`'s `noteRoomTime`),
+   *    which is a `max` of clamped readings and is meant to be cross-device;
+   *  - the `CMD_MAX_AGE_MS` staleness gate, which compares a sender's `ts` only
+   *    to the newest `ts` THAT SAME SENDER has delivered here.
+   *
+   * The gate used to subtract two raw wall clocks — a phone a minute behind had
+   * every command it sent dropped on arrival, for ever — and then two ROOM
+   * clocks, which only moved the cliff out to `MAX_ROOM_OFFSET_MS`, because the
+   * clamp lets two peers' room times legitimately disagree by more than any
+   * threshold below 24 h. See `CMD_MAX_AGE_MS` and `SyncServiceOptions.roomNow`.
+   */
   ts: number;
   /** 12-char per-page-load client id (`src/platform/env.ts`). */
   src: string;
@@ -118,13 +136,39 @@ export const MAX_WIRE_STAMP_ENTRIES = 1024;
 /**
  * How many registers the localStorage clock slot keeps.
  *
- * A cap is still right HERE, and only here: the slot is a private note this
- * page leaves itself, and a register it drops costs ordering after a reload
- * and nothing more — the leaf simply restores unstamped and cannot win an
- * argument. Nobody else is misled, because the slot never travels.
+ * ## What overflow actually costs, corrected
  *
- * Overflow drops the OLDEST registers first: an old stamp is one the room
- * settled long ago, and the leaf still in play is the one touched last.
+ * This doc used to say a dropped register "costs ordering after a reload and
+ * nothing more — the leaf simply restores unstamped and cannot win an argument.
+ * Nobody else is misled." Both halves were false, and the second one was the
+ * expensive one: an unstamped leaf cannot win an argument it SHOULD win, so a
+ * write the room has not heard yet, dropped from the slot across a reload, loses
+ * to the room's stale value and is silently reverted on every screen.
+ *
+ * Measured: a phone offline taps `render.fit=contain` — a leaf the room already
+ * holds a register for — then turns 31 other knobs and reloads. At exactly 33
+ * stamped registers the FIRST offline edit falls off the newest-first tail, and
+ * the other 31 all land (the room holds no register for them, so an unstamped
+ * value fills a gap unopposed). The user watches 31 of their 32 offline edits
+ * arrive and exactly one silently undone, with no `lastError` and no way to tell
+ * which.
+ *
+ * ## The rule that replaces "oldest first"
+ *
+ * `appSync.saveClock` packs in TWO passes: every register whose write has not
+ * yet gone out on the room's transport (`unshipped`) first, newest-first among
+ * themselves, and only then the rest, newest-first into whatever budget is left.
+ * A cap may only evict a register the ROOM ALREADY HOLDS — a write nobody else
+ * has heard is never evictable. That is the slot-side twin of the unshipped
+ * head in `fitStateEnvelope` on the wire, and it is what makes the contract
+ * statable rather than merely hopeful.
+ *
+ * The set SURVIVES A PAGE LOAD (`StoredClock.unshipped`), because in-memory it
+ * bought only one reload: a second page load that never reached the room read
+ * back "everything is shipped" and evicted the oldest offline write anyway.
+ *
+ * Registers whose leaf no longer exists in the document are dropped on commit,
+ * so a deleted module-config key stops holding a slot forever.
  */
 export const MAX_SLOT_REGISTERS = 32;
 
@@ -132,8 +176,27 @@ export const MAX_SLOT_REGISTERS = 32;
  * A ceiling on the serialized clock slot, because the slot now carries VALUES
  * as well as stamps (see `appSync.ts`'s `StoredClock`) and one module's config
  * leaf can be a URL. Registers are added newest-first until either cap bites.
+ *
+ * The byte rung SKIPS an oversized register and keeps going; it used to `break`,
+ * which threw away every older register behind one fat leaf.
  */
 export const MAX_SLOT_BYTES = 32_768;
+
+/**
+ * The hard safety bound on unshipped registers, and the only thing that can
+ * evict one.
+ *
+ * `unshipped` outranks both ordinary caps, so it needs its own ceiling or a page
+ * that never reaches a transport would grow the slot without bound. When the
+ * unshipped set alone exceeds it, the newest are kept, the rest are dropped, and
+ * the page surfaces `WIRE_TOO_LARGE_CLAIM` — the same "Too much to send" claim
+ * an oversized frame raises, because it is the same fact from the same cause and
+ * the person can act on it the same way.
+ */
+export const MAX_UNSHIPPED_REGISTERS = 256;
+
+/** The matching byte ceiling for the unshipped pass. See `MAX_UNSHIPPED_REGISTERS`. */
+export const MAX_UNSHIPPED_SLOT_BYTES = 131_072;
 
 /** Invariant I6: a sync payload is capped at 8 KB. */
 export const MAX_ENVELOPE_BYTES = 8192;
@@ -177,9 +240,17 @@ export interface SyncStateBody {
  * Imperative, transient, NEVER retained.
  *
  * Commands are non-idempotent — replaying `seekBy(+10)` twice is a bug, not a
- * no-op — which is why they live on their own channel and why `SyncService`
- * drops any command envelope older than `CMD_MAX_AGE_MS`. That single rule is
- * what makes a 12-hour replay cache (ntfy) safe to subscribe to.
+ * no-op — which is why they live on their own channel and why `(src, seq)`
+ * dedup refuses a redelivery outright.
+ *
+ * "NEVER retained" used to be a claim this comment made and nothing enforced:
+ * `handleFrame`'s cmd branch did not read `meta.retained`, and no transport was
+ * asked what it replays on this channel. Both are now real —
+ * `TransportCaps.cmdReplayMs` is the question, a retained-flagged cmd frame is
+ * refused outright, and `CMD_MAX_AGE_MS` is measured twice: once against the
+ * newest BROKER stamp this link has delivered, which is what a receiver with no
+ * history of the sender has to go on, and once against the same sender's own
+ * newest frame. See `CMD_MAX_AGE_MS` and `FrameMeta.ts`.
  */
 export type CmdOp =
   | 'play'
@@ -299,7 +370,48 @@ export interface CmdBody {
   arg?: unknown;
 }
 
-/** Commands older than this are dropped on receipt. */
+/**
+ * How far a command may lag behind the newest one THE SAME SENDER delivered
+ * before it is dropped as stale.
+ *
+ * Read that boundary carefully, because the obvious reading is the one that was
+ * wrong for two rounds. This is NOT `now - env.ts`: comparing a receiver's clock
+ * to a sender's is a subtraction across two devices, and no amount of room-time
+ * correction makes it safe — `appSync`'s `roomNow()` clamps its offset at
+ * `MAX_ROOM_OFFSET_MS`, so two peers' room times may legitimately differ by more
+ * than any threshold smaller than 24 h, while this threshold is fifteen seconds.
+ * A phone 25 h behind therefore had every command it ever sent dropped on
+ * arrival, for ever, and so did any phone that tapped before folding its first
+ * inbound frame. `SyncService.handleFrame` now compares a sender's `ts` only to
+ * the newest `ts` that same sender has delivered here (`lastCmdTsBySrc`), which
+ * is skew-free by construction.
+ *
+ * ## Why one measurement was not enough
+ *
+ * The sender-relative form has nothing to say about a `src` it has never seen,
+ * and it accepted a first sighting UNCONDITIONALLY. A page mints a fresh
+ * `clientId` on every load, so a display that reboots — or rebuilds its
+ * `EventSource` after `NTFY_LIVENESS_MS` — meets every peer as a stranger, and
+ * every command still in a broker's replay cache is a first sighting. Measured
+ * on a cold display: `seekBy(+10)` frames 20 s, 6 h and 3 days old, all
+ * executed. The safety argument at the time was PROSE — "no shipped transport
+ * replays `cmd`" — asserted nowhere, contradicted by a transport-wide
+ * `replayMs` of 600 000 ms, and irrelevant to a hostile or buggy peer anyway.
+ *
+ * So the threshold is applied twice, and neither application subtracts one
+ * device's clock from another's:
+ *
+ *  - against `newestBrokerTs`, the newest BROKER stamp this transport has
+ *    delivered on `state` or `tele`. Server time against server time, available
+ *    to a receiver with no history at all, and the reading that actually makes
+ *    a replay cache safe rather than merely believed to be safe.
+ *  - against `lastCmdTsBySrc`, the newest `ts` that same sender delivered here.
+ *    It is the only one of the two that can catch a peer re-sending an old
+ *    command out of its own past, because such a frame is FRESH at the broker.
+ *
+ * Plus the rule `CmdOp` always stated and nothing enforced: a retained or
+ * recovery-flagged frame on this channel is refused outright.
+ */
 export const CMD_MAX_AGE_MS = 15_000;
 
 /**
@@ -320,7 +432,18 @@ export interface TeleBody {
 export interface FrameMeta {
   /** True when the transport replayed a stored last-value, not a live message. */
   retained: boolean;
-  /** Broker/server timestamp where one exists. */
+  /**
+   * Broker/server timestamp where one exists, and the receiver's only skew-free
+   * reading of how late a frame is.
+   *
+   * `SyncService` keeps a per-transport high-water of it across every `state`
+   * and `tele` frame and refuses a `cmd` that lags it by more than
+   * `CMD_MAX_AGE_MS`. Both halves of that subtraction are stamped by the SAME
+   * server, so it is one clock against itself — the property `lastCmdTsBySrc`
+   * has for a sender this page already knows, extended to one it has never
+   * heard from. A transport that has no such stamp (MQTT packets carry none)
+   * omits it, and the gate abstains rather than guessing.
+   */
   ts?: number;
 }
 
@@ -330,8 +453,30 @@ export type Unsub = () => void;
 export interface TransportCaps {
   /** The transport itself stores a last-value for `state`. */
   retained: boolean;
-  /** How far back a fresh subscriber can recover messages, in ms. */
+  /**
+   * How far back a fresh subscriber can recover `state` messages, in ms.
+   *
+   * TRANSPORT-WIDE was the mistake: this number was read as a statement about
+   * everything the transport carries, while `types.ts` and `NtfyTransport`
+   * separately promised in prose that `cmd` is never replayed. Prose is not a
+   * capability, and `SyncService` had no way to ask. `cmdReplayMs` below is the
+   * same question for the channel where the answer is load-bearing.
+   */
   replayMs: number;
+  /**
+   * How far back a fresh subscriber can receive `cmd` messages, in ms.
+   *
+   * Zero on every shipped transport, and each one has to earn it: ntfy's
+   * recovery poll takes only the last `state` message and its live `/sse`
+   * subscription carries no `since=` at all; MQTT publishes `cmd` with
+   * `retain: false`, so a broker hands a new subscriber nothing; the two
+   * last-value transports seed their "already seen" marks on `connect()` so a
+   * slot left by a previous page load is not replayed. Commands are imperative
+   * — replaying `seekBy(+10)` is a bug, not a no-op — so a transport that
+   * cannot say zero here is a transport whose commands `SyncService` must gate
+   * on broker time, which it does for all of them regardless.
+   */
+  cmdReplayMs: number;
   needsNetwork: boolean;
   /** Frames larger than this are refused by the transport. */
   maxPayload: number;

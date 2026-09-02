@@ -215,7 +215,9 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
   let onFallbackSource = false;
 
   // §8.1 — the advisory the shell stands down for (`ownsFpsAdvisory`).
-  const advisory = createFpsAdvisory();
+  // The ceiling is the attached panel's: a Kraken Z tops out AT 1 FPS, so it is
+  // shown nothing rather than a permanent instruction it cannot act on (F12-1).
+  const advisory = createFpsAdvisory({ maxTargetFps: () => panelMaxTargetFps() });
   let advisoryEl: HTMLElement | null = null;
   let advisoryState: 'hidden' | 'card' | 'badge' = 'hidden';
 
@@ -494,6 +496,18 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
   // FPS advisory (§8.1)
   // -------------------------------------------------------------------------
 
+  /**
+   * The ceiling the card asks the user to drag to is a property of the panel
+   * that is actually attached, never a constant in the copy: CAM's slider tops
+   * out at 1 FPS on a Kraken Z and 25 on a Kraken 2023. It is also what decides
+   * whether the advisory appears at all (F12-1) — hence a function both the
+   * state machine and the card read.
+   */
+  function panelMaxTargetFps(): number | null {
+    const panel = ctx?.geometry() ?? null;
+    return panel === null ? null : maxTargetFpsForPanel(panel.width, panel.height, panel.shape);
+  }
+
   function renderAdvisory(targetFps: number): void {
     const host = controller?.overlays;
     if (host === undefined) return;
@@ -503,13 +517,8 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     advisoryEl?.remove();
     advisoryEl = null;
     if (next === 'hidden') return;
-    // The ceiling the card asks the user to drag to is a property of the panel
-    // that is actually attached, never a constant in the copy: CAM's slider tops
-    // out at 1 FPS on a Kraken Z and 25 on a Kraken 2023.
-    const panel = ctx?.geometry() ?? null;
-    const maxFps =
-      panel === null ? null : maxTargetFpsForPanel(panel.width, panel.height, panel.shape);
-    advisoryEl = next === 'card' ? renderFpsCard(targetFps, maxFps) : renderFpsBadge(targetFps);
+    advisoryEl =
+      next === 'card' ? renderFpsCard(targetFps, panelMaxTargetFps()) : renderFpsBadge(targetFps);
     host.append(advisoryEl);
   }
 

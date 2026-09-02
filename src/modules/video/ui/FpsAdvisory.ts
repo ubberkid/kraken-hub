@@ -48,6 +48,17 @@ export interface FpsAdvisoryOptions {
   cardMs?: number;
   now?: () => number;
   isDismissed?: () => boolean;
+  /**
+   * The maximum CAM's slider offers for the panel actually attached, or `null`
+   * for a panel nobody here recognises (`devicePresets.maxTargetFpsForPanel`).
+   *
+   * Round 12, F12-1: a stock Kraken Z reports 1 FPS *because 1 FPS is its
+   * maximum*, and 1 is also the threshold — so the advisory told a Z owner,
+   * permanently, to drag a slider that is already at maximum to maximum. A
+   * panel at its ceiling has nothing to raise, so it is shown nothing. `null`
+   * still advises: a ceiling we cannot name is not one we can claim was reached.
+   */
+  maxTargetFps?: () => number | null;
 }
 
 export interface FpsAdvisory {
@@ -67,6 +78,7 @@ export function createFpsAdvisory(opts: FpsAdvisoryOptions = {}): FpsAdvisory {
   const cardMs = opts.cardMs ?? ADVISORY_CARD_MS;
   const now = opts.now ?? Date.now;
   const dismissed = opts.isDismissed ?? isFpsAdvisoryDismissed;
+  const ceiling = opts.maxTargetFps ?? ((): number | null => null);
 
   // NaN, not 0: an injected clock that legitimately starts at 0 would otherwise
   // keep re-arming the sentinel and the card would never shrink.
@@ -77,7 +89,9 @@ export function createFpsAdvisory(opts: FpsAdvisoryOptions = {}): FpsAdvisory {
   return {
     update(targetFps) {
       fps = targetFps;
-      if (targetFps > threshold || dismissed()) {
+      const max = ceiling();
+      const atCeiling = max !== null && Number.isFinite(max) && targetFps >= max;
+      if (targetFps > threshold || atCeiling || dismissed()) {
         lowSince = Number.NaN;
         current = 'hidden';
         return current;
@@ -118,7 +132,9 @@ export function renderFpsCard(targetFps: number, maxTargetFps: number | null = n
 
   const body = document.createElement('p');
   body.className = 'kh-video__card-body';
-  body.textContent = fpsAdvisoryBody(maxTargetFps);
+  // A card of its own, so the instruction starts a sentence rather than
+  // continuing one — the same shape the shell's banner now uses.
+  body.textContent = fpsAdvisoryBody(maxTargetFps, { leadIn: true });
 
   const footer = document.createElement('p');
   footer.className = 'kh-video__card-footer';

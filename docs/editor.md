@@ -22,10 +22,17 @@ Background row in **+ Add a layer** — they are one list, read off each module'
 own declaration of where it may sit. Text, an icon and a date are overlays only,
 so they are in neither.
 
-In a short window the row is one line that scrolls sideways rather than four
-wrapped lines, because the height it would take is height the layer list needs:
-the list is the only part of the rail that grows, and everything below it lays
-out first.
+In a short window — CAM's own is 866×537 — the chips get smaller rather than
+fewer: they wrap onto two lines, all seven of them on the screen at once, and
+the layer list still shows four whole rows under them. They used to be one line
+that scrolled sideways, which fitted the same seven backgrounds into a 221 px
+column by putting three of them past its right edge, with no fade to say so and
+a mouse wheel that did nothing over them.
+
+The **BASE** label beside the chips is the other door to the same seven: press
+it and **+ Add a layer** opens at its Background row, every background as a
+tile with its own description. Nothing about choosing a background needs a
+sideways gesture.
 
 Everything above the base is an **overlay** — a clock over your video, a line of
 text, a temperature strip along the bottom. Press **+ Add a layer**, pick one,
@@ -71,7 +78,7 @@ and to anybody using a keyboard.
 Drag a layer on the halo to move it. Drag a corner to resize it. Drag the
 lollipop above it to rotate.
 
-While you drag, a small readout follows the gesture: **x 26 · y −435 · 100 % ·
+While you drag, a small readout follows the gesture: **x 26 · y −435 · 100% ·
 0°** — pixels from the centre of the panel, size as a percentage of the layer's
 natural size, and the rotation. All four, on every gesture, because lining two
 layers up usually needs the number that is not attached to the handle you happen

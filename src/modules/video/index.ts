@@ -97,14 +97,48 @@ export const videoModule: KrakenModule<VideoModuleConfig> = defineModule<VideoMo
    * `?src=`, `?loop=`, `?mute=`, `?demo=1`. Raw strings straight off the query
    * string: the result is passed back through `validate()` by the host, so
    * nothing here has to be defensive about ranges.
+   *
+   * `loop` arrives in one of two spellings, both already validated by
+   * `src/state/urlParams.ts`: `1`/`0` — loop the whole clip, or stop looping —
+   * and `"<start>-<end>"`, the A-B loop in seconds. The range is what a kiosk
+   * link is usually for ("play these nineteen seconds forever"), and it is the
+   * spelling docs/getting-started.md has always promised.
+   *
+   * The END is taken at face value HERE and checked against the media LATER:
+   * nothing in a manifest knows how long a clip is, and the loop rules (§3.2)
+   * already clamp an end past the duration — and an end guard before it — on
+   * the frame the clip reports one. So a link that asks for `0-9999` on a
+   * ten-second clip loops the whole clip rather than being refused.
    */
   applyUrlParams(config, params) {
     let next: VideoModuleConfig = config;
     const src = params['src'];
     if (src !== undefined && src.length > 0) next = { ...next, url: src };
     const loop = params['loop'];
-    if (loop !== undefined) {
+    if (loop === '1' || loop === '0') {
       next = { ...next, loop: { ...next.loop, enabled: loop === '1' } };
+    } else if (loop !== undefined) {
+      /*
+       * The pair to `parseLoopRange` in `src/state/urlParams.ts`, which has
+       * already rejected everything that is not two non-negative seconds with
+       * `start < end`. Re-checked rather than trusted, because `applyUrlParams`
+       * is a public seam a fork can call with anything.
+       */
+      const [rawStart, rawEnd] = loop.split('-');
+      const start = Number(rawStart);
+      const end = Number(rawEnd);
+      if (
+        rawStart !== undefined &&
+        rawEnd !== undefined &&
+        rawStart.length > 0 &&
+        rawEnd.length > 0 &&
+        Number.isFinite(start) &&
+        Number.isFinite(end) &&
+        start >= 0 &&
+        start < end
+      ) {
+        next = { ...next, loop: { ...next.loop, enabled: true, start, end } };
+      }
     }
     const mute = params['mute'];
     if (mute !== undefined) next = { ...next, audioEnabled: mute !== '1' };

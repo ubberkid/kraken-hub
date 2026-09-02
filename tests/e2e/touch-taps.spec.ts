@@ -93,6 +93,48 @@ test.describe('one tap, one effect', () => {
   });
 
   /**
+   * …and it has TWO of them, which is the harness `remote-editor.spec.ts` rests
+   * on — round 13, F5.
+   *
+   * `page.touchscreen` taps with one finger and `page.mouse` has none, so the
+   * pinch and two-finger rotate in §8 could not be reached from this suite at
+   * all. The only route is the DevTools protocol: `Input.dispatchTouchEvent`
+   * takes a LIST of touch points and Chrome expands the list into one
+   * `pointerdown` per point, with distinct `pointerId`s.
+   *
+   * Asserted HERE, on a page with no editor on it, because if this ever stops
+   * being true the pinch tests two files over would fail with a story about
+   * gestures rather than with the truth: the input harness stopped delivering
+   * two fingers. The environment is asserted before the thing that needs it,
+   * which is the same reason the test above measures `pointer: coarse`.
+   */
+  test('two touch points arrive as two independent pointers', async ({ page }) => {
+    await page.goto('/?phone=1');
+    await page.evaluate(() => {
+      (window as unknown as { __ids: number[] }).__ids = [];
+      window.addEventListener(
+        'pointerdown',
+        (e) => {
+          (window as unknown as { __ids: number[] }).__ids.push(e.pointerId);
+        },
+        true,
+      );
+    });
+
+    const cdp = await page.context().newCDPSession(page);
+    const points = [
+      { x: 100, y: 400, id: 0, radiusX: 8, radiusY: 8 },
+      { x: 200, y: 400, id: 1, radiusX: 8, radiusY: 8 },
+    ];
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+    const ids = await page.evaluate(() => (window as unknown as { __ids: number[] }).__ids);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  /**
    * The tile actions are reachable WITHOUT a hover that could swallow the tap.
    *
    * The old stylesheet hid them at `opacity: 0` and revealed them on `:hover`,

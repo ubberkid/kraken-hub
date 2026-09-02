@@ -885,15 +885,6 @@ html.kh-config-mode .kh-app {
     gap: 10px 12px;
     padding: 0 0.25rem;
   }
-
-  /*
-   * The long placeholder is swapped for a short one in `HomeView` (CSS cannot
-   * rewrite an attribute), and this is the belt to that pair of braces: any
-   * placeholder that still overflows ends in an ellipsis rather than mid-word.
-   */
-  .kh-paste__input {
-    text-overflow: ellipsis;
-  }
 }
 
 /*
@@ -1580,6 +1571,20 @@ html.kh-config-mode .kh-app {
   padding: 11px 14px;
   font: inherit;
   font-size: 0.875rem;
+  /*
+   * The placeholder ends in an ellipsis, at EVERY width — round 12's F12-4.
+   *
+   * `HomeView` swaps the long placeholder for a short one on a phone (CSS
+   * cannot rewrite an attribute) and this is the belt to that pair of braces:
+   * whatever still overflows stops with a mark that says so.
+   *
+   * It lived inside `@media (max-width: 700px)`, which is the one range where
+   * the short placeholder means it never fires. Measured at 866, 760 and 1280:
+   * *"Paste a video link — YouT"*, cut mid-word by the initial value of
+   * `text-overflow`, which is `clip`. A rule that only applies where it is not
+   * needed is a rule the file merely appears to have.
+   */
+  text-overflow: ellipsis;
 }
 
 .kh-paste__input::placeholder {
@@ -4138,6 +4143,91 @@ main > .kh-panel .kh-setup {
 }
 
 /*
+ * The setup card, at a window too narrow to say the whole sentence — round 12.
+ *
+ * ## The card, not the band, was the thing eating the halo
+ *
+ * The starters row above was cut to 82 px and the halo on a cold 760x537
+ * profile still measured 196. The arithmetic says why: every row of this grid
+ * except the canvas is `auto`, so the canvas row's ceiling is the window less
+ * everything else, and at 760 px the setup card WRAPPED — its one sentence went
+ * to three lines and pushed the buttons onto a fourth, 122 px of card against
+ * the 85 px the same card measures at CAM's 866. That is 37 px the halo never
+ * had, before a single starter card existed. The lever is the card.
+ *
+ * ## One line, and the sentence is still all there
+ *
+ * The headline is a claim about the panel and stays whole. The instruction
+ * under it becomes a single ellipsised line — `.kh-band__say` is one element
+ * precisely so it can be clamped — with the full sentence on its `title`, built
+ * in `CamSetupCard.tsx` from the same `camPaths.ts` constant the line prints.
+ * There is still exactly one spelling of the menu route in the product.
+ *
+ * The two actions then share the row under it, both at the 44 px a thing you
+ * press has to be. Card: 122 -> 86 px at 760x537, and the halo takes all 37 of
+ * them back — 196 -> 233, with page-fit and every overlap still 0. At 800x537
+ * the same two numbers are 104 -> 86 and 213 -> 233.
+ *
+ * ## Why 800px of CONTAINER
+ *
+ * The same container the starters' gutter branch established, for the same
+ * reason: what wraps the sentence is the width of the CANVAS COLUMN, which is
+ * the grid's inline size less the rail and the gap — not the window's. A
+ * viewport query would be measuring the wrong box (and `check-invariants.mjs`
+ * flags viewport queries that no longer describe anything).
+ *
+ * 800px of grid is a ~840 px window. CAM's own 866 measures 826 px of container
+ * and is therefore OUTSIDE this branch: the card keeps the full-sentence form it
+ * already fits into 85 px there, and the 320 px halo is untouched.
+ */
+@container kh-editor (max-width: 800px) {
+  .kh-home[data-editor='true'] .kh-band {
+    margin-top: 8px;
+    padding: 0.25rem 0.6rem;
+  }
+
+  /*
+   * The text takes a whole row so the two buttons share the next one. Left to
+   * `flex: 1 1 14rem` the primary button rode up beside a three-line paragraph
+   * and the card was as tall as the prose either way.
+   */
+  .kh-home[data-editor='true'] .kh-band__line {
+    gap: 2px 8px;
+  }
+
+  .kh-home[data-editor='true'] .kh-band__text {
+    flex: 1 1 100%;
+    font-size: 0.72rem;
+    line-height: 1.3;
+  }
+
+  /* Headline and instruction are two lines, not one wrapped block. */
+  .kh-home[data-editor='true'] .kh-band__claim {
+    display: block;
+  }
+
+  .kh-home[data-editor='true'] .kh-band__say {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /*
+   * Shorter card, and the buttons get BIGGER: at 39 px and 29 px they were
+   * under the 44 px floor `tap-targets.spec.ts` holds everything else to, and a
+   * compression round is not a licence to shrink the two things on the screen
+   * that are meant to be pressed.
+   */
+  .kh-home[data-editor='true'] .kh-band .kh-btn,
+  .kh-home[data-editor='true'] .kh-band .kh-band__more {
+    min-height: 44px;
+    padding-bottom: 0.25rem;
+    padding-top: 0.25rem;
+  }
+}
+
+/*
  * The rail, and the ONE box inside it that scrolls — round 10's F2.
  *
  * The rail is a column of five things, four of which have to stay reachable
@@ -4871,7 +4961,9 @@ main > .kh-panel .kh-setup {
   .kh-rail__eye,
   .kh-rail__lock,
   .kh-rail__del,
-  .kh-rail__order .kh-rail__step {
+  .kh-rail__order .kh-rail__step,
+  /* The BASE label opens the background picker now, so a finger must reach it. */
+  .kh-rail__lab {
     min-height: 44px;
     min-width: 44px;
   }
@@ -4886,16 +4978,26 @@ main > .kh-panel .kh-setup {
   padding-top: 6px;
 }
 
+/*
+ * `BASE` — a label that is now a door (F12-2), so it is shaped like one.
+ *
+ * The padding is what a mouse aims at: at `padding: 0` the whole target was
+ * 31x14 px, which was defensible while pressing it only selected the base and
+ * is not now that it opens the background picker. It costs the base row
+ * nothing — the row's height is set by the chips beside it, which are taller
+ * than this even compressed.
+ */
 .kh-rail__lab {
   appearance: none;
   background: transparent;
   border: 0;
+  border-radius: 6px;
   color: var(--kh-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.6rem;
   letter-spacing: 0.14em;
-  padding: 0;
+  padding: 6px 5px;
 }
 
 .kh-rail__lab[aria-pressed='true'] {
@@ -5096,6 +5198,33 @@ main > .kh-panel .kh-setup {
 }
 
 /*
+ * …and the same fade for the rail's chip row, which is the same row — F12-2.
+ *
+ * The chips WRAP at every window this ships with (see the BASE block below), so
+ * these three rules are inert there. They exist because `data-clipped` is
+ * MEASURED rather than assumed: a row that is cut at an edge says so wherever
+ * it happens, and the alternative — a chip sliced mid-word with nothing to
+ * suggest a gesture — is exactly what round 12 found in the shipped build.
+ */
+.kh-mods[data-clipped='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+}
+
+.kh-mods[data-clipped='both'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent 100%
+  );
+}
+
+.kh-mods[data-clipped='start'] {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px);
+}
+
+/*
  * `More`, at the right edge, always.
  *
  * A left rule rather than a gap, because the thing it separates is a row that
@@ -5147,7 +5276,7 @@ main > .kh-panel .kh-setup {
   max-width: 12rem;
 }
 
-/* -- the rail's BASE block, at CAM's height — round 11's F-2 ---------------
+/* -- the rail's BASE block, at CAM's height — round 11's F-2, round 12's F12-2
  *
  * The rail is a column of five things and only ONE of them grows: the row list
  * (`.kh-rail__list`, the F2 scroller above). Everything under it — the base row
@@ -5157,30 +5286,67 @@ main > .kh-panel .kh-setup {
  * came to 286 px of a 380 px column, so `clientHeight` on the list was 47 — one
  * row of seven, a porthole onto a stack the whole rail exists to show.
  *
- * The 286 was almost all chips: nine of them at 15 px of side padding in a
- * 268 px column wrap to four rows. So at CAM's height the chip row becomes ONE
- * row that scrolls sideways — the same bargain the strip makes one section up,
- * and for the same reason: a background picker is a horizontal list of nine
- * short words, and stacking it four deep to avoid a scroll gesture spends the
- * stack's height on it.
+ * ## Round 11 spent the fix on the wrong thing, and round 12 measured it
+ *
+ * The 286 was mostly chips, so this block turned the row into ONE line that
+ * scrolls sideways. What it did not do was give that line any of the machinery
+ * the selection strip's scroller has forty lines up: no measured `data-clipped`,
+ * no edge fade, no wheel mapping. Measured at 866x537: the box was 231 px
+ * against 417 px of chips, so **Image** was sliced mid-word at the edge and
+ * **Shape**, **Effect** and **Solid** were off-screen entirely; a vertical mouse
+ * wheel left `scrollLeft` at 0. Three of the seven backgrounds could not be
+ * reached with a mouse at all — on the surface whose entire job is choosing one.
+ *
+ * The same seven chips WRAP onto two rows at 390 px and show all seven, so the
+ * question was whether this column can afford two rows here. Both variants were
+ * measured at 866x537 with seven overlays on the panel, against the two numbers
+ * the column has to hold — rail rows visible, and page overflow:
+ *
+ *   one line, scrolling         list 202 px, 5 rows, **3 of 7 chips** reachable
+ *   wrapped, chips as they were list 127 px, 3 rows (chips took three lines)
+ *   wrapped, chips at 3x7/0.78  list 176 px, **4 rows**, page-fit 0, 7 of 7
+ *
+ * A whole row is 40 px and the list gaps them by 4, so four rows need 172 and
+ * the wrapped variant leaves 176 — which is the number `editor.spec.ts`'s
+ * round-11 test measures, and it still passes. What paid for it: two pixels of
+ * chip padding, one of gap, one off the row's own `padding-top`, and 0.78rem of
+ * type against 0.8125 — the chip is 27 px tall, over the 24 px floor this
+ * surface holds itself to, and the seven of them take 351 px of the 442 two
+ * lines of this column provide, so there is a fifth of a line spare before a
+ * longer name would need a third.
+ *
+ * `min-width: 0`, `flex: 1 1 auto` and the row's own `nowrap` all stay — the
+ * chips wrap INSIDE their block, and the block still shares one line with the
+ * `BASE` label rather than pushing it onto a line of its own (which is 41 px
+ * this column does not have). The one line that is gone is the `nowrap` on
+ * `.kh-mods`.
  *
  * Only at `max-height: 640px`, which is the query the rest of this file already
- * uses for CAM's window. A tall desktop has the room and keeps the wrapped row.
+ * uses for CAM's window. A tall desktop has the room for the full-size chips.
  */
 @media (max-height: 640px) {
   .kh-home[data-editor='true'] .kh-rail__base {
     flex-wrap: nowrap;
     gap: 6px;
-    padding-top: 5px;
+    padding-top: 4px;
   }
 
   .kh-home[data-editor='true'] .kh-rail__base .kh-mods {
     flex: 1 1 auto;
-    flex-wrap: nowrap;
-    gap: 5px;
+    gap: 2px;
     justify-content: flex-start;
     margin: 0;
     min-width: 0;
+    /*
+     * The belt to the wrapped row, and the reason `HomeView` still measures
+     * this box's edges.
+     *
+     * A wrapped row does not overflow — unless one chip is wider than the
+     * column, which a longer module name or a narrower rail would do. If that
+     * happens the row scrolls, `data-clipped` says which end is cut, the fade
+     * below draws it and a mouse wheel moves it, instead of the chip simply
+     * being gone. On every window this build ships with, none of it fires.
+     */
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -5189,9 +5355,17 @@ main > .kh-panel .kh-setup {
     display: none;
   }
 
+  /*
+   * 4x7 rather than 5x9 — the four pixels that buy the second line (F12-2).
+   *
+   * The chip is 30 px tall at this padding against 32 at the old one, and 24 px
+   * is the floor this surface holds itself to (`editor.spec.ts`'s handle rule);
+   * a touch screen gets 44 from the `pointer: coarse` block regardless.
+   */
   .kh-home[data-editor='true'] .kh-rail__base .kh-mod {
     flex: none;
-    padding: 5px 9px;
+    font-size: 0.78rem;
+    padding: 3px 7px;
   }
 
   /*
@@ -5571,4 +5745,51 @@ main > .kh-panel .kh-setup {
   max-height: 50vh;
   max-width: none;
   overflow-y: auto;
+}
+
+/* -- selection, without colour — round 12's F12-10 (WCAG 1.4.1) ------------
+ *
+ * Every "this one is chosen" state in this file is an accent COLOUR and nothing
+ * else: `.kh-mod[aria-pressed='true']` is `--kh-accent-bg` behind
+ * `--kh-accent-ink`, the segmented option is the same pair, the rail's selected
+ * row is an accent border. Under Windows' high-contrast themes
+ * (`forced-colors: active`) the user agent replaces every author colour with
+ * the two from the chosen palette — so the selected base chip came out
+ * BYTE-IDENTICAL to the six unselected ones: same background, same text, same
+ * border, same weight. Measured at 866x537 with `emulateMedia({ forcedColors:
+ * 'active' })`: there is no computed property that differs. Which background is
+ * on the panel becomes unanswerable from the screen.
+ *
+ * The fix is to say selection with something that survives the substitution.
+ * `Highlight`/`HighlightText` are system colours, which forced-colors mode
+ * keeps rather than overrides — they are the palette's own way of saying "this
+ * one" — and where a filled block would hide the thing being chosen (a colour
+ * swatch, a whole rail row) it is a 2 px `Highlight` outline instead, which is
+ * structure rather than hue.
+ *
+ * Last in the file on purpose: these rules must win over the accent rules they
+ * stand in for, and they are all (0,2,0) or less.
+ */
+@media (forced-colors: active) {
+  .kh-mod[aria-pressed='true'],
+  .kh-seg__opt[aria-checked='true'],
+  .kh-rail__lab[aria-pressed='true'],
+  .kh-scrub__looptoggle[aria-pressed='true'],
+  .kh-inspect__row .kh-tile[aria-pressed='true'] {
+    background: Highlight;
+    border-color: Highlight;
+    color: HighlightText;
+  }
+
+  /*
+   * A row and a swatch are not filled: the row carries a name and a lock that
+   * still have to be read, and a swatch IS its colour. Both take the outline.
+   */
+  .kh-rail__row[data-selected='true'],
+  .kh-swatch[aria-checked='true'],
+  .kh-looks-pick__item[aria-pressed='true'] {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }

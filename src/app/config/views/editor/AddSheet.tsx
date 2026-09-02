@@ -17,6 +17,8 @@
  * "add a layer" is a layer, not another sheet.
  */
 
+import { useEffect, useRef } from 'react';
+
 import { IMAGE_DEFAULTS } from '../../../../modules/image/schema';
 import {
   SOLID_BASE_CFG,
@@ -115,9 +117,26 @@ export interface AddSheetProps {
   /** Replace the BASE — the one row in this sheet that is not an overlay. */
   onBase: (kind: string, cfg?: unknown) => void;
   onClose: () => void;
+  /**
+   * Scroll the Background row into view — round 12's F12-2.
+   *
+   * A nonce rather than a boolean: the rail's `BASE` label opens this sheet
+   * asking *what is behind everything*, and the answer is four groups down a
+   * body that scrolls internally. Pressing BASE twice must scroll twice, and a
+   * flag that is already `true` is not a state change React acts on. `0` — what
+   * `+ Add a layer` passes — opens the sheet where it always did, at the top.
+   */
+  revealBase?: number;
 }
 
-export function AddSheet({ modules, canAdd, onAdd, onBase, onClose }: AddSheetProps) {
+export function AddSheet({
+  modules,
+  canAdd,
+  onAdd,
+  onBase,
+  onClose,
+  revealBase = 0,
+}: AddSheetProps) {
   const overlayKinds = modules.filter((m) => (m.layer?.roles ?? []).includes('overlay'));
   /*
    * The Background row, derived — M7.
@@ -137,6 +156,22 @@ export function AddSheet({ modules, canAdd, onAdd, onBase, onClose }: AddSheetPr
   const hasImage = modules.some((m) => m.id === 'image');
   const hasShape = hasSolidBase(modules);
 
+  /*
+   * The Background row, brought to the top of the body when the press that
+   * opened this sheet was the rail's `BASE` label (F12-2).
+   *
+   * `block: 'start'` and not `'center'`: the row is the tallest group in the
+   * sheet and centring it puts its heading above the scroll port, so the tiles
+   * arrive with nothing saying what they replace. Instant rather than smooth —
+   * the sheet is already animating in, and two curves on one box read as a
+   * stutter.
+   */
+  const baseGroup = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (revealBase === 0) return;
+    baseGroup.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+  }, [revealBase]);
+
   const groups: { group: AddGroup; tiles: AnyKrakenModule[] }[] = (
     ['content', 'data', 'time'] as const
   ).map((group) => ({
@@ -145,7 +180,12 @@ export function AddSheet({ modules, canAdd, onAdd, onBase, onClose }: AddSheetPr
   }));
 
   return (
-    <section className="kh-sheet" data-testid="add-sheet" aria-label="Add a layer">
+    <section
+      className="kh-sheet"
+      id="kh-add-sheet"
+      data-testid="add-sheet"
+      aria-label="Add a layer"
+    >
       <header className="kh-sheet__head">
         <h2>Add a layer</h2>
         <button
@@ -228,7 +268,7 @@ export function AddSheet({ modules, canAdd, onAdd, onBase, onClose }: AddSheetPr
           look templates cannot disagree about what "solid" means.
         */}
         {(baseKinds.length > 0 || hasShape) && (
-          <section className="kh-sheet__group" data-testid="add-group-base">
+          <section className="kh-sheet__group" data-testid="add-group-base" ref={baseGroup}>
             <h3>
               Background <small className="kh-sheet__why">Replaces what is behind.</small>
             </h3>

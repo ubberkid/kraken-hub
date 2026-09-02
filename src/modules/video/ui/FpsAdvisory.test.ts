@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { CAM_PATH_FRAME_RATE } from '../../../config/camPaths';
+import { CAM_PATH_FRAME_RATE, fpsAdvisoryBody } from '../../../config/camPaths';
 import { resetNamespace } from '../../../platform/storage';
 
 import {
@@ -66,6 +66,41 @@ describe('createFpsAdvisory', () => {
     const a = createFpsAdvisory({ now: () => 0, isDismissed: () => true });
     expect(a.update(1)).toBe('hidden');
   });
+
+  /*
+   * F12-1. CAM offers a Kraken Z exactly one frame rate: 1 FPS, which is also
+   * the threshold. Advising there is an instruction to perform an impossible
+   * action, forever — a permanent card and then a permanent badge on hardware
+   * that is already configured as well as it can be.
+   */
+  it('says nothing on a panel that is already at its ceiling', () => {
+    const z = createFpsAdvisory({ now: () => 0, isDismissed: () => false, maxTargetFps: () => 1 });
+    expect(z.update(1)).toBe('hidden');
+  });
+
+  it('still advises where the slider has somewhere to go', () => {
+    const elite = createFpsAdvisory({
+      now: () => 0,
+      isDismissed: () => false,
+      maxTargetFps: () => 40,
+    });
+    expect(elite.update(1)).toBe('card');
+    const k2023 = createFpsAdvisory({
+      now: () => 0,
+      isDismissed: () => false,
+      maxTargetFps: () => 25,
+    });
+    expect(k2023.update(1)).toBe('card');
+  });
+
+  it('advises on a panel nobody recognises: an unnamed ceiling is not a reached one', () => {
+    const unknown = createFpsAdvisory({
+      now: () => 0,
+      isDismissed: () => false,
+      maxTargetFps: () => null,
+    });
+    expect(unknown.update(1)).toBe('card');
+  });
 });
 
 describe('the dismiss key', () => {
@@ -90,6 +125,18 @@ describe('rendering', () => {
     const text = el.textContent;
     expect(text).toContain('1 FPS');
     expect(text).toContain(CAM_PATH_FRAME_RATE);
+    /*
+     * …and it is the WHOLE sentence, in its sentence-start form.
+     *
+     * This card is a paragraph of its own rather than the tail of one, so the
+     * body starts on a capital; the lowercase lead belongs to the two places
+     * that continue a sentence ("Point CAM at this page, then drag …"). It is
+     * asserted against `fpsAdvisoryBody` rather than against a copy of the
+     * words, which is the rule `shell.dom.test.ts` enforces across the tree.
+     */
+    expect(el.querySelector('.kh-video__card-body')?.textContent).toBe(
+      fpsAdvisoryBody(null, { leadIn: true }),
+    );
   });
 
   /**

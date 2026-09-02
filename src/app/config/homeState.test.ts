@@ -11,6 +11,7 @@ import {
   describeVideoStatus,
   failureLine,
   formatSeconds,
+  fpsIsAtPanelMax,
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
@@ -108,6 +109,36 @@ describe('isLowFps', () => {
     expect(isLowFps({ ...at, targetFps: LOW_FPS_THRESHOLD })).toBe(true);
     expect(isLowFps({ ...at, targetFps: LOW_FPS_THRESHOLD + 1 })).toBe(false);
     expect(isLowFps({ ...at, targetFps: 40 })).toBe(false);
+  });
+});
+
+/**
+ * Round 12's F12-1, on the config side.
+ *
+ * The banner is a reading and an instruction, and the instruction — *drag CAM's
+ * Frame Rate slider to maximum* — is a no-op on a panel whose maximum is the
+ * number being complained about. A Kraken Z tops out at 1 FPS.
+ */
+describe('fpsIsAtPanelMax', () => {
+  const Z = { width: 320, height: 320, shape: 'circle', source: 'diag' } as const;
+  const ELITE = { width: 640, height: 640, shape: 'circle', source: 'diag' } as const;
+
+  it('is true on a Kraken Z at 1 FPS — its slider has nowhere left to go', () => {
+    expect(fpsIsAtPanelMax({ ...Z, targetFps: 1 })).toBe(true);
+    // …and the banner still fires, because 1 FPS is still why it stutters.
+    expect(isLowFps({ ...Z, targetFps: 1 })).toBe(true);
+  });
+
+  it('is false on an Elite at 1 FPS — 40 is one drag away', () => {
+    expect(fpsIsAtPanelMax({ ...ELITE, targetFps: 1 })).toBe(false);
+    expect(fpsIsAtPanelMax({ ...ELITE, targetFps: 40 })).toBe(true);
+  });
+
+  it('says nothing about a panel it does not recognise, or about no panel', () => {
+    expect(fpsIsAtPanelMax(null)).toBe(false);
+    expect(
+      fpsIsAtPanelMax({ width: 777, height: 777, shape: 'circle', targetFps: 1, source: 'tele' }),
+    ).toBe(false);
   });
 });
 

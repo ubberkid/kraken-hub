@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import {
+  CAM_FRAME_RATE_INSTRUCTION,
   CAM_FRAME_RATE_LEAD,
   CAM_FRAME_RATE_TAIL,
   CAM_PATH_FRAME_RATE,
@@ -134,14 +135,36 @@ export function CamSetupCard(props: CamSetupCardProps) {
               claim={CLAIM_NO_KRAKEN_HERE}
               presence={props.presence}
               as="b"
+              className="kh-band__claim"
               id="kh-setup-title"
               testId="setup-headline"
             />
             {props.dense !== true && (
               <>
                 {' '}
-                Point CAM at this page, then {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b>{' '}
-                {CAM_FRAME_RATE_TAIL}.
+                {/*
+                  The instruction is ONE element, so a narrow window can make it
+                  one LINE — round 12's setup-card compression.
+
+                  At a 760 px window this sentence wrapped the card to 122 px,
+                  and the card's height comes straight out of the canvas row: the
+                  halo was 196 px on the first screen anybody ever sees. Under
+                  ~800 px of editor grid `ui.css` clamps this span to a single
+                  ellipsised line and the `title` carries the whole sentence, so
+                  nothing is lost and the card fits in 88 px.
+
+                  The `title` is built from `CAM_FRAME_RATE_INSTRUCTION` rather
+                  than retyped, because the tooltip and the line under it saying
+                  the menu route two different ways is the exact failure
+                  `camPaths.ts` exists to prevent.
+                */}
+                <span
+                  className="kh-band__say"
+                  title={`Point CAM at this page, then ${CAM_FRAME_RATE_INSTRUCTION}.`}
+                >
+                  Point CAM at this page, then {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b>{' '}
+                  {CAM_FRAME_RATE_TAIL}.
+                </span>
               </>
             )}
           </p>

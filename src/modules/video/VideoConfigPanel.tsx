@@ -33,7 +33,6 @@ import {
   ASPECT_16_9,
   ASPECT_9_16,
   RESOLVER_DEFAULT_PORT,
-  sourceAspectKey,
   validateVideoConfig,
   type ProviderId,
   type SourceAspect,
@@ -105,6 +104,26 @@ const SHAPE_SEGMENTS: readonly {
   { value: '16:9', label: 'Wide', title: 'Standard landscape video.', aspect: ASPECT_16_9 },
   { value: '9:16', label: 'Tall', title: 'Vertical video and Shorts.', aspect: ASPECT_9_16 },
 ];
+
+/** Floating-point ratios never compare equal; 0.005 separates every row above. */
+const ASPECT_MATCH_EPS = 0.005;
+
+/**
+ * Which segment a stored `sourceAspect` selects — `'auto'` for anything the
+ * three rows do not offer, which is the same answer the panel already gave a
+ * stored 4:3 or 21:9 before the seven-row preset table in `types.ts` went away.
+ * Derived from `SHAPE_SEGMENTS` so a fourth row could never fall out of sync
+ * with the key that selects it.
+ */
+function shapeKeyFor(value: SourceAspect): string {
+  return (
+    SHAPE_SEGMENTS.find((s) =>
+      s.aspect === 'auto'
+        ? value === 'auto'
+        : typeof value === 'number' && Math.abs(s.aspect - value) < ASPECT_MATCH_EPS,
+    )?.value ?? 'auto'
+  );
+}
 
 /**
  * The player-shape override — restored, in Advanced, with honest words.
@@ -248,11 +267,7 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             <Segmented
               id="video-yt-aspect"
               labelledBy="video-yt-aspect-label"
-              value={
-                SHAPE_SEGMENTS.some((s) => s.value === sourceAspectKey(cfg.youtube.sourceAspect))
-                  ? sourceAspectKey(cfg.youtube.sourceAspect)
-                  : 'auto'
-              }
+              value={shapeKeyFor(cfg.youtube.sourceAspect)}
               options={SHAPE_SEGMENTS}
               onChange={(key) => {
                 const found = SHAPE_SEGMENTS.find((s) => s.value === key);

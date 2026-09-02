@@ -68,6 +68,7 @@ function makeTransport(behaviour: { connect?: 'ok' | 'reject' | 'hang' } = {}): 
     caps: {
       retained: true,
       replayMs: 0,
+      cmdReplayMs: 0,
       needsNetwork: true,
       maxPayload: 64_000,
       channels: ['state', 'cmd', 'tele'],
@@ -477,22 +478,44 @@ describe('throttling', () => {
 });
 
 describe('command channel', () => {
-  it('drops a command that is older than the staleness window', async () => {
+  it('drops a command a peer re-sends out of its own past', async () => {
+    /*
+     * The staleness gate, at the only comparison it is allowed to make.
+     *
+     * It used to be `now - env.ts`, and this test used to justify that with "this
+     * is exactly what an ntfy replay cache would hand a fresh subscriber" — which
+     * was not true of any shipped transport (`NTFY_RECOVERY` polls for `state`
+     * alone, and the live `/sse` subscription carries no `since=`) and was fatal
+     * for a real device: a subtraction across two clocks made a phone with a
+     * wrong clock permanently deaf. Redelivery is `(src, seq)`'s job and always
+     * was. See `CMD_MAX_AGE_MS`.
+     *
+     * So the gate measures one sender against ITSELF: a fresh command arrives,
+     * and then a second one, distinct `seq`, stamped twenty seconds behind the
+     * first. That is a peer talking out of its own past, and it is refused.
+     */
     const { a, b, wire, peer } = await pair();
     const seen: string[] = [];
     b.onCmd((cmd) => seen.push(cmd.op));
 
+    a.sendCmd('play');
+    await flush(1);
+    const fresh = wire.published.find((p) => p.ch === 'cmd')?.frame;
+    expect(fresh).toBeDefined();
+    peer.deliver('cmd', fresh ?? new Uint8Array());
+    await flush(1);
+    expect(seen).toEqual(['play']);
+
+    // `a`'s clock steps twenty seconds backwards, past `CMD_MAX_AGE_MS`, and it
+    // taps again. Same `src`, new `seq`, a `ts` behind the one already accepted.
+    vi.setSystemTime(new Date(Date.now() - 20_000));
     a.sendCmd('seekBy', 10);
     await flush(1);
-    const frame = wire.published.find((p) => p.ch === 'cmd')?.frame;
-    expect(frame).toBeDefined();
-
-    // This is exactly what an ntfy replay cache would hand a fresh subscriber.
-    await flush(20_000);
-    peer.deliver('cmd', frame ?? new Uint8Array());
+    const stale = wire.published.filter((p) => p.ch === 'cmd').at(-1)?.frame;
+    peer.deliver('cmd', stale ?? new Uint8Array());
     await flush(1);
 
-    expect(seen).toEqual([]);
+    expect(seen).toEqual(['play']);
     await a.stop();
     await b.stop();
   });

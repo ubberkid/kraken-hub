@@ -140,7 +140,9 @@ function toLook(s: Record<string, unknown>): Record<string, unknown> {
  * Written as numbers rather than imported from `modules/video/types`: this file
  * is core state, it is on the display's critical path, and pulling the video
  * module's whole type surface in here to compare two ratios would put it there
- * too. The tolerance is the same one `sourceAspectKey` uses.
+ * too. The tolerance matches `ASPECT_MATCH_EPS` in
+ * `modules/video/VideoConfigPanel.tsx`, restated here rather than imported
+ * because core state must not depend on a config panel.
  */
 const ASPECT_16_9 = 16 / 9;
 const ASPECT_9_16 = 9 / 16;

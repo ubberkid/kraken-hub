@@ -45,6 +45,8 @@ export const MQTT_RETAINED_KEEPALIVE_MS = 300_000;
 const CAPS: TransportCaps = {
   retained: true,
   replayMs: Number.POSITIVE_INFINITY,
+  // `publishCmd` sets `retain: false`, so a broker hands a new subscriber nothing.
+  cmdReplayMs: 0,
   needsNetwork: true,
   // Brokers accept far more; the 8 KB envelope cap is the real limit.
   maxPayload: 256_000,

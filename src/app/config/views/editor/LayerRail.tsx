@@ -40,6 +40,17 @@ export interface LayerRailProps {
    * end. So the rail places the row it is given and owns none of its behaviour.
    */
   baseRow: ReactNode;
+  /**
+   * Select the base AND open the background picker — round 12's F12-2.
+   *
+   * The `BASE` label used to be a select-only button, which made the chip row
+   * beside it the only door to the seven backgrounds; in a 231 px rail column
+   * that row does not show seven chips. A label that names a thing and does
+   * nothing when you press it is a disclosure that forgot to disclose.
+   */
+  onOpenBase?: () => void;
+  /** Whether the sheet `BASE` opens is on screen, for its `aria-expanded`. */
+  baseOpen?: boolean;
   /** The primary action and the nav, stacked under the base row in the column. */
   footer?: ReactNode;
 }
@@ -56,7 +67,15 @@ function focusOnMount(el: HTMLInputElement | null): void {
   el?.focus();
 }
 
-export function LayerRail({ editor, onAdd, heaviestId, baseRow, footer }: LayerRailProps) {
+export function LayerRail({
+  editor,
+  onAdd,
+  heaviestId,
+  baseRow,
+  onOpenBase,
+  baseOpen = false,
+  footer,
+}: LayerRailProps) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const dragging = useRef<string | null>(null);
 
@@ -278,12 +297,31 @@ export function LayerRail({ editor, onAdd, heaviestId, baseRow, footer }: LayerR
         the rail is where it belongs now that a look has more than one layer.
       */}
       <div className="kh-rail__base" data-testid="layer-row-base">
+        {/*
+          The label is a DISCLOSURE — F12-2.
+
+          Pressing it selects the base (which it always did, and which is what
+          puts the background's own controls on the strip) and opens the sheet
+          that holds every background as a tile. `aria-expanded` is only claimed
+          where there is a handler to make it true: a rail rendered without
+          `onOpenBase` is still the select-only button the phone editor mounts,
+          and promising a panel that cannot open is the exact thing the chip
+          row's own `aria-expanded` is careful about two files over.
+        */}
         <button
           type="button"
           className="kh-rail__lab"
           aria-pressed={editor.isSelected(BASE_LAYER_ID)}
+          {...(onOpenBase === undefined
+            ? {}
+            : { 'aria-expanded': baseOpen, 'aria-controls': 'kh-add-sheet' })}
+          title={onOpenBase === undefined ? undefined : 'Choose the background'}
           data-testid="layer-select-base"
           onClick={() => {
+            if (onOpenBase !== undefined) {
+              onOpenBase();
+              return;
+            }
             editor.select(BASE_LAYER_ID);
           }}
         >

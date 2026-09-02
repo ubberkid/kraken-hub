@@ -27,6 +27,20 @@
  * add a layer, drag it, press undo once, and the layer is gone, because the
  * entry the undo landed on was the pre-add look rather than the post-add one.
  *
+ * **That intermediate no longer NOTIFIES.** `store.ts` grew a re-entrancy guard
+ * (round 7): the notification a commit provokes through its own storage write is
+ * suppressed, and the commit path notifies once, at the end, after the sync
+ * layer's `onCommit` listener has stamped. The torn read is fixed at the root
+ * rather than worked around here, which is what let the wire stop shipping a
+ * value ahead of its stamp — see `src/sync/storeSeam.dom.test.ts`.
+ *
+ * The coalescing STAYS, because it was never only about that. A turn can still
+ * raise several notifications from the paths the guard deliberately does not
+ * touch: `store.replace()`, which the sync layer calls on every inbound frame,
+ * and the `setResolve` re-resolve behind a document that arrives from the other
+ * CAM browser. One turn is one document and one document is one entry, so the
+ * flush is the rule rather than the patch.
+ *
  * So every notification is coalesced into one flush on the microtask after the
  * turn that raised it, and the flush reports `getSnapshot()` — the look the
  * document settled on, once the commit that was in flight has finished. Nothing

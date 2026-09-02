@@ -182,7 +182,7 @@ kind of named escape hatch.
 The display path is the budget that matters — it is what the hidden Kraken
 Browser downloads before the LCD shows anything. `budgets.json` declares the
 limits and `npm run size` enforces them from the real build manifest. The
-display critical path is capped at **90 kB gzip**, a module chunk at **25 kB**.
+display critical path is capped at **35 kB gzip**, a module chunk at **25 kB**.
 
 If you need more, that is a design conversation (and probably an ADR), not a
 budget bump.

@@ -264,6 +264,33 @@ export const CLAIM_FRAME_RATE = claim(
 );
 
 /**
+ * …and what the banner says INSTEAD of the instruction — round 12's F12-1.
+ *
+ * The second half of that banner is *drag CAM → … → Frame Rate to maximum*, and
+ * on a Kraken Z the maximum is 1 FPS: `devicePresets.ts` records the ceiling per
+ * panel, precisely because round 3 found this advisory ending in a hardcoded
+ * *"(40 on Elite)"* that is wrong by a factor of forty on a Z. Telling a person
+ * to raise a slider that is already at its top, in the one place they came
+ * looking for a remedy, is the same failure one rung up: the app claiming
+ * something it can check and has not.
+ *
+ * The three tenses are deliberately identical. A panel's ceiling is a fact about
+ * the hardware, not about whether this window has heard from it — the CLAIM
+ * beside it (`CLAIM_FRAME_RATE`) is what carries the tense, and a sentence that
+ * changed its verb here would be tensing the wrong noun. It is a claim rather
+ * than a bare string so it renders through the one door every panel sentence
+ * renders through, and so the registry sees it.
+ *
+ * `gets` and not `runs at`: the never-seen form may carry no present
+ * progressive, and this sentence has to hold in all three.
+ */
+export const CLAIM_FRAME_RATE_AT_MAX = claim(
+  'That is the fastest this panel gets, so there is nothing in CAM left to raise.',
+  'That is the fastest this panel gets, so there is nothing in CAM left to raise.',
+  'That is the fastest this panel gets, so there is nothing in CAM left to raise.',
+);
+
+/**
  * The editor's budget meter, when it is reading a MEASURED frame rate.
  *
  * The meter has two voices and they are not the same claim. This one is only

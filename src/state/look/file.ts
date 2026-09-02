@@ -332,12 +332,13 @@ export function exportLook(state: LookState, meta: LookFileMeta, index: MediaInd
 // ---------------------------------------------------------------------------
 
 /**
- * The four ways a file is refused outright — and there are only four.
+ * The five ways a file is refused outright — and there are only five.
  *
  * Everything else a file can get wrong is repaired and noted, because "this
  * Look has a layer I do not understand" is not a reason to hand somebody back
- * nothing. These four are refusals because in each case there is no Look to
- * repair: no JSON, no object, not our format, or a payload we will not parse.
+ * nothing. These five are refusals because in each case there is no Look to
+ * repair: no JSON, no object, not our format, a payload too big to parse, or a
+ * version written by a build that knew things this one does not.
  */
 export type LookFileRefusal =
   | { code: 'not-json'; detail: string }

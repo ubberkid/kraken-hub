@@ -82,8 +82,23 @@
   color: #9aa4b2;
 }
 
+/*
+ * Round 13, F1: sized like the video module's own card, because the two cards
+ * appear on the same panel and only one of them used to fit.
+ *
+ * At `/ 14` the em cascade above (title 1.5em, body 0.95em, footer 0.8em) built
+ * a card TALLER than the box it is centred in: 405 px of card in 398 px of room
+ * on a 640 Elite, and 233 px in 202 px on a 240 Kraken — 12 px of it past the
+ * glass, with the footer sheared off. §6.3 promises this card is "laid out
+ * entirely inside safeInsetPx", so the divisor is the one that keeps that
+ * promise on the smallest panel: `/ 16` puts the body at `inscribed / 16.8`,
+ * within a hair of `.kh-video__card-body`'s `/ 18`, and still 26.9 px at 640 —
+ * the "~28 px type" §6.3 asks for. Below 300 px inscribed the footer line is
+ * dropped rather than shrunk (`LowFpsBanner.ts`), exactly as the video card's
+ * route footer is.
+ */
 .kh-lowfps {
-  font-size: calc(var(--kh-inscribed, 400px) / 14);
+  font-size: calc(var(--kh-inscribed, 400px) / 16);
 }
 
 .kh-lowfps__badge {

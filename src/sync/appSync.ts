@@ -48,8 +48,18 @@ import { noteSeenRev } from '../state/storage';
 import { EPOCH, compareStamps, decodeStamp, encodeStamp, maxStamp, tick, type Stamp } from './hlc';
 import { BASE_KIND_LEAF, deepEqual, enumerateLeaves, leavesToPatch, withBaseKind } from './leaves';
 import { mergeInto, type Register, type Registers } from './merge';
-import { createSyncService, type SyncService, type SyncServiceOptions } from './SyncService';
-import { MAX_SLOT_BYTES, MAX_SLOT_REGISTERS } from './types';
+import {
+  WIRE_TOO_LARGE_CLAIM,
+  createSyncService,
+  type SyncService,
+  type SyncServiceOptions,
+} from './SyncService';
+import {
+  MAX_SLOT_BYTES,
+  MAX_SLOT_REGISTERS,
+  MAX_UNSHIPPED_REGISTERS,
+  MAX_UNSHIPPED_SLOT_BYTES,
+} from './types';
 
 import type { StampTuple } from './hlc';
 import type { CmdBody, RecvMeta, Role, SyncStateBody, SyncStatus, TeleBody } from './types';
@@ -174,6 +184,47 @@ interface StoredClock {
    */
   base: number;
   /**
+   * `Date.now()` at the moment `base` was written down.
+   *
+   * `base` is a projection — the anchor plus however long a monotonic clock says
+   * has passed — and a monotonic clock does not survive a page load. So the
+   * restore used to restart the projection at zero elapsed and DISCARD every
+   * second that passed between the last `saveClock()` and the reload. With a
+   * correct wall clock that is invisible, because `Date.now() + offset` beats
+   * the projection anyway; after a BACKWARD step the projection is the only
+   * thing holding room time up, and the discarded gap is exactly the size of the
+   * edit that gets lost. Measured: a phone that steps back 10 s during an outage
+   * and reloads while still dark stamps its first tap ~7 s in the past, and the
+   * room reverts it — at −1 s it survives, at −10 s and −1 h it does not.
+   *
+   * So the gap is written down and projected across on restore, under a
+   * `Math.max(0, …)` that keeps a backward step from dragging the base DOWN.
+   * Missing reads as 0, which disables the projection and is exactly the old
+   * behaviour — the conservative direction, and the same argument `heard` makes
+   * for not bumping the slot version.
+   */
+  baseAt: number;
+  /**
+   * Which of `stamps`' paths the ROOM had not heard when the slot was written.
+   *
+   * Shippedness used to be in-memory only, and `saveClock`'s whole two-pass
+   * argument rests on it: pass one packs the writes the room has not heard, so a
+   * cap may only ever evict a register the room already holds. A page load that
+   * never reaches the room restored the registers and an EMPTY unshipped set, so
+   * its next `saveClock()` — `stop()` alone is enough — re-packed the slot as if
+   * every register were shipped and evicted the oldest offline write. Measured:
+   * a phone that edits offline, reloads twice without ever reaching the room
+   * (a lift, a locked screen, a discarded tab), and comes back to find exactly
+   * the one edit the room had an opinion about silently reverted.
+   *
+   * A MISSING key reads as "every restored register is unshipped", not as
+   * "none". That is the conservative direction — the same reasoning
+   * `StoredClock.heard` gives for reading a missing key as false — so an
+   * existing v2 slot needs no version bump; `MAX_UNSHIPPED_REGISTERS` already
+   * bounds the pessimistic case.
+   */
+  unshipped?: string[];
+  /**
    * Whether the previous session ever folded an inbound frame.
    *
    * Deliberately NOT the same question as "is there a persisted HLC". A page
@@ -231,7 +282,7 @@ function localStorageClockSlot(role: Role): ClockSlot {
  * the room thinks it is — and stamps with `Date.now() + offset`.
  *
  * **The estimator is `max`, monotonically, over inbound clock readings** — the
- * sender's `ts` (its raw `Date.now()`) and its HLC `clock.t`. Not a
+ * sender's `ts` (its own `roomNow()`) and its HLC `clock.t`. Not a
  * median or an EWMA, and the reason is that this number has exactly one job:
  * make sure a write is not stamped BEFORE writes it never heard. Under-shooting
  * loses the tap; over-shooting only makes this page win a genuine tie it might
@@ -256,21 +307,49 @@ function localStorageClockSlot(role: Role): ClockSlot {
  * ## What this does NOT do, said plainly
  *
  * It does not stop a peer with a wildly wrong clock from winning contested
- * leaves. A CONNECTED peer is already covered without any of this, by the HLC
- * floor: once you have received a stamp three days out, `tick`'s `max(now,
- * seen.t)` puts your own next write after it, so the room converges on whoever
- * tapped last regardless of whose clock is broken. Measured — the far-future
- * case is green with and without a room offset, which is why there is no
- * receive-side stamp cap here: it would have bought nothing measurable and cost
- * the merge its "one write, one stamp, everywhere" property, since any cap
- * computed from the receiver's own clock gives two receivers two different
- * stamps for one write.
+ * leaves, and the exposure is bigger than it used to say here.
  *
- * What is left exposed is the peer that has heard nothing recently, and the
- * bound is what shrinks that: with the cliff it stamped at its own time, with
- * the bound it stamps up to a day ahead. `docs/remote-control.md` states the
- * residue: a device whose clock is wrong by more than a day wins ties against
- * peers that have been away, until its clock is corrected.
+ * A CONNECTED room is covered by the HLC floor: once you have received a stamp
+ * three days out, `tick`'s `max(now, seen.t)` puts your own next write after it,
+ * so the room converges on whoever tapped last regardless of whose clock is
+ * broken. That is measured (`clockSkew.dom.test.ts`) and it is the whole of what
+ * is measured — nobody in that script is ever muted.
+ *
+ * Add an outage and the claim fails, in BOTH directions, and neither residue is
+ * removable at this layer:
+ *
+ *  - a peer more than the clamp BEHIND loses its first tap back after every
+ *    outage. Its room time is capped a day short of the room's, so `tick` floors
+ *    at its own pre-outage stamp, under everything written while it was away.
+ *  - one far-future stamp PINS every peer's floor at its own `t` until real time
+ *    catches up — three days, for a peer three days fast — and while `t` is
+ *    frozen the total order degrades to `(c, s)`. `c` is a per-peer counter and
+ *    is not comparable across an outage, so the tie falls through to the
+ *    writer's client id in STRING order: measured, the last finger lost to
+ *    alphabetical order, with the bad peer's process, slot and clock all gone
+ *    from the room, and neither correcting the clock nor reloading the page
+ *    unsticks it. The poison is in the register the room agreed on, not in the
+ *    peer.
+ *
+ * There is no cap that fixes the second one here, and it is worth writing down
+ * which two were tried, because both are plausible:
+ *
+ *  - capping the LOCAL floor (fold an inbound stamp into `clock` at no more than
+ *    `roomNow() + MAX_ROOM_OFFSET_MS`, registers verbatim) makes it strictly
+ *    worse. The poisoned register still holds `now + 3 d`, so a local write
+ *    stamped at the ceiling LOSES to it on every receiver: the room does not
+ *    mis-order the last tap, it SPLITS, the writer showing its own value and
+ *    everybody else the far-future one. Measured: with that cap, the shipped
+ *    "does not let a peer three days fast own every setting in the room" test
+ *    reads `display=90 CAM=90 phoneA=90 phoneB=90` where it wants 180.
+ *  - capping the incoming REGISTER stamps is the only cap that removes the pin,
+ *    and it costs the merge its "one write, one stamp, everywhere" property,
+ *    since a cap computed from the receiver's own clock gives two receivers two
+ *    different stamps for one write.
+ *
+ * So the residue is stated instead — in `docs/remote-control.md`, and pinned by
+ * `src/sync/hlcFloorPin.dom.test.ts`, which asserts what actually happens rather
+ * than what one would like to.
  *
  * The offset never goes negative, so nobody can drag this page's writes into
  * the past. And a room where a peer can lie about the clock is a room where that
@@ -301,8 +380,21 @@ function readStoredClock(slot: ClockSlot): StoredClock | null {
     const rawBase = parsed['base'];
     const base =
       typeof rawBase === 'number' && Number.isFinite(rawBase) && rawBase > 0 ? rawBase : 0;
+    const rawBaseAt = parsed['baseAt'];
+    // Missing reads as 0, which disables the projection — see `StoredClock.baseAt`.
+    const baseAt =
+      typeof rawBaseAt === 'number' && Number.isFinite(rawBaseAt) && rawBaseAt > 0 ? rawBaseAt : 0;
     // Missing reads as FALSE — see `StoredClock.heard`.
     const heard = parsed['heard'] === true;
+    /*
+     * Missing reads as UNDEFINED here and as "all of them" at the seeding site —
+     * see `StoredClock.unshipped`. An array of strings, defensively: anything
+     * else is a slot this build did not write.
+     */
+    const rawUnshipped = parsed['unshipped'];
+    const unshipped = Array.isArray(rawUnshipped)
+      ? rawUnshipped.filter((p): p is string => typeof p === 'string')
+      : undefined;
     const stamps: Record<string, StoredRegister> = {};
     const rawStamps = parsed['stamps'];
     if (isPlainObject(rawStamps)) {
@@ -315,7 +407,16 @@ function readStoredClock(slot: ClockSlot): StoredClock | null {
         if (stamp !== null) stamps[path] = { s: encodeStamp(stamp), v: entry['v'] };
       }
     }
-    return { v: CLOCK_SLOT_VERSION, clock: encodeStamp(clock), offset, base, heard, stamps };
+    return {
+      v: CLOCK_SLOT_VERSION,
+      clock: encodeStamp(clock),
+      offset,
+      base,
+      baseAt,
+      heard,
+      stamps,
+      ...(unshipped === undefined ? {} : { unshipped }),
+    };
   } catch {
     return null;
   }
@@ -442,7 +543,19 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   if (restored !== null) {
     clock = { t: restored.clock[0], c: restored.clock[1], s: restored.clock[2] };
     roomOffset = restored.offset;
-    anchorRoomTime = restored.base;
+    /*
+     * The projection continues ACROSS the page load — see `StoredClock.baseAt`.
+     *
+     * `Math.max(0, …)` is the whole of the safety: a device whose wall clock has
+     * stepped BACKWARD since the slot was written reads a negative gap, and a
+     * negative gap must add nothing rather than drag the base into the past. A
+     * clock that ran forward normally gets credit for the time that passed,
+     * which is the case a dark reload during an outage depends on.
+     */
+    anchorRoomTime =
+      restored.baseAt > 0
+        ? restored.base + Math.max(0, Date.now() - restored.baseAt)
+        : restored.base;
     anchorMono = monotonicNow();
     for (const [path, entry] of Object.entries(restored.stamps)) {
       registers.set(path, {
@@ -492,6 +605,44 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   /** Set whenever the slot's contents have moved on from what is written. */
   let clockDirty = false;
 
+  /**
+   * ── Writes the room has not heard ─────────────────────────────────────────
+   *
+   * Every leaf this page has written locally and not yet seen leave on the
+   * room's transport. A path is added on a local commit and removed when
+   * `SyncService` reports that a state frame carrying that path's stamp actually
+   * went out (`onStateShipped`).
+   *
+   * It exists because the slot's caps were evicting exactly the wrong register.
+   * `saveClock` packed newest-first, so a phone that went offline, changed
+   * `render.fit`, then turned 31 other knobs and reloaded came back with 32
+   * registers — and the one that fell off the end was `render.fit`, the FIRST
+   * offline edit and the only one the room already held a register for. The
+   * other 31 landed unopposed (no register anywhere to argue with) and the one
+   * that mattered restored unstamped, lost to the room's stale `cover`, and was
+   * silently reverted on every screen. 33 stamped registers is not a stress
+   * figure: a settled room measures 21 after twenty ordinary config writes.
+   *
+   * So the cap may only ever evict a register THE ROOM ALREADY HOLDS. That is a
+   * statable invariant rather than a heuristic, and it is the slot-side twin of
+   * the unshipped-first pass in `fitStateEnvelope` on the wire.
+   *
+   * It SURVIVES A PAGE LOAD, because the invariant is worthless if it does not:
+   * a second reload that never reached the room would otherwise re-pack the slot
+   * as if every register were shipped and evict the oldest offline write. See
+   * `StoredClock.unshipped` for the measured failure, and note the seeding
+   * below — a slot written by a build that predates the key says nothing, and
+   * "says nothing" has to mean "assume none of it shipped".
+   */
+  const unshipped = new Set<string>();
+  if (restored !== null) {
+    if (restored.unshipped === undefined) for (const path of registers.keys()) unshipped.add(path);
+    // Intersected with what actually restored: a path the slot named but whose
+    // register was dropped (an unparseable stamp, a half register) has nothing
+    // left to defend.
+    else for (const path of restored.unshipped) if (registers.has(path)) unshipped.add(path);
+  }
+
   /** Stamped in ROOM time, not device time. See `MAX_ROOM_OFFSET_MS`. */
   function nextStamp(): Stamp {
     clock = tick(clock, roomNow(), o.clientId);
@@ -536,30 +687,93 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   /**
    * The slot write, coalesced onto the same trailing edge as the document.
    *
-   * Registers are written newest-first until either cap bites — a count, so the
-   * slot cannot grow without bound, and a BYTE budget, because the slot now
-   * carries values and one module's config leaf can be a URL. A register that
-   * does not fit is simply absent after a reload, which costs that leaf its
-   * ordering defence and nothing else; what is never written is half a register.
+   * ## Two passes, and the invariant that needs them
+   *
+   * Pass one takes every register in `unshipped` — a write the room has not
+   * heard — newest-first among themselves, under the far looser
+   * `MAX_UNSHIPPED_*` safety bounds. Pass two takes the rest, newest-first, into
+   * whatever is left of the ordinary budget. So an overflowing slot can only
+   * ever evict a register the room already holds, and a user's own offline edit
+   * cannot be dropped in favour of the stale value it was replacing. See
+   * `unshipped` for the measured failure that made this necessary.
+   *
+   * ## Two smaller repairs in the same loop
+   *
+   * The byte rung SKIPS an oversized register rather than `break`ing: one leaf
+   * bigger than the remaining budget used to discard itself and every older
+   * register behind it, turning a fat module config into a slot-wide wipe.
+   *
+   * And if even the unshipped pass overflows its own bound, that is a fact the
+   * person can act on, so it goes out as `WIRE_TOO_LARGE_CLAIM` — the same "Too
+   * much to send" sentence an oversized frame raises — rather than being quietly
+   * absorbed.
    */
   function saveClock(): void {
     if (!clockDirty) return;
     clockDirty = false;
+    /*
+     * ── What gets written down as `base` ──────────────────────────────────────
+     *
+     * `roomNow()`'s RETURN VALUE, not `anchorRoomTime`. The two differ in
+     * exactly the case this matters in, and that is the whole bug: `roomNow()`
+     * advances the anchor only on the branch where the WALL CLOCK wins, and
+     * after a backward step the wall clock never wins again — the projection
+     * carries room time and the anchor sits at whatever it read before the step.
+     * `saveClock` persisted the anchor, so a phone that stepped back 10 s during
+     * an outage and reloaded while still dark restored a base from before the
+     * step, stamped its first tap in the past, and had it reverted.
+     *
+     * Calling `roomNow()` at all is also new, and necessary on its own: during
+     * an outage a page makes no commits and folds no frames, so nothing else
+     * calls it and nothing else advances the reading. Measured: the identical
+     * script with ANY local commit before the reload passes, and that commit's
+     * only contribution is a `roomNow()` before the slot is written.
+     */
+    const base = roomNow();
     const stamps: Record<string, StoredRegister> = {};
     let bytes = 0;
-    for (const [path, register] of stampedNewestFirst()) {
-      if (Object.keys(stamps).length >= MAX_SLOT_REGISTERS) break;
-      const entry: StoredRegister = { s: encodeStamp(register.stamp), v: register.value };
-      let size: number;
-      try {
-        size = JSON.stringify({ [path]: entry }).length;
-      } catch {
-        // A value that will not serialize is a value the slot cannot keep.
-        continue;
+    let count = 0;
+    let refusedUnshipped = 0;
+
+    const pack = (entries: [string, Register][], maxCount: number, maxBytes: number): number => {
+      let refused = 0;
+      for (const [path, register] of entries) {
+        if (count >= maxCount) {
+          refused += 1;
+          continue;
+        }
+        const entry: StoredRegister = { s: encodeStamp(register.stamp), v: register.value };
+        let size: number;
+        try {
+          size = JSON.stringify({ [path]: entry }).length;
+        } catch {
+          // A value that will not serialize is a value the slot cannot keep.
+          refused += 1;
+          continue;
+        }
+        // `continue`, never `break`: one oversized register skips only itself.
+        if (bytes + size > maxBytes) {
+          refused += 1;
+          continue;
+        }
+        bytes += size;
+        count += 1;
+        stamps[path] = entry;
       }
-      if (bytes + size > MAX_SLOT_BYTES) break;
-      bytes += size;
-      stamps[path] = entry;
+      return refused;
+    };
+
+    const newestFirst = stampedNewestFirst();
+    const unshippedFirst = newestFirst.filter(([path]) => unshipped.has(path));
+    refusedUnshipped = pack(unshippedFirst, MAX_UNSHIPPED_REGISTERS, MAX_UNSHIPPED_SLOT_BYTES);
+    pack(
+      newestFirst.filter(([path]) => !unshipped.has(path)),
+      Math.max(MAX_SLOT_REGISTERS, count),
+      Math.max(MAX_SLOT_BYTES, bytes),
+    );
+    if (refusedUnshipped > 0) {
+      log.warn(`the clock slot could not keep ${String(refusedUnshipped)} unsent write(s)`);
+      service.noteError(WIRE_TOO_LARGE_CLAIM);
     }
     try {
       slot.write(
@@ -567,8 +781,12 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
           v: CLOCK_SLOT_VERSION,
           clock: encodeStamp(clock),
           offset: roomOffset,
-          base: anchorRoomTime,
+          base,
+          baseAt: Date.now(),
           heard: heardFromRoom,
+          // Exactly the pass-1 paths that actually made it into `stamps`, so the
+          // next page load gives them the same priority this one did.
+          unshipped: unshippedFirst.map(([path]) => path).filter((path) => path in stamps),
           stamps,
         }),
       );
@@ -597,6 +815,20 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     role: o.role,
     clientId: o.clientId,
     settings: o.settings,
+    /*
+     * ROOM time for the wire — the `ts` on every outbound envelope and, on the
+     * far side, the `CMD_MAX_AGE_MS` gate. See `SyncServiceOptions.roomNow`.
+     */
+    roomNow,
+    /*
+     * The room has heard these. They become evictable from the slot, and not one
+     * moment before — see `unshipped` and `saveClock`.
+     */
+    onStateShipped: (paths) => {
+      let changed = false;
+      for (const path of paths) changed = unshipped.delete(path) || changed;
+      if (changed) clockDirty = true;
+    },
     /*
      * EVERY stamp this page holds for a leaf the OUTGOING BODY agrees with,
      * uncapped, newest first.
@@ -630,6 +862,22 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
      */
     wireStamps: (body) => {
       const map: Record<string, StampTuple> = {};
+      /*
+       * The wire twin of `saveClock`'s pass one.
+       *
+       * `RESERVED_NEWEST_STAMPS` reserved the newest few stamps, which answers
+       * "was this the last thing touched?" — and the question a room actually
+       * needs answered is "has the room HEARD this write yet?". One ordinary
+       * multi-leaf config commit issues a stamp per leaf, so 300 knobs push an
+       * unheard tap out of the newest eight immediately: measured, a passive
+       * display showed the wrong value for 20.2 s at 300 knobs and 96.2 s at
+       * 400, on a plain sequential edit with no race and no skew.
+       *
+       * So the paths the room has not heard travel with the map, newest-first
+       * among themselves, and `fitStateEnvelope` takes them before anything
+       * else. This is the only place that knows both halves.
+       */
+      const unshippedPaths: string[] = [];
       const leaves = enumerateLeaves(body);
       let mismatched = 0;
       for (const [path, register] of stampedNewestFirst()) {
@@ -639,12 +887,13 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
           continue;
         }
         map[path] = encodeStamp(register.stamp);
+        if (unshipped.has(path)) unshippedPaths.push(path);
       }
       if (mismatched > 0)
         log.warn(
           `dropped ${String(mismatched)} stamp(s) whose value the outgoing body does not carry`,
         );
-      return { map, clock: encodeStamp(clock) };
+      return { map, clock: encodeStamp(clock), unshipped: unshippedPaths };
     },
     ...(o.factories === undefined ? {} : { factories: o.factories }),
   });
@@ -757,6 +1006,25 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
       if (deepEqual(was.get(path), value)) continue;
       registers.set(path, { value, stamp: nextStamp() });
       if (!heardFromRoom) intents.add(path);
+      // The room has not heard this yet, so no cap may evict it. See `unshipped`.
+      unshipped.add(path);
+      wrote = true;
+    }
+    /*
+     * A register whose leaf the document no longer has is a register with
+     * nothing to defend.
+     *
+     * This loop used to iterate `now` alone, so a deleted module-config key kept
+     * its register for the life of the device — occupying a slot the caps then
+     * spent on nothing, and helping push a live write off the end. A leaf the
+     * room genuinely deleted is carried by `look.order` and by the body, not by
+     * leaf absence, so dropping the register here costs the deletion nothing.
+     */
+    for (const path of [...registers.keys()]) {
+      if (now.has(path) || !was.has(path)) continue;
+      registers.delete(path);
+      intents.delete(path);
+      unshipped.delete(path);
       wrote = true;
     }
     if (!wrote) return;
@@ -787,9 +1055,12 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
      * which is a room-wide high-water mark but only reflects clocks that have
      * actually WRITTEN something; in a room where the only writer so far is the
      * slow device, it reads back the slow device's own time and teaches nothing.
-     * `meta.ts` is the sender's raw `Date.now()`, so a peer with a correct clock
-     * advertises the correct time by existing, whether or not it has ever
-     * touched a setting. That is the sample that closes the hole.
+     * `meta.ts` is the sender's own `roomNow()` — its wall clock plus whatever
+     * offset it has learned — so a peer with a correct clock advertises the
+     * correct time by existing, whether or not it has ever touched a setting.
+     * That is the sample that closes the hole. It cannot run away: a peer's
+     * `roomNow()` is a `max` of readings it has folded, each clamped to
+     * `MAX_ROOM_OFFSET_MS`, so passing it on adds nothing to the bound.
      *
      * `ts` still orders nothing — see `Envelope.ts`. It is read here only as a
      * clock reading, folded by `max`, clamped, and never allowed to go negative.

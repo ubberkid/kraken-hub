@@ -201,13 +201,24 @@ the app: fourteen controls duplicating the configuration page in different words
 a clip picker, the room settings and a nested privacy note, on a 390 px screen.
 It is gone. **Room settings, the transport internals and the hardware-report pull
 now live in exactly one place** — the `Connection` and `Report` sections of the
-merged About page, which the remote reaches by the single quiet **About** link
-at the bottom of the page (once it is paired), and which the configuration page
-reaches by clicking the version line in its footer. The link is named after the
-page it opens rather than after the two things on it: _Connection &
+merged About page. A **desktop** remote reaches it by the single quiet **About**
+link at the bottom of the page (once it is paired), and the configuration page
+reaches it by clicking the version line in its footer. The link is named after
+the page it opens rather than after the two things on it: _Connection &
 diagnostics_ named a Diagnostics page that has not existed since round 1, and a
 link whose words do not match where it lands teaches the reader not to trust the
 next one.
+
+**A phone has no such link, and that is the point.** Every route on a phone
+resolves back to the remote (`usePhoneOnly`, `RemoteView.tsx`), so an About link
+there would open onto the room it is already in — and the sections behind it are
+broker fields and telemetry switches, which are settings for the machine that
+talks to the broker rather than for the handset holding the remote. What the
+phone keeps is the part of that page it can actually act on: pairing — join,
+rotate, unpair — has never lived on About and is on the remote itself. So
+`Connection`, `Report` and the hardware-report pull are things you do **from the
+PC** — the CAM configuration browser, or a desktop browser paired to the same
+room.
 
 The one thing the remote deliberately does not do is nudge, zoom or rotate the
 picture — that is setup, not remote control, and it lives under the module's own
@@ -471,9 +482,14 @@ Three things about it are worth knowing:
   reassembles the parts and gives up after 20 s.
 
 The pull lives on the merged About page — `#/about`, which `#/diag` still
-resolves to — inside **Report → Show the technical detail**. Any paired browser
-can press it, including the phone: follow the **About** link at the bottom of
-the remote.
+resolves to — inside **Report → Show the technical detail**. That page is a
+**PC** surface: the CAM configuration browser reaches it from the version line
+in its footer, and a paired desktop browser from the **About** link at the
+bottom of the remote. A phone cannot press it — every route there resolves back
+to the remote, so the link is not drawn — and the report it would pull is a
+paragraph of build identity and probe results for a bug report, which is work
+that ends at a keyboard. The phone's own half of the same question is the
+presence line and the panel facts the remote already shows.
 
 The same-machine route (the display report the configuration browser reads back
 through `localStorage`, on the same page) is unchanged and remains the
@@ -546,32 +562,47 @@ consequences, both worth knowing:
 Different keys never contend at all. One person changing the fit while another
 rotates the panel is two independent writes, and both survive.
 
-If a device's clock is badly wrong — hours out, no network time — the only thing
-that degrades is that tie-break, and only until it has heard one frame. A change
-it makes after seeing yours still wins over yours; a change it makes after
-coming back from an outage still wins, because it stamps in room time; only a
-change made at the same instant as yours, by a device that has never heard the
-room, is decided by the wrong clock.
+If a device's clock is wrong by minutes or hours, the only thing that degrades
+is that tie-break, and only until it has heard one frame. A change it makes
+after seeing yours still wins over yours; a change it makes after coming back
+from an outage still wins, because it stamps in room time; only a change made at
+the same instant as yours, by a device that has never heard the room, is decided
+by the wrong clock.
 
-A device running AHEAD drags room time forward for everyone while it is present,
-which changes who wins a tie and nothing else. Readings more than a day out are
-**clamped to a day** rather than ignored, and the difference is worth stating
-honestly, because ignoring them was worse: a peer past the limit still stamped
-its own writes at its own time, and discarding its reading only stopped everyone
-else from tracking it. What that clamp does and does not buy:
+Readings more than a day out are **clamped to a day** rather than ignored, and
+the difference is worth stating, because ignoring them was worse: a peer past
+the limit still stamped its own writes at its own time, and discarding its
+reading only stopped everyone else from tracking it.
 
-- a device that is CONNECTED is fully covered without it. Once your page has
-  received a stamp from a far-future clock, its own next write is ordered after
-  that stamp, so the room converges on whoever tapped last whatever any clock
-  says — measured, in both directions, with a peer three days fast;
-- a device that has been AWAY is covered up to the clamp. Coming back from an
-  outage it stamps up to a day ahead, which beats anything the wrong-clock peer
-  wrote unless that peer is more than a day out _and_ the excess is longer than
-  the outage;
-- past that, the wrong-clock peer wins those ties until its clock is corrected.
-  There is no fix for this inside a design with no consensus round, and a room
-  where a peer can lie about the clock is a room where that peer can also simply
-  write the value it wants.
+Past a day, though, the honest answer is that a badly-wrong clock costs the room
+real things. All three of these are measured, in
+`src/sync/hlcFloorPin.dom.test.ts`:
+
+- **A device more than a day SLOW loses its first tap after every outage** — a
+  lift, a tunnel, a screen lock — until somebody corrects its clock. Its room
+  time is capped a day short of the room's, so its tap stamps under everything
+  written while it was away: the setting goes green on its screen and reverts a
+  moment later. At 23 hours slow the same script lands the tap; the boundary is
+  exactly the clamp.
+- **One device far in the FUTURE poisons the settings it touched, for as long as
+  it is wrong.** A stamp three days out pins the ordering clock of every device
+  in the room at that reading for three days of real time, and while it is
+  pinned the room can no longer tell which of two taps came second if the two
+  people were not connected to each other at the time. It falls back to
+  comparing the devices' internal ids, which is arbitrary — measured, the later
+  tap lost.
+- **Correcting the clock does not undo it, and neither does reloading the page.**
+  The bad reading now lives in the value the room agreed on, not in the device.
+  What clears it is somebody changing that setting again from a device that is
+  connected to everyone else at the time, or real time catching up.
+
+The connected case remains fully covered: while every device is in the room,
+whoever tapped last wins, whatever any clock says. There is no fix for the rest
+inside a design with no consensus round — every cap that removes the pin either
+splits the room or gives two devices two different orderings for one write —
+and a room where a peer can lie about the clock is a room where that peer can
+also simply write the value it wants. **If a Kraken or a phone has no network
+time, set its clock.** That is the whole mitigation, and it is worth doing.
 
 ### Where the position on your phone comes from
 

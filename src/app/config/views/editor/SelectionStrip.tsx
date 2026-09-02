@@ -19,11 +19,12 @@
  * changed behaviour.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { BASE_LAYER_ID, type Layer } from '../../../../state/look/types';
 import { RangeInput, Segmented } from '../../../../ui';
 import { FitControl } from '../../../../ui/Framing';
+import { useScrollEdges } from '../../editor/scrollEdges';
 import { signed, signedText } from '../../editor/signed';
 import {
   stripValue,
@@ -105,60 +106,6 @@ function useStrip(kind: string): readonly StripControl[] | null {
   return strip ?? null;
 }
 
-/**
- * Which end of the scrolling row is cut, as an attribute — round 11's F-3.
- *
- * The fade is a `mask-image` in `ui.css` and a mask is a static declaration, so
- * the one thing it cannot know is whether there is anything left to reveal. A
- * strip that fades its right edge with nothing beyond it is an affordance for a
- * gesture that does nothing, which is worse than no affordance at all — so the
- * attribute is measured from the element rather than assumed from the kind.
- *
- * Re-measured on scroll, on resize and whenever the strip's contents change
- * (the kind's declaration arrives one chunk late on first selection of a kind),
- * which is what the `ResizeObserver` on the row's own scroll box covers.
- */
-type Clipped = 'none' | 'true' | 'start' | 'both';
-
-function useScrollEdges(): {
-  attach: (el: HTMLSpanElement | null) => void;
-  clipped: Clipped;
-  remeasure: () => void;
-} {
-  const node = useRef<HTMLSpanElement | null>(null);
-  const [clipped, setClipped] = useState<Clipped>('none');
-
-  const measure = useCallback((): void => {
-    const el = node.current;
-    if (el === null) return;
-    // 1 px of slack: a fractional layout width must not read as "clipped".
-    const left = el.scrollLeft > 1;
-    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
-    setClipped(left && right ? 'both' : left ? 'start' : right ? 'true' : 'none');
-  }, []);
-
-  const attach = useCallback(
-    (el: HTMLSpanElement | null): void => {
-      node.current = el;
-      measure();
-    },
-    [measure],
-  );
-
-  useEffect(() => {
-    const el = node.current;
-    if (el === null || typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    for (const child of el.children) observer.observe(child);
-    return () => {
-      observer.disconnect();
-    };
-  });
-
-  return { attach, clipped, remeasure: measure };
-}
-
 export function SelectionStrip({
   layer,
   config,
@@ -171,7 +118,12 @@ export function SelectionStrip({
 }: SelectionStripProps) {
   const isBase = layer.id === BASE_LAYER_ID;
   const strip = useStrip(layer.kind);
-  const { attach, clipped, remeasure } = useScrollEdges();
+  /*
+   * The scroller's machinery lives in `editor/scrollEdges.ts` now — the rail's
+   * BASE chip row is the same row with the same problem (F12-2), and two copies
+   * of a measured fade are two things to keep in step.
+   */
+  const { attach, clipped, remeasure, onWheel } = useScrollEdges();
 
   /*
    * The frame, before the controls.
@@ -234,31 +186,11 @@ export function SelectionStrip({
         data-clipped={clipped}
         onScroll={remeasure}
         /*
-          A wheel with no horizontal axis still moves the row.
-
-          A trackpad already sends `deltaX` and a horizontal `overflow` box
-          already consumes it; a MOUSE wheel sends only `deltaY`, and over a row
-          that is the only scrollable thing on the screen that was a gesture
-          with no effect at all. Mapped here rather than in CSS because it is a
-          behaviour, and guarded so it is never a hijack: the event is consumed
-          only while the row can actually move the way the wheel is pointing, so
-          at either end the page gets the scroll back.
-
-          The keyboard needs nothing added: every control in this row is a tab
-          stop, and focusing one inside an overflow box scrolls it into view.
-          That is a better contract than a tab stop on the box itself, which is
-          why there is no `tabindex` here.
+          A mouse wheel moves this row sideways — see `scrollEdges.ts` for why
+          that is a behaviour rather than a CSS declaration, and why there is no
+          `tabindex` on the box.
         */
-        onWheel={(e) => {
-          const el = e.currentTarget;
-          if (e.deltaX !== 0 || e.deltaY === 0) return;
-          const max = el.scrollWidth - el.clientWidth;
-          if (max <= 0) return;
-          const next = Math.max(0, Math.min(max, el.scrollLeft + e.deltaY));
-          if (next === el.scrollLeft) return;
-          el.scrollLeft = next;
-          remeasure();
-        }}
+        onWheel={onWheel}
       >
         {controls.map((control) => (
           <Control

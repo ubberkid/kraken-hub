@@ -24,14 +24,40 @@ function repoUrlSync(): string {
   return normalizeRepoUrl(pkg.repository?.url ?? '');
 }
 
-/** Short git SHA, or 'dev' outside a checkout (tarball installs, CI without git). */
+/**
+ * Short git SHA, or 'dev' outside a checkout (tarball installs, CI without git).
+ *
+ * Suffixed `+dirty` when the working tree has uncommitted changes (round 12,
+ * F12-6). The diagnostics overlay prints this line and a bug report quotes it;
+ * a bare SHA on a build made from a modified tree names a commit whose code is
+ * NOT what is running, which is the one thing a build identity must never do.
+ * CI builds from a clean checkout, and `GITHUB_SHA` bypasses this entirely, so
+ * a published build never carries the marker.
+ *
+ * Fails soft in both directions: no git, no repository, or a `git status` that
+ * errors leaves the SHA exactly as it was rather than failing the build.
+ */
 function gitShaSync(): string {
   try {
-    return execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+    const sha = execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
       .toString()
       .trim();
+    return sha + (gitDirtySync() ? '+dirty' : '');
   } catch {
     return 'dev';
+  }
+}
+
+/** Does the working tree differ from HEAD? `false` whenever we cannot tell. */
+function gitDirtySync(): boolean {
+  try {
+    return (
+      execSync('git status --porcelain', { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim().length > 0
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -253,10 +279,19 @@ export default defineConfig(() => ({
              * Ranked above the two shells (90) so neither claims it, and above
              * `sync-core` (91) is unnecessary — nothing here imports a runtime
              * value from `src/sync`, on purpose (see `wire.ts`).
+             *
+             * `DiagOverlay.ts` is excluded BY NAME. It used to exclude itself by
+             * being `.tsx`, and W9 made it plain TypeScript along with the rest
+             * of the display shell — at which point `.ts$` would have swallowed
+             * the on-LCD overlay into the chunk `display/sync.ts` fetches to
+             * answer `requestDiag`. Those are two different features: a paired
+             * remote asking for a report must not download the photographable
+             * panel UI it is not going to show. The overlay stays its own
+             * lazily-fetched chunk, reached only by `?diag=1`, exactly as before.
              */
             {
               name: 'diag-core',
-              test: /[\\/]src[\\/]diag[\\/][^/\\\\]*\.ts$/,
+              test: /[\\/]src[\\/]diag[\\/](?!DiagOverlay\.ts$)[^/\\\\]*\.ts$/,
               priority: 93,
             },
             /**
@@ -309,6 +344,37 @@ export default defineConfig(() => ({
               priority: 91,
             },
             /**
+             * The YouTube embed adapter and the four helper modules only it
+             * uses — the mask state machine, the quality policy table, the
+             * quality watchdog and the IFrame API loader.
+             *
+             * Six files that no other provider imports were riding in
+             * `module-video` because that group claims the video directory BY
+             * PATH: 24.1 kB gzip against a 25 kB per-module budget, of which
+             * ~3.9 kB was a provider a panel showing a local clip never plays.
+             * Named here, they are one lazily-fetched chunk and the module
+             * chunk is back under 21 kB. MEASURED: module-video 24.1 -> 20.2 kB
+             * gzip, provider-youtube 5.1 kB, every other chunk byte-identical.
+             *
+             * Ranked BELOW `module-video` (92) for the reason the embed,
+             * resolver and ingest groups are: a group claims its matched
+             * modules *and their dependencies*, so ranked above it this group
+             * would drag `youtube/geometry.ts` — shared with `embedSurface.ts`,
+             * which every embed adapter uses — and the shared adapter base out
+             * of `module-video` behind it. Ranked last it claims only the six
+             * leaf files, and the geometry math stays where its second caller
+             * already is. The six names are excluded from `module-video`'s
+             * negative lookahead, the same trick and the same reason.
+             *
+             * `budgets.json` weighs this chunk under the generic
+             * `perProviderChunk` cap; it needs no override.
+             */
+            {
+              name: 'provider-youtube',
+              test: /[\\/]src[\\/]modules[\\/]video[\\/](?:adapters[\\/]youtubeEmbed\.adapter|youtube[\\/](?:maskController|qualityPolicy|qualityWatch|ytApiLoader))\.ts$/,
+              priority: 91,
+            },
+            /**
              * The ingestion machinery — the download manager and the media
              * probing/thumbnailing it shares with manual upload — in its own
              * lazily-fetched chunk.
@@ -340,7 +406,7 @@ export default defineConfig(() => ({
             },
             {
               name: 'module-video',
-              test: /[\\/]src[\\/]modules[\\/]video[\\/](?!index\.ts$|types\.ts$|resolver[\\/]|local[\\/](?:downloadManager|ingest)\.ts$|adapters[\\/](?:twitch|vimeo|streamable|resolver)\.adapter\.ts$).*\.ts$/,
+              test: /[\\/]src[\\/]modules[\\/]video[\\/](?!index\.ts$|types\.ts$|resolver[\\/]|local[\\/](?:downloadManager|ingest)\.ts$|youtube[\\/](?:maskController|qualityPolicy|qualityWatch|ytApiLoader)\.ts$|adapters[\\/](?:twitch|vimeo|streamable|resolver|youtubeEmbed)\.adapter\.ts$).*\.ts$/,
               priority: 92,
             },
             {

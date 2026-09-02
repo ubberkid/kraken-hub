@@ -41,6 +41,9 @@ export const FAKE_POLL_MS = 150;
 const CAPS: TransportCaps = {
   retained: true,
   replayMs: Number.POSITIVE_INFINITY,
+  // `connect()` seeds the nonce marks for the transient channels rather than
+  // draining them, so the slot a previous page load left is never replayed.
+  cmdReplayMs: 0,
   needsNetwork: true,
   maxPayload: 64_000,
   channels: ['state', 'cmd', 'tele'],

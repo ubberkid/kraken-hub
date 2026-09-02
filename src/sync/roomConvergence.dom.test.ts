@@ -111,6 +111,7 @@ function brokerTransport(broker: Broker, handshakeMs = 0): SyncTransport {
     caps: {
       retained: true,
       replayMs: 0,
+      cmdReplayMs: 0,
       needsNetwork: true,
       maxPayload: 64_000,
       channels: ['state', 'cmd', 'tele'],

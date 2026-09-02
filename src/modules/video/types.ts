@@ -177,66 +177,27 @@ export const QUALITY_FLOOR_PX = LADDER_1920;
 export const QUALITY_FLOOR_PX_PERFORMANCE = LADDER_1280;
 /** §2.3 — portrait sources use a fixed element width, not the ladder. */
 export const PORTRAIT_WIDTH_DEFAULT = 1080;
-export const PORTRAIT_WIDTH_ALT = 1440;
 
 const ASPECT_PARTS = { wide: { w: 16, h: 9 }, tall: { w: 9, h: 16 } } as const;
 export const ASPECT_16_9 = ASPECT_PARTS.wide.w / ASPECT_PARTS.wide.h;
 export const ASPECT_9_16 = ASPECT_PARTS.tall.w / ASPECT_PARTS.tall.h;
 
-/**
- * §2.4 — the presets the config and remote UIs offer.
+/*
+ * The seven-row `SOURCE_ASPECT_PRESETS` table used to live here, with a
+ * `sourceAspectKey()` that mapped a stored number back to one of its keys.
+ * Nothing rendered its labels: the shape control is a three-way Segmented
+ * (Auto · Wide · Tall) that owns its own words, and the four extra rows —
+ * 4:3, 1:1, 21:9, 2.39:1 — could only ever produce a key the control does not
+ * offer, which it then discarded for `'auto'`. So the table was ~0.5 kB of
+ * copy nobody could read, in the ONE video file the eager manifest imports
+ * (`module-video` excludes `types.ts`, so it rides `core` — the LCD's first
+ * download). The three-way match it existed to serve is now derived from the
+ * control's own rows, in `VideoConfigPanel.tsx`, where the control is.
  *
- * There is no cross-origin way to read a YouTube video's true aspect: the
- * iframe is opaque, `i.ytimg.com` thumbnails are always 16:9 with the bars baked
- * in, and oEmbed reports *player* dimensions rather than source ones. So this is
- * a manual step, and the honest thing to do is make it a short, obvious list.
+ * `validateSourceAspect` is unchanged: a stored 4:3 (or any ratio in
+ * [0.2, 5]) still survives the round trip through storage and still drives
+ * the geometry — it just no longer has a label nothing shows.
  */
-const ASPECT_PARTS_EXTRA = {
-  fourThree: { w: 4, h: 3 },
-  square: { w: 1, h: 1 },
-  ultrawide: { w: 21, h: 9 },
-} as const;
-const ASPECT_RATIOS = {
-  fourThree: ASPECT_PARTS_EXTRA.fourThree.w / ASPECT_PARTS_EXTRA.fourThree.h,
-  square: ASPECT_PARTS_EXTRA.square.w / ASPECT_PARTS_EXTRA.square.h,
-  ultrawide: ASPECT_PARTS_EXTRA.ultrawide.w / ASPECT_PARTS_EXTRA.ultrawide.h,
-  /** Anamorphic scope. Not a ratio of integers — it is quoted as 2.39:1. */
-  cinemascope: 2.39,
-} as const;
-
-export const ASPECT_4_3 = ASPECT_RATIOS.fourThree;
-export const ASPECT_1_1 = ASPECT_RATIOS.square;
-export const ASPECT_21_9 = ASPECT_RATIOS.ultrawide;
-export const ASPECT_239_1 = ASPECT_RATIOS.cinemascope;
-
-export interface SourceAspectPreset {
-  /** Stable string form, so a `<select>` can round-trip it. */
-  readonly key: string;
-  readonly label: string;
-  readonly value: SourceAspect;
-}
-
-export const SOURCE_ASPECT_PRESETS: readonly SourceAspectPreset[] = [
-  { key: 'auto', label: 'Auto — 9:16 for Shorts links, 16:9 otherwise', value: 'auto' },
-  { key: '16:9', label: '16:9 — standard landscape', value: ASPECT_16_9 },
-  { key: '9:16', label: '9:16 — vertical / Shorts', value: ASPECT_9_16 },
-  { key: '4:3', label: '4:3 — older uploads', value: ASPECT_4_3 },
-  { key: '1:1', label: '1:1 — square', value: ASPECT_1_1 },
-  { key: '21:9', label: '21:9 — ultrawide (2.33)', value: ASPECT_21_9 },
-  { key: '2.39:1', label: '2.39:1 — anamorphic film', value: ASPECT_239_1 },
-];
-
-const ASPECT_MATCH_EPS = 0.005;
-
-/** The preset key for a stored value, for round-tripping a `<select>`. */
-export function sourceAspectKey(value: SourceAspect): string {
-  if (value === 'auto') return 'auto';
-  return (
-    SOURCE_ASPECT_PRESETS.find(
-      (p) => typeof p.value === 'number' && Math.abs(p.value - value) < ASPECT_MATCH_EPS,
-    )?.key ?? 'auto'
-  );
-}
 
 /**
  * §2.4 — `'auto'` means 9:16 for a `/shorts/` URL and 16:9 for everything else.

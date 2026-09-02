@@ -322,3 +322,63 @@ test.describe('every control is a thumb target at 390 px', () => {
     await context.close();
   });
 });
+
+/**
+ * Selection, in a high-contrast theme — round 12's F12-10 (WCAG 1.4.1).
+ *
+ * Every "this one is chosen" state in `ui.css` was an accent COLOUR and
+ * nothing else. Under `forced-colors: active` the user agent replaces author
+ * colours with the two the theme provides, so the selected base chip computed
+ * BYTE-IDENTICAL to the six unselected ones — same background, same text, same
+ * border, same weight — and which background is on the panel became
+ * unanswerable from the screen.
+ *
+ * Measured at CAM's window rather than at 390, because the chip row in its rail
+ * is where the audit found it. The assertion is deliberately loose about WHICH
+ * property carries the difference: a fill, an outline and a border are all
+ * legitimate answers, and an empty one is not.
+ */
+test('selection survives a forced-colours theme', async ({ page }) => {
+  await page.setViewportSize({ width: 866, height: 537 });
+  await page.addInitScript(() => {
+    localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+  });
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  await expect(page.getByTestId('mods-row')).toBeVisible();
+  await settle(page);
+
+  const chips = await page.evaluate(() => {
+    const read = (el: Element): Record<string, string> => {
+      const cs = getComputedStyle(el);
+      return {
+        background: cs.backgroundColor,
+        color: cs.color,
+        border: `${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}`,
+        outline: `${cs.outlineWidth} ${cs.outlineStyle} ${cs.outlineColor}`,
+        weight: cs.fontWeight,
+      };
+    };
+    const all = [...document.querySelectorAll('[data-testid="mods-row"] .kh-mod')];
+    const on = all.find((c) => c.getAttribute('aria-pressed') === 'true');
+    const off = all.find((c) => c.getAttribute('aria-pressed') !== 'true');
+    return {
+      count: all.length,
+      on: on === undefined ? null : read(on),
+      off: off === undefined ? null : read(off),
+    };
+  });
+
+  // The measurement is only worth anything if it found both states.
+  expect(chips.count, 'the base picker has chips to compare').toBeGreaterThan(2);
+  expect(chips.on, 'no chip is marked as the current background').not.toBeNull();
+  expect(chips.off, 'every chip claims to be the current background').not.toBeNull();
+
+  const differing = Object.keys(chips.on ?? {}).filter(
+    (key) => chips.on?.[key] !== chips.off?.[key],
+  );
+  expect(
+    differing,
+    'the selected chip is byte-identical to an unselected one in forced colours',
+  ).not.toEqual([]);
+});

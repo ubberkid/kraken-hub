@@ -1177,6 +1177,7 @@ test.describe('scrolling', () => {
         return {
           halo: Math.round(halo?.width ?? 0),
           band: Math.round(looks?.height ?? 0),
+          card: Math.round(setup?.height ?? 0),
           // The row is UNDER the setup card here, which is the placement the
           // gutter branch replaces rather than the one it breaks.
           under: Math.round((looks?.top ?? 0) - (setup?.bottom ?? 0)),
@@ -1203,12 +1204,20 @@ test.describe('scrolling', () => {
     expect(m.overflow, 'the fallback row pushed the composition past the window').toBe(0);
     /*
      * The halo is smaller here than in the gutter branch and that is the whole
-     * point of the branch — 760x537 is a window where the setup card alone
-     * wraps to 122 px, so the canvas row's ceiling is 283 px before any band
-     * exists. What this holds is that the row stays a row: 88 px of it, not the
-     * 121 px band the gutter placement was written to undo.
+     * point of the branch — but 190 was measuring the wrong culprit. At 760x537
+     * the setup CARD wrapped its one sentence to three lines and took 122 px of
+     * a grid whose canvas row is whatever the window has left, so the halo was
+     * 196 with an 82 px starters row that was already as small as it goes.
+     *
+     * `ui.css`'s `@container kh-editor (max-width: 800px)` branch clamps the
+     * instruction to a single ellipsised line (the whole sentence lives on its
+     * `title`) and puts both actions on one 44 px row: 86 px of card, and the
+     * halo takes the difference back at one pixel for one — 233, measured. So
+     * what this now holds is both halves of that trade: the row stays a row,
+     * and the card above it stays compact.
      */
-    expect(m.halo, 'the fallback row is eating the canvas').toBeGreaterThanOrEqual(190);
+    expect(m.card, 'the setup card is wrapping again').toBeLessThanOrEqual(88);
+    expect(m.halo, 'the fallback row is eating the canvas').toBeGreaterThanOrEqual(220);
     for (const card of m.cards) {
       expect(card.w, 'a fallback starter card is too narrow to press').toBeGreaterThanOrEqual(44);
       expect(card.h, 'a fallback starter card is too short to press').toBeGreaterThanOrEqual(44);

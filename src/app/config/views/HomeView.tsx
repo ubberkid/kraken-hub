@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import {
-  CAM_FRAME_RATE_LEAD,
+  CAM_FRAME_RATE_LEAD_SENTENCE,
   CAM_FRAME_RATE_TAIL,
   CAM_PATH_FRAME_RATE,
 } from '../../../config/camPaths';
@@ -41,6 +41,7 @@ import { readLookName, writeLookName } from '../editor/looksStore';
 import { nudgeStep } from '../editor/nudge';
 import { resize as resizeLayer } from '../editor/ops';
 import { monitoringIsSimulated } from '../editor/previewMonitoring';
+import { useScrollEdges } from '../editor/scrollEdges';
 import { useEditor } from '../editor/useEditor';
 import {
   TELE_FRESH_MS,
@@ -48,6 +49,7 @@ import {
   eventTime,
   describeVideoStatus,
   failureLine,
+  fpsIsAtPanelMax,
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
@@ -61,6 +63,7 @@ import {
 import { PanelClaim } from '../PanelClaim';
 import {
   CLAIM_FRAME_RATE,
+  CLAIM_FRAME_RATE_AT_MAX,
   CLAIM_HANDOFF_PICKUP,
   CLAIM_SAMPLE_READINGS,
   CLAIM_STREAMING_HEADLINE,
@@ -465,6 +468,16 @@ export function HomeView({
   useCarousel({ store: runtime.store, owns });
 
   const [addOpen, setAddOpen] = useState(false);
+  /**
+   * Which row of the add sheet the press was ASKING for — round 12's F12-2.
+   *
+   * `+ Add a layer` opens the sheet at the top, which is Content. The rail's
+   * `BASE` label opens the same sheet asking a different question — *what is
+   * the background* — and the answer to that is the Background row, which is
+   * four groups down. A counter for the same reason `reveal` is one: pressing
+   * BASE twice must scroll twice.
+   */
+  const [baseReveal, setBaseReveal] = useState(0);
   const [looksOpen, setLooksOpen] = useState(false);
   /**
    * The inspector (§2.4, M6) — `More`'s destination at editor widths.
@@ -495,6 +508,21 @@ export function HomeView({
   const [reveal, setReveal] = useState<{ section: 'options'; nonce: number } | null>(null);
   /** Align to the panel, or to the selection's own box (§2.1). */
   const [alignRef, setAlignRef] = useState<AlignRef>('canvas');
+
+  /**
+   * The chip row's own edges — the same machinery the selection strip has.
+   *
+   * See `editor/scrollEdges.ts`: it is measured rather than assumed, so on a
+   * row that fits (which is every window this ships with, since F12-2 stopped
+   * the short-viewport branch from collapsing the chips into one line) it is
+   * `none` and nothing is faded.
+   */
+  const {
+    attach: attachChips,
+    clipped: chipsClipped,
+    remeasure: remeasureChips,
+    onWheel: chipsWheel,
+  } = useScrollEdges();
 
   /** Opening one sheet closes the other two — they share the rail's column. */
   const openSheet = (which: 'add' | 'looks' | 'inspect' | null): void => {
@@ -950,7 +978,31 @@ export function HomeView({
    */
   const baseKinds = baseCapableKinds(modules);
   const chipRow = (
-    <div className="kh-mods" role="group" aria-label="What's on the screen">
+    <div
+      ref={attachChips}
+      className="kh-mods"
+      role="group"
+      aria-label="What's on the screen"
+      data-testid="mods-row"
+      /*
+        The row is a WRAPPED block at every size the editor runs at — round
+        12's F12-2 measured what the alternative cost. At CAM's 866x537 the
+        short-viewport branch used to turn it into a one-line hidden-scrollbar
+        scroller: 231 px of box against 417 px of chips, no fade, and a mouse
+        wheel that left `scrollLeft` at 0, so three of the seven backgrounds
+        were simply unreachable with a mouse.
+
+        The measured `data-clipped` and the wheel mapping stay wired anyway,
+        because "does this row fit" is a question about a box and a window and
+        not about which stylesheet branch is live: a narrower rail, a longer
+        module name or a fork with a tenth base kind puts the row back into
+        overflow, and when it does the fade and the wheel are already there. On
+        a row that fits, `clipped` is `none` and both are inert.
+      */
+      data-clipped={chipsClipped}
+      onScroll={remeasureChips}
+      onWheel={chipsWheel}
+    >
       {baseKinds.map((m) => {
         const active = m.id === activeId;
         return (
@@ -1217,7 +1269,27 @@ export function HomeView({
       )}
 
       {isLowFps(facts) && (
-        <div className="kh-fps-banner" role="status" data-testid="fps-banner">
+        <div
+          className="kh-fps-banner"
+          role="status"
+          data-testid="fps-banner"
+          /*
+            Round 12's F12-1, on the config side.
+
+            The banner's second half is an INSTRUCTION — *drag CAM → … → Frame
+            Rate to maximum* — and on a Kraken Z the slider's maximum IS 1 FPS
+            (`devicePresets.ts`: the ceiling is a property of the panel, which
+            is why round 3 stopped hardcoding "40 on Elite"). So on that panel
+            the app was telling a person to go and do a thing that was already
+            done, in the one place they had gone looking for a remedy.
+
+            The reading itself stays in every case — 1 FPS is still why the
+            video looks like a slideshow, and that is worth knowing about a
+            panel whose ceiling is 1 — and only the instruction is gated, on the
+            measured maximum for the panel that actually reported.
+          */
+          data-capped={fpsIsAtPanelMax(facts) ? 'true' : 'false'}
+        >
           {/*
             The reading is persisted; the tense is not — round 8's D.
 
@@ -1230,7 +1302,13 @@ export function HomeView({
           */}
           <PanelClaim claim={CLAIM_FRAME_RATE} presence={presence} />{' '}
           <b>{String(facts?.targetFps ?? 0)} FPS</b>, so anything that moves looks like a slideshow.{' '}
-          {CAM_FRAME_RATE_LEAD} <b>{CAM_PATH_FRAME_RATE}</b> {CAM_FRAME_RATE_TAIL}.
+          {fpsIsAtPanelMax(facts) ? (
+            <PanelClaim claim={CLAIM_FRAME_RATE_AT_MAX} presence={presence} />
+          ) : (
+            <>
+              {CAM_FRAME_RATE_LEAD_SENTENCE} <b>{CAM_PATH_FRAME_RATE}</b> {CAM_FRAME_RATE_TAIL}.
+            </>
+          )}
         </div>
       )}
 
@@ -1427,7 +1505,30 @@ export function HomeView({
           editor={editor}
           heaviestId={budget.worstId}
           onAdd={() => {
+            // `+ Add a layer` asks the sheet's own question, so it opens at the
+            // top: the reveal is reset rather than left where BASE put it.
+            setBaseReveal(0);
             openSheet('add');
+          }}
+          /*
+            `BASE` is a disclosure now — round 12's F12-2.
+
+            It selected the base and opened nothing, which left the chip row as
+            the ONLY way to change the background: seven chips in a rail column
+            that is 231 px wide. The label is the question ("what is behind
+            everything?") and the add sheet's Background row is the answer with
+            all seven as tiles, so pressing it opens that row rather than
+            leaving a person to find it four groups down a sheet they reached
+            through a button called *Add a layer*.
+
+            It still selects the base, because it always did and because that
+            is what puts the base's own controls on the strip.
+          */
+          baseOpen={addOpen}
+          onOpenBase={() => {
+            editor.select(BASE_LAYER_ID);
+            openSheet(addOpen ? null : 'add');
+            setBaseReveal((n) => n + 1);
           }}
           baseRow={chipRow}
           footer={
@@ -1553,6 +1654,12 @@ export function HomeView({
         <AddSheet
           modules={editor.modules}
           canAdd={editor.layers.length < MAX_LAYERS}
+          /*
+            Non-zero only when the sheet was opened by the rail's BASE label,
+            and a new number every time it is pressed — the same nonce shape
+            `reveal` uses for the inspector, for the same reason.
+          */
+          revealBase={baseReveal}
           onAdd={(kind, cfg) => {
             editor.add(kind, cfg);
             setAddOpen(false);

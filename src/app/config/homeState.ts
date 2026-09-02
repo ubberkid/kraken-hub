@@ -27,7 +27,11 @@ import { readDisplayReport } from '../../diag/report';
 import { detect } from '../../modules/video/routing/detect';
 import { LOCAL_CLIP_RE } from '../../modules/video/routing/patterns';
 import { readTeleMirror } from '../../modules/video/telemetry/videoTelemetry';
-import { DEVICE_PRESETS, type DevicePresetId } from '../../platform/devicePresets';
+import {
+  DEVICE_PRESETS,
+  maxTargetFpsForPanel,
+  type DevicePresetId,
+} from '../../platform/devicePresets';
 
 import { CLAIM_PLAYS_FROM_LINK, panelClaimText, panelVerb } from './panelClaims';
 import { panelIsKnown, type PanelPresence } from './panelPresence';
@@ -102,6 +106,26 @@ export function pickMirrorPreset(facts: DisplayFacts | null): DevicePresetId {
 /** True only on a frame rate the DISPLAY reported. `null` never warns. */
 export function isLowFps(facts: DisplayFacts | null): boolean {
   return facts !== null && Number.isFinite(facts.targetFps) && facts.targetFps <= LOW_FPS_THRESHOLD;
+}
+
+/**
+ * Is that reading already the most this panel offers? — round 12's F12-1.
+ *
+ * The low-frame-rate banner is a reading and an INSTRUCTION, and the
+ * instruction is *drag CAM's Frame Rate slider to maximum*. On a Kraken Z the
+ * maximum is 1 FPS (`devicePresets.ts` — the ceiling is a property of the
+ * panel, which is why round 3 stopped hardcoding *"40 on Elite"*), so on that
+ * panel the app was telling a person to go and do a thing that was already
+ * done, in the one place they had gone looking for a remedy.
+ *
+ * `false` for a panel this build does not recognise — a fork, or a device newer
+ * than this table. An unknown ceiling is not a reached one, and the honest
+ * default is the advice, which is harmless if the slider is already up.
+ */
+export function fpsIsAtPanelMax(facts: DisplayFacts | null): boolean {
+  if (facts === null || !Number.isFinite(facts.targetFps)) return false;
+  const max = maxTargetFpsForPanel(facts.width, facts.height, facts.shape);
+  return max !== null && facts.targetFps >= max;
 }
 
 /** `94` → `1:34`. Non-finite and negative inputs render as an em dash. */

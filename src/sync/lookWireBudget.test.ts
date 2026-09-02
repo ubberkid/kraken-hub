@@ -19,7 +19,7 @@ import { validateAppState } from '../state/validate';
 
 import { stateToSyncBody } from './appSync';
 import { encodeEnvelope, envelopeBytes } from './envelope';
-import { createSyncService } from './SyncService';
+import { createSyncService, RESERVED_NEWEST_STAMPS, WIRE_TOO_LARGE_CLAIM } from './SyncService';
 import {
   MAX_ENVELOPE_BYTES,
   PROTOCOL_VERSION,
@@ -138,6 +138,7 @@ function captureTransport(sent: Uint8Array[]): SyncTransport {
     caps: {
       retained: true,
       replayMs: 0,
+      cmdReplayMs: 0,
       needsNetwork: false,
       maxPayload: 64_000,
       channels: ['state', 'cmd', 'tele'],
@@ -207,11 +208,15 @@ describe('the worst legal look on the wire (§6.2)', () => {
      * omission: the receiver reads the unstamped value as `EPOCH`, so that leaf
      * cannot win an argument it should win. Under a FIXED window that is
      * permanent — the leaf can never climb back. Under a rotating one the loss
-     * lasts a frame or two, and the bound is stated rather than hoped for:
-     * with `n` stamps and at least one travelling per frame, every stamped leaf
-     * carries its stamp within at most `n` frames. In practice this rung never
-     * fires at all — the worst legal document plus its whole stamp map is
-     * inside the cap, which the test below asserts.
+     * lasts a bounded number of frames, and the bound is stated rather than
+     * hoped for below.
+     *
+     * The claim this comment used to make — "in practice this rung never fires
+     * at all" — was measured false. The worst legal DOCUMENT plus its whole
+     * stamp map is inside the cap (the last test in this file), but a user who
+     * tunes settings on top of a full look is not sending the worst legal
+     * document: 300 knobs is 336 leaves, and the rung then fires on 96-101 % of
+     * frames.
      */
     /*
      * REAL leaves of the body, not invented paths: the rung above this one
@@ -227,15 +232,22 @@ describe('the worst legal look on the wire (§6.2)', () => {
       activeModuleId: 'video',
       modules: { ...base.modules, video: { v: 1, cfg } },
     });
-    // Far more stamps than 8 kB can hold, so the rung is forced to fire.
+    /*
+     * Far more stamps than 8 kB can hold, so the rung is forced to fire — and
+     * in `stampedNewestFirst()` order, which is the order `wireStamps` really
+     * hands over and the order the reserved head depends on. `k299` is the
+     * newest: the leaf somebody just touched.
+     */
     const map: Record<string, StampTuple> = {};
-    for (let i = 0; i < 300; i += 1) {
+    for (let i = 299; i >= 0; i -= 1) {
       map[`modules.video.cfg.k${String(i).padStart(3, '0')}`] = [
         1_700_000_000_000 + i,
         9,
         'phonepeera01',
       ];
     }
+    const newest = Object.keys(map)[0];
+    expect(newest).toBe('modules.video.cfg.k299');
     const sent: Uint8Array[] = [];
     const service = createSyncService({
       role: 'config',
@@ -254,6 +266,8 @@ describe('the worst legal look on the wire (§6.2)', () => {
 
     const seen = new Set<string>();
     let frames = 0;
+    let missingNewest = 0;
+    let perFrame = 0;
     const bound = Object.keys(map).length;
     while (seen.size < bound && frames < bound) {
       service.publishState(body, { rev: 12 + frames, immediate: true });
@@ -264,13 +278,85 @@ describe('the worst legal look on the wire (§6.2)', () => {
       const env = JSON.parse(
         new TextDecoder().decode(frame ?? new Uint8Array()),
       ) as Envelope<SyncStateBody>;
-      for (const path of Object.keys(env.stamps ?? {})) seen.add(path);
+      const paths = Object.keys(env.stamps ?? {});
+      // The rung really is firing: no frame carries the whole map.
+      expect(paths.length).toBeLessThan(bound);
+      perFrame = Math.max(perFrame, paths.length);
+      if (!paths.includes(newest ?? '')) missingNewest += 1;
+      for (const path of paths) seen.add(path);
       frames += 1;
     }
     expect(seen.size).toBe(bound);
-    // The bound is `n` frames; the real number is far smaller, and stating it
-    // here is what would catch a rung that quietly stopped rotating.
-    expect(frames).toBeLessThan(bound);
+
+    /*
+     * THE NEWEST STAMP IS ON EVERY FRAME.
+     *
+     * This is the assertion the 12-second convergence failure needed and did
+     * not have. Under the pure rotating window the just-made tap's stamp rode
+     * on roughly one frame in seven, and a passive display — no ping-pong, so
+     * no reason for the writer to publish faster than its ~2 s persist tick —
+     * kept its own older stamp for a full turn of the window.
+     */
+    expect(missingNewest).toBe(0);
+
+    /*
+     * A REAL rotation bound, not `frames < 300`.
+     *
+     * `ceil((n - r) / k)` where `n` is the map, `r` the reserved head and `k`
+     * the entries that rotate per frame. Measured at 300 knobs: 29 stamps a
+     * frame, so 8 reserved and 21 rotating, so 14 frames. The slack is for the
+     * envelope's own size wobbling by a byte or two.
+     */
+    const rotatingPerFrame = perFrame - RESERVED_NEWEST_STAMPS;
+    expect(rotatingPerFrame).toBeGreaterThan(0);
+    expect(frames).toBeLessThanOrEqual(
+      Math.ceil((bound - RESERVED_NEWEST_STAMPS) / rotatingPerFrame) + 2,
+    );
+    await service.stop();
+  });
+
+  it('surfaces a refused frame as a claim somebody can act on', async () => {
+    /*
+     * Skeptic 4's second failure: 500 knobs on the ACTIVE module make the BARE
+     * envelope 8767 B — larger than the cap with no stamps at all — so every
+     * rung throws and `trim` cannot help, because the rung keeps the active
+     * module by construction. Measured: the writer sent ZERO frames and the
+     * room stayed permanently silent and split, with no outage, no error and a
+     * status line reading online.
+     *
+     * It is still refused — the look is never truncated — but it is no longer
+     * silent. The claim goes out on `SyncStatus.lastError`, which the
+     * connection panel already renders as a warning notice.
+     */
+    const base = worstLegalState();
+    const cfg: Record<string, unknown> = {};
+    for (let i = 0; i < 500; i += 1) cfg[`knob${String(i).padStart(3, '0')}`] = i;
+    const body = stateToSyncBody({
+      ...base,
+      activeModuleId: 'video',
+      modules: { ...base.modules, video: { v: 1, cfg } },
+    });
+
+    const sent: Uint8Array[] = [];
+    const service = createSyncService({
+      role: 'config',
+      clientId: 'configpeer01',
+      settings: {
+        ...defaultAppState().sync,
+        roomCode: 'ABCD1234',
+        transport: 'fake',
+        enabled: true,
+      },
+      withLocal: false,
+      factories: { fake: () => captureTransport(sent) },
+      wireStamps: () => ({ map: {}, clock: [1_700_000_000_000, 9, 'phonepeera01'] }),
+    });
+    await service.start();
+    service.publishState(body, { rev: 3, immediate: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sent).toHaveLength(0);
+    expect(service.status().lastError).toBe(WIRE_TOO_LARGE_CLAIM);
     await service.stop();
   });
 

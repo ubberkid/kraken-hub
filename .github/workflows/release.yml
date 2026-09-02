@@ -37,10 +37,10 @@ jobs:
     name: companion exe (windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -57,7 +57,7 @@ jobs:
           KRAKEN_HUB_RESOLVER_NO_DOWNLOAD: '1'
 
       - name: Upload the exe
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: kraken-hub-resolver-win-x64
           path: companion/resolver/build/sea/kraken-hub-resolver-win-x64.exe
@@ -73,10 +73,10 @@ jobs:
       # creating a Release needs write access to repository contents.
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -104,7 +104,7 @@ jobs:
           fi
 
       - name: Download the companion exe
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: kraken-hub-resolver-win-x64
           path: companion-exe

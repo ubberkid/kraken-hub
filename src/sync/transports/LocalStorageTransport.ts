@@ -45,6 +45,9 @@ const CARRIED: readonly Channel[] = ['cmd', 'tele'];
 const CAPS: TransportCaps = {
   retained: false,
   replayMs: 0,
+  // `connect()` seeds `lastNonce` from the slot, so a stale command is not
+  // replayed into a page that has just opened. Commands are imperative.
+  cmdReplayMs: 0,
   needsNetwork: false,
   maxPayload: 64_000,
   channels: CARRIED,

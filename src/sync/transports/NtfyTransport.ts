@@ -44,6 +44,9 @@ export const NTFY_LIVENESS_MS = 90_000;
 const CAPS: TransportCaps = {
   retained: false,
   replayMs: 600_000,
+  // The recovery poll takes the last `state` message only, and `/sse` carries no
+  // `since=` — a fresh subscriber is delivered no command it did not wait for.
+  cmdReplayMs: 0,
   needsNetwork: true,
   maxPayload: 64_000,
   channels: ['state', 'cmd', 'tele'],

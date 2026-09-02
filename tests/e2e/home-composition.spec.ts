@@ -965,3 +965,31 @@ test.describe('the Looks sheet fits CAM’s window', () => {
     });
   }
 });
+
+/**
+ * The placeholder ends in an ellipsis, not mid-word — round 12's F12-4.
+ *
+ * `HomeView` shortens the placeholder on a phone, and `ui.css` had the belt for
+ * everything else — `text-overflow: ellipsis` — inside `@media (max-width:
+ * 700px)`, which is the one range where the short placeholder means it can
+ * never fire. So at 866, 760 and 1280 the field read *"Paste a video link —
+ * YouT"*, cut by the initial value of `text-overflow`, which is `clip`.
+ *
+ * Asserted as the computed style at three widths rather than by reading the
+ * pixels: the rule either applies here or it does not, and that is the whole
+ * of the bug.
+ */
+test.describe('the paste placeholder is cut with a mark, at every width', () => {
+  for (const width of [1280, 866, 760, 390] as const) {
+    test(`${String(width)} px: text-overflow is ellipsis`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 700 });
+      await page.addInitScript(() => {
+        localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+      });
+      await page.goto('/');
+      const input = page.getByTestId('paste-input');
+      await expect(input).toBeVisible();
+      await expect(input).toHaveCSS('text-overflow', 'ellipsis');
+    });
+  }
+});

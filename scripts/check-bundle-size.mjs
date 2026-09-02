@@ -16,6 +16,12 @@
  * from the display roots and fail on any reached chunk that contains a module
  * from `src/ui/` or `src/app/config/`.
  *
+ * The same walk answers a second question since W9 — `displayNoFramework`: does
+ * anything the display entry reaches contain React? The display page's shell is
+ * plain DOM now, and the 57.5 kB gzip that fact saved is only durable if a
+ * single re-introduced component fails the build rather than quietly restoring
+ * the old number. It is reported as its own row because it is its own claim.
+ *
  * Usage: npm run build && npm run size
  */
 import { readFileSync, readdirSync, statSync, appendFileSync, existsSync } from 'node:fs';
@@ -102,6 +108,7 @@ function checkDisplayGraph() {
   const cfg = budgets.displayGraph;
   if (!cfg) return null;
   const forbidden = cfg.forbidden ?? [];
+  const noFramework = cfg.noFramework ?? [];
 
   // Manifest keys are hashed (`_display-shell-DaKUjvUY.js`), so resolve by the
   // logical chunk name and never by the key or the emitted filename.
@@ -122,6 +129,7 @@ function checkDisplayGraph() {
 
   const visited = new Set();
   const violations = [];
+  const frameworkViolations = [];
   const queue = [...roots];
 
   while (queue.length > 0) {
@@ -143,6 +151,24 @@ function checkDisplayGraph() {
         );
       }
     }
+    /*
+     * W9: the display page ships without a UI framework. Same walk, same
+     * sourcemap evidence, different claim — so it is reported on its own row and
+     * named for what it asserts rather than folded into the I8 message.
+     */
+    for (const pkg of noFramework) {
+      const hits = modules
+        ? modules.filter((m) => m.includes(pkg))
+        : // No sourcemap: the vendor group's own name is the evidence left.
+          /(^|-)react(-|$)/.test(node.name)
+          ? [`${node.name} (by chunk name; no sourcemap)`]
+          : [];
+      if (hits.length > 0) {
+        frameworkViolations.push(
+          `${node.name} (${node.entry.file}) contains ${hits.slice(0, 3).join(', ')}`,
+        );
+      }
+    }
 
     const displayOwned = modules?.some((m) => m.includes('src/app/display/')) ?? false;
     const edges = [
@@ -156,9 +182,18 @@ function checkDisplayGraph() {
   }
 
   const reached = [...visited].map((k) => byKey.get(k).name).sort();
-  return violations.length > 0
-    ? { ok: false, detail: violations.join(' | ') }
-    : { ok: true, detail: `reached: ${reached.join(', ')}` };
+  return {
+    leak:
+      violations.length > 0
+        ? { ok: false, detail: violations.join(' | ') }
+        : { ok: true, detail: `reached: ${reached.join(', ')}` },
+    framework:
+      noFramework.length === 0
+        ? null
+        : frameworkViolations.length > 0
+          ? { ok: false, detail: frameworkViolations.join(' | ') }
+          : { ok: true, detail: `${String(reached.length)} chunks reached, none of them React` },
+  };
 }
 
 function walk(dir) {
@@ -210,14 +245,24 @@ function record(label, actual, limit, unit, detail) {
 {
   const result = checkDisplayGraph();
   if (result !== null) {
-    if (!result.ok) failed = true;
+    if (!result.leak.ok) failed = true;
     rows.push({
-      ok: result.ok,
+      ok: result.leak.ok,
       label: 'displayGraph (I8)',
-      actual: result.ok ? 'clean' : 'LEAK',
+      actual: result.leak.ok ? 'clean' : 'LEAK',
       limit: 'no src/ui, src/app/config',
-      detail: result.detail,
+      detail: result.leak.detail,
     });
+    if (result.framework !== null) {
+      if (!result.framework.ok) failed = true;
+      rows.push({
+        ok: result.framework.ok,
+        label: 'displayNoFramework',
+        actual: result.framework.ok ? 'framework-free' : 'REACT ON THE LCD PATH',
+        limit: 'no react, react-dom',
+        detail: result.framework.detail,
+      });
+    }
   }
 }
 

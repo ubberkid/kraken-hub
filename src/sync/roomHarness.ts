@@ -221,25 +221,47 @@ interface Sub {
   cb: FrameHandler;
 }
 
+/**
+ * THE BROKER'S OWN CLOCK, and the one clock in this file no device can move.
+ *
+ * A real server stamps every message it accepts (`NtfyTransport` reads
+ * `parsed.time`), and `SyncService` compares those stamps to each other to
+ * decide whether a `cmd` is a live message or something out of a replay cache.
+ * That comparison is only skew-free because both halves come from the SAME
+ * clock — so the broker here reads the real one rather than `Date.now()`, which
+ * `installDeviceClocks` has bent to whichever peer happened to call `publish`.
+ */
+const brokerNow = (): number => realDateNow();
+
 export interface Broker {
-  retained: { state?: Uint8Array };
+  retained: { state?: Uint8Array; ts?: number };
   subs: Set<Sub>;
-  publish(ch: Channel, frame: Uint8Array): void;
-  seedRetained(frame: Uint8Array): void;
+  /**
+   * `as` models what a REPLAY is: the same bytes, delivered now, carrying the
+   * stamp the server gave them when it first accepted them — and, for a
+   * recovery poll, flagged `retained`. A live publish passes nothing and gets
+   * `{ retained: false, ts: brokerNow() }`, which is every other caller.
+   */
+  publish(ch: Channel, frame: Uint8Array, as?: { ts?: number; retained?: boolean }): void;
+  seedRetained(frame: Uint8Array, ts?: number): void;
 }
 
 export function createBroker(latency: () => number = () => LATENCY_MS): Broker {
   const subs = new Set<Sub>();
-  const retained: { state?: Uint8Array } = {};
+  const retained: { state?: Uint8Array; ts?: number } = {};
   return {
     retained,
     subs,
-    seedRetained(frame) {
+    seedRetained(frame, ts) {
       retained.state = frame;
+      retained.ts = ts ?? brokerNow();
     },
-    publish(ch, frame) {
+    publish(ch, frame, as) {
+      const ts = as?.ts ?? brokerNow();
+      const flagged = as?.retained ?? false;
       if (ch === 'state') {
         retained.state = frame;
+        retained.ts = ts;
         const env = decodeEnvelope(frame);
         if (env !== null) {
           const body = env.body as { activeModuleId?: string };
@@ -249,7 +271,7 @@ export function createBroker(latency: () => number = () => LATENCY_MS): Broker {
       for (const s of [...subs]) {
         if (s.ch !== ch) continue;
         setTimeout(() => {
-          s.cb(frame, { retained: false });
+          s.cb(frame, { retained: flagged, ts });
         }, latency());
       }
     },
@@ -313,12 +335,15 @@ export function brokerTransport(
   const replayRetained = (): void => {
     const retained = broker.retained.state;
     if (retained === undefined) return;
+    // The stamp the broker put on it when it was PUBLISHED, not now — that is
+    // what makes a retained frame recognisable as old, on the wire and here.
+    const retainedTs = broker.retained.ts;
     for (const s of subs) {
       if (s.ch !== 'state') continue;
       const { cb } = s;
       const timer = setTimeout(() => {
         timers.delete(timer);
-        cb(retained, { retained: true });
+        cb(retained, { retained: true, ...(retainedTs === undefined ? {} : { ts: retainedTs }) });
       }, handshakeMs);
       timers.add(timer);
     }
@@ -340,6 +365,7 @@ export function brokerTransport(
     caps: {
       retained: true,
       replayMs: 0,
+      cmdReplayMs: 0,
       needsNetwork: true,
       maxPayload: 64_000,
       channels: ['state', 'cmd', 'tele'],
@@ -382,7 +408,20 @@ export function brokerTransport(
     onState: (cb) => attach('state', cb),
     onCmd: (cb) => attach('cmd', cb),
     onTele: (cb) => attach('tele', cb),
-    status: () => status,
+    /*
+     * A MUTED radio is not online, and saying so is the whole point.
+     *
+     * `mute()` models an outage directly rather than through the status
+     * machinery (see its comment above), so `status` itself stays `'online'` —
+     * which is right for the reconnect logic and wrong for anybody asking "did
+     * that publish actually reach the room?". `SyncService.onStateShipped` asks
+     * exactly that, and a harness that answered "online" while swallowing every
+     * frame would have made an offline phone's writes look shipped. Reported
+     * here, and deliberately NOT pushed to `statusSubs`: a status EVENT would
+     * schedule a reconnect, which is the machinery this outage model exists to
+     * avoid.
+     */
+    status: () => (muted ? 'offline' : status),
     onStatus(cb) {
       statusSubs.add(cb);
       return () => statusSubs.delete(cb);
@@ -504,6 +543,17 @@ export function resetClockSlots(): void {
   clockSlots.clear();
 }
 
+/**
+ * What a device left in its clock slot — the bytes the next page load reads.
+ *
+ * For a test that needs to model a slot written by an OLDER build: read it,
+ * remove the key that build did not have, and hand it back through
+ * `PhoneOptions.slotRaw`.
+ */
+export function readClockSlot(device: string): string | null {
+  return clockSlots.get(device) ?? null;
+}
+
 function slotFor(device: string): { read: () => string | null; write: (raw: string) => void } {
   return {
     read: () => clockSlots.get(device) ?? null,
@@ -565,9 +615,18 @@ export async function startConfigPeer(
     unmute: () => {
       for (const t of net.made) t.unmute();
     },
+    /*
+     * ON THIS DEVICE'S CLOCK — `stop()` is the page's own shutdown flush.
+     *
+     * `appSync`'s `stop()` writes the document and the clock slot, and the slot
+     * carries `base`/`baseAt`, which are readings of the DEVICE's clock. Running
+     * it on the test's clock handed a skewed phone a correct one for the one
+     * write where it matters, so a device whose clock had moved looked, in its
+     * own slot, as though it never had.
+     */
     async stop() {
       stopPublishing();
-      await sync.stop();
+      await withAmbientAsync(clock.offset(), () => sync.stop());
       store.dispose();
     },
   };
@@ -599,15 +658,25 @@ export async function startDisplayPeer(broker: Broker, offsetMs = 0): Promise<Pe
       },
     }),
   );
-  const stats = setInterval(() => {
-    sync.service.publishTele({ ts: Date.now(), kind: 'videoStats' });
-  }, TELE_PERIOD_MS);
-  const monitor = setInterval(
-    () => {
-      sync.service.publishTele({ ts: Date.now(), kind: 'monitor' });
-    },
-    Math.round(TELE_PERIOD_MS * 1.25),
-  );
+  /*
+   * The telemetry beats run on THIS DEVICE'S CLOCK, read at fire time.
+   *
+   * `installDeviceClocks` wraps `setInterval` and captures the ambient offset
+   * when the interval is CREATED, which models a peer's own timers correctly
+   * for every case but one: a clock that steps AFTER the interval was
+   * scheduled. A real device has no such exemption — its intervals keep
+   * firing and its `Date.now()` is simply different afterwards — so a jump has
+   * to reach beats that already exist, or "does telemetry survive an NTP
+   * correction?" is a question the harness cannot ask. It is exactly the case
+   * skeptic 1 could not isolate.
+   */
+  const beat = (kind: 'videoStats' | 'monitor') => (): void => {
+    withAmbient(clock.offset(), () => {
+      sync.service.publishTele({ ts: Date.now(), kind });
+    });
+  };
+  const stats = setInterval(beat('videoStats'), TELE_PERIOD_MS);
+  const monitor = setInterval(beat('monitor'), Math.round(TELE_PERIOD_MS * 1.25));
   return {
     name: 'display',
     store,
@@ -620,10 +689,19 @@ export async function startDisplayPeer(broker: Broker, offsetMs = 0): Promise<Pe
     unmute: () => {
       for (const t of net.made) t.unmute();
     },
+    /*
+     * ON THIS DEVICE'S CLOCK — `stop()` is the page's own shutdown flush.
+     *
+     * `appSync`'s `stop()` writes the document and the clock slot, and the slot
+     * carries `base`/`baseAt`, which are readings of the DEVICE's clock. Running
+     * it on the test's clock handed a skewed phone a correct one for the one
+     * write where it matters, so a device whose clock had moved looked, in its
+     * own slot, as though it never had.
+     */
     async stop() {
       clearInterval(stats);
       clearInterval(monitor);
-      await sync.stop();
+      await withAmbientAsync(clock.offset(), () => sync.stop());
       store.dispose();
     },
   };
@@ -799,9 +877,18 @@ export async function startPhonePeer(broker: Broker, o: PhoneOptions = {}): Prom
     unmute: () => {
       for (const t of net.made) t.unmute();
     },
+    /*
+     * ON THIS DEVICE'S CLOCK — `stop()` is the page's own shutdown flush.
+     *
+     * `appSync`'s `stop()` writes the document and the clock slot, and the slot
+     * carries `base`/`baseAt`, which are readings of the DEVICE's clock. Running
+     * it on the test's clock handed a skewed phone a correct one for the one
+     * write where it matters, so a device whose clock had moved looked, in its
+     * own slot, as though it never had.
+     */
     async stop() {
       stopPublishing();
-      await sync.stop();
+      await withAmbientAsync(clock.offset(), () => sync.stop());
       store.dispose();
     },
   };

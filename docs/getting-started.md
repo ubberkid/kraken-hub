@@ -276,16 +276,35 @@ Anything on the display can be forced with a query parameter, which always wins
 over stored settings and never persists. Useful for a second Kraken, a kiosk, or
 a bug report you want somebody else to reproduce exactly.
 
-| Parameter                                  | Effect                                             |
-| ------------------------------------------ | -------------------------------------------------- |
-| `module=<any registered id>`               | force the base layer's kind                        |
-| `src=<url>`                                | force the source                                   |
-| `fit=cover\|contain\|contain-circle\|fill` | force the framing                                  |
-| `loop=<start>-<end>`                       | force an A‑B loop, in seconds                      |
-| `room=<code>`                              | join a room without storing the code               |
-| `demo=1`                                   | force demo mode                                    |
-| `diag=1`                                   | draw the on-LCD diagnostics overlay                |
-| `sim=elite\|plus\|z\|kraken2023`           | simulate a device (inert when CAM is really there) |
+| Parameter                                  | Effect                                                                                   |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `module=<any registered id>`               | force the base layer's kind                                                              |
+| `src=<url>`                                | force the source                                                                         |
+| `fit=cover\|contain\|contain-circle\|fill` | force the framing                                                                        |
+| `loop=1\|0\|<start>-<end>`                 | loop the whole clip, stop looping, or loop between two times in seconds (`loop=12-31.5`) |
+| `mute=1\|0`                                | play the clip silently, or with its own audio                                            |
+| `room=<code>`                              | join a room without storing the code                                                     |
+| `demo=1`                                   | force demo mode                                                                          |
+| `diag=1`                                   | draw the on-LCD diagnostics overlay                                                      |
+| `debug=1`                                  | draw the per-layer debug readout over the look                                           |
+| `sim=elite\|plus\|z\|kraken2023`           | simulate a device (inert when CAM is really there)                                       |
+
+## Motion, and asking for less of it
+
+If your operating system is set to reduce motion, kraken-hub honours it — and it
+draws the line in one place: **decoration stops, content does not.**
+
+In the configuration pages, every animation and transition collapses to nothing:
+the panels open and close without travel, the step list drops its stagger, and
+the indeterminate progress meter stops sweeping and shows a flat hatched wash
+instead — still unmistakably "working", still not a fake percentage. On the LCD,
+the stats module stops gliding its numbers and snaps each one straight to the
+value it sampled, and the video module's placeholder pulse holds still.
+
+What does not change is what you asked to see. An effect keeps running, a video
+keeps playing, a clock keeps ticking. Reduced motion is a request about the
+interface's own flourishes, not an instruction to blank a screen whose entire
+job is to show moving content — and the panel has no interface on it to quiet.
 
 ## Updating
 

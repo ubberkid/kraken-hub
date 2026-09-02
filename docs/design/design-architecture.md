@@ -10,7 +10,7 @@ This document is historical source material: it records the design as it was rea
 
 | Topic | This doc says | Shipped reality (authoritative) |
 |---|---|---|
-| Display critical-path budget | 120 kB gzip (§ bundle budgets) | **90 kB gzip** — `budgets.json` `displayCriticalPath.gzipKb`, per the approved plan. Enforced by `npm run size`. |
+| Display critical-path budget | 120 kB gzip (§ bundle budgets) | **35 kB gzip** — `budgets.json` `displayCriticalPath.gzipKb`. Enforced by `npm run size`. It was 90 until W9 removed the UI framework from the display path (§2.1) and the measured path fell to 31.94 kB. |
 | Storage module path | I5 names `src/state/storage.ts` as the only file touching `localStorage` | The split is **`src/platform/storage.ts`** (raw namespaced `localStorage` + the `kraken-hub:v1:` prefix, the only file allowed to call `localStorage`) and **`src/state/storage.ts`** (the AppState document, which goes through the platform wrappers). ESLint allowlists the platform file. |
 | I8 enforcement | "ESLint zones + a bundle-graph CI check" | Both now exist: `import-x/no-restricted-paths` zones (`src/app/display` and module `.ts` display code → `src/ui` / `src/app/config`) **and** the `displayGraph` walk in `scripts/check-bundle-size.mjs`, which follows the built manifest's imports transitively from the display entry and fails on any reached chunk containing `src/ui/` or `src/app/config/` modules. |
 
@@ -64,10 +64,10 @@ specifies.
 
 | # | Invariant | Enforcement |
 |---|---|---|
-| I1 | The Kraken Browser page never performs a top-level navigation. No `history.pushState`, no `location.href=`, no `<a href>` without `preventDefault`, no meta-refresh. `location.reload()` (same URL) is the *only* permitted exception, watchdog-gated. | ESLint `no-restricted-globals` on `location.assign/replace/href`; unit test asserts DisplayApp tree contains no `<a>` with external href. |
+| I1 | The Kraken Browser page never performs a top-level navigation. No `history.pushState`, no `location.href=`, no `<a href>` without `preventDefault`, no meta-refresh. `location.reload()` (same URL) is the *only* permitted exception, watchdog-gated. | ESLint `no-restricted-globals` on `location.assign/replace/href`; unit test asserts the display shell contains no `<a>` (`src/app/display/shell.dom.test.ts`); `tests/e2e/no-navigation.spec.ts` asserts `.kh-stage a` is empty in the built page. |
 | I2 | `window.nzxt` is **never** assigned wholesale. Only `window.nzxt.v1.<prop> = …`. | `src/platform/nzxt.ts` is the only file allowed to touch `window.nzxt` (ESLint `no-restricted-properties` elsewhere). DEV tripwire: `Object.defineProperty(window,'nzxt',{set})` logging a stack trace. |
 | I3 | No geometry constant is hardcoded outside `src/platform/geometry.ts`. `640` appears in exactly two places: the fallback in `geometry.ts` and the submission image spec. | Grep test in CI: `/\b(640|320|240)\b/` outside allowlisted files fails. |
-| I4 | No React state update may originate inside a `FrameClock` tick. | `FrameClock` sets a module-scope `inFrame` flag; DEV-only `useSyncExternalStore` wrapper throws if a store notify happens while `inFrame`. |
+| I4 | No shell update may originate inside a `FrameClock` tick. (Written as "no React state update" while the display had React; W9 removed the framework, not the rule — the shell's DOM writes are governed by it exactly as `setState` was.) | `FrameClock` sets a module-scope `inFrame` flag; the display shell subscribes only to the store and to geometry, never to the clock, and every periodic read it does take (the debug overlay, the layer governor) is on a 1 s `setInterval` off the frame path. |
 | I5 | Every persisted key is prefixed `kraken-hub:`; IndexedDB db name is exactly `kraken-hub`. The `<user>.github.io` origin is shared with all the user's other repos. | CI grep: `localStorage.(get\|set)Item\(` outside `src/state/storage.ts` and `src/sync/transports/LocalStorageTransport.ts` fails. |
 | I6 | Blobs never enter localStorage. State JSON is capped at 256 KB; sync payloads at 8 KB. | Runtime assert + throw-with-diagnostic in `commit()` / `publishState()`. |
 | I7 | Vite `base: './'`. No root-relative URL (`/foo`) anywhere in src or index.html. | CI grep on built `dist/index.html` for `src="/"` / `href="/"`. |
@@ -108,13 +108,14 @@ kraken-hub/
    │  ├─ bootDisplay.ts           # display boot sequence (§7.1)
    │  └─ bootConfig.ts            # config boot sequence (§7.2)
    ├─ app/
-   │  ├─ display/
-   │  │  ├─ DisplayApp.tsx        # ErrorBoundary > Stage > ModuleHost + overlays
-   │  │  ├─ Stage.tsx             # the host <div>, CSS vars, circle mask, contain:strict
-   │  │  ├─ ModuleHost.tsx        # lazy-loads renderer, mount/update/unmount lifecycle
-   │  │  ├─ LowFpsBanner.tsx
-   │  │  ├─ DebugOverlay.tsx      # ?debug=1 : geometry, fps, sync, watchdog ring buffer
-   │  │  ├─ ModuleErrorCard.tsx
+   │  ├─ display/               # NO framework on this path (§2.1) — plain .ts
+   │  │  ├─ DisplayApp.ts         # subscribe(store, geometry) → write the shell
+   │  │  ├─ dom.ts                # el / setText / setAttr / slot — the whole vocabulary
+   │  │  ├─ Stage.ts              # the host <div>, CSS vars, circle mask, contain:strict
+   │  │  ├─ LayerStack.ts         # owns the one LayerHost; splash + error card
+   │  │  ├─ LowFpsBanner.ts
+   │  │  ├─ DebugOverlay.ts       # ?debug=1 : geometry, fps, one line per layer
+   │  │  ├─ ModuleErrorCard.ts
    │  │  └─ display.css
    │  └─ config/
    │     ├─ ConfigApp.tsx
@@ -189,7 +190,7 @@ if (kraken) import('./boot/bootDisplay').then(m => m.bootDisplay());
 else        import('./boot/bootConfig').then(m => m.bootConfig());
 ```
 
-This is the code-split seam: `bootConfig` (React UI, `src/ui/**`, all ConfigPanels, mqtt.js) is never fetched on the LCD.
+This is the code-split seam: `bootConfig` (React, `src/ui/**`, all ConfigPanels, mqtt.js) is never fetched on the LCD — and since W9 the LCD fetches no UI framework at all, from either side of the branch (§2.1).
 
 **`vite.config.ts` essentials**
 
@@ -220,14 +221,17 @@ CI gate: `dist` chunk budget — display-path chunks (`main` + `bootDisplay` + `
 
 ## 2. The module system
 
-### 2.1 Why the display is React-shell + imperative-renderer (not React all the way down)
+### 2.1 The display page ships without a framework (W9)
 
 At `targetFps = 40` the frame budget is 25 ms, and CAM additionally captures and **compresses** each frame (research: achieved FPS is content-dependent). Our JS budget should be ≤ 4 ms/frame.
 
-- React itself is not the problem: our display tree is ~12 elements; a full re-render is < 0.5 ms.
-- The problem is *per-frame `setState`* — a video position readout, a clock second hand, a stats gauge at 40 Hz would create 40 reconciliations + 40 allocations/sec of props objects, plus GC pressure that shows up as jitter on a device we cannot profile.
-- Therefore: **React re-renders only on state changes (rare, human-driven). Everything per-frame is written directly to DOM/canvas by the module's imperative renderer** inside the `FrameClock` callback. Invariant I4 enforces this.
-- Cost of keeping React: react+react-dom ≈ 45 KB gz on the display path. Bought with: error boundaries around a long-running unattended page, `React.lazy` module code-splitting, and a shared component vocabulary with ConfigApp. Accepted, with a hard 120 KB gz budget and a one-line escape hatch: `VITE_PREACT=1` aliases to `preact/compat` (≈ 12 KB gz). To keep that hatch viable, display-path code must not use React-18-concurrent-only APIs (`useTransition`, `useDeferredValue`, Suspense-for-data). `Suspense` around `React.lazy` is fine.
+- The per-frame rule has never changed and is not what W9 is about: **everything per-frame is written directly to DOM/canvas by the module's imperative renderer** inside the `FrameClock` callback, because a video position readout, a clock second hand or a stats gauge at 40 Hz would otherwise create 40 reconciliations and 40 allocations/sec of props objects, plus GC pressure that shows up as jitter on a device we cannot profile. Invariant I4 enforces it.
+- What changed is the SHELL around that renderer. This section used to argue for keeping React on the display path at ≈ 45 KB gz, bought with error boundaries, `React.lazy` code-splitting and a component vocabulary shared with the config app. Two of those three stopped being reasons: dynamic `import()` does the code-splitting on its own, and the display shares no components with the config app at all — invariant I8 forbids it. What was left was an error boundary, which is a `try`/`catch` around the one function that writes the shell.
+- The measured price was higher than the estimate: `vendor-react` was **57.5 kB gzip of a 89.15 kB `displayCriticalPath`** — nearly two thirds of everything the hidden Kraken Browser downloads before the LCD can show a frame — to render a dozen nodes that change a handful of times per session.
+- So the display shell is plain DOM: `src/app/display/DisplayApp.ts` subscribes to the same two external sources the component tree read (`runtime.store`, `runtime.geometry`) and writes the stage, the compositor root, the splash, the module error card, the low-FPS advisory and the debug overlay directly, through the ~110-line helper in `src/app/display/dom.ts` (`el`, `setText`/`setAttr`/`setClass` that write only on change, and `slot`, a fixed position holding zero or one node — which is how `{cond && <Card/>}` keeps its z-order without a diff). `src/diag/DiagOverlay.ts` went the same way.
+- **Measured, same build, same gzip level: `displayCriticalPath` 89.15 → 31.94 kB gzip (−57.21 kB, −64 %), 7 → 6 JS requests, and first contentful paint on the display route 36–40 ms → 24–28 ms in a local preview.** The budget gate went from 90 to 35 kB.
+- The rule is enforced on the built graph, not by convention: `scripts/check-bundle-size.mjs` walks the manifest transitively from the display entry and fails the build if any reached chunk contains `react`, `react-dom` or `scheduler` (`budgets.json` → `displayGraph.noFramework`, reported as the `displayNoFramework` row). That is the only thing that keeps 35 kB from silently becoming 90 again.
+- **The configuration page is untouched.** It is a real application with forms, routing and a component library, it is never downloaded by the panel, and `vendor-react` still exists for it with its `configUi` budget unchanged. This is not a project-wide framework removal; it is the observation that the *display* was never rendering anything a framework was needed for.
 
 Per-module rendering substrate guidance (`capabilities.substrate`, advisory):
 - **video** → DOM (`<video>` / cropped `<iframe>`; canvas would force a decode→draw copy).
@@ -490,7 +494,7 @@ export interface PlatformPrefs {
 }
 
 export interface DiagnosticsPrefs {
-  showDebugOverlay: boolean;      // default false ( ?debug=1 forces true for one load )
+  showDebugOverlay: boolean;      // default false ( ?debug=1 sets it for one load; F12-5 )
   lowFpsBannerDismissedForFps: number | null;
   logLevel: 'error' | 'warn' | 'info' | 'debug';
 }
@@ -598,7 +602,24 @@ Resolved lowest → highest:
 
 This is `defaults < url < persisted < remote` as briefed: URL params **seed** a fresh install and are shadowed once the user saves anything in the config UI (which always writes a full snapshot, so every field is "present" in the persisted layer).
 
-**Escape hatch `?pin=1`** — swaps layers 2 and 3 for that page load only, giving `defaults < persisted < url < remote`. This exists because it is otherwise impossible to run two different Web Integration cards from one origin: the two Kraken Browsers share `<user>.github.io` and therefore share one localStorage. Multi-device and kiosk setups must use `?pin=1`. It is loudly documented; without it, a URL param silently "does nothing" for anyone who has ever opened the settings, which is the single most likely support question.
+> **Corrected on 2026-09-02: there is no pin flag, and a URL param always wins.**
+> The `?pin=1` escape hatch designed here shipped as a parsed key that nothing
+> ever read, and it has been removed from `KNOWN_KEYS`, `RuntimeFlags` and the
+> URL parser. It was unnecessary from the start: the parsed URL patch is
+> installed as a **non-persistent store overlay** by `src/app/display/mount.ts`,
+> so every URL parameter sits on top of the resolved document and wins
+> unconditionally for the life of that page load. The shipped precedence is
+> `defaults < persisted < merged < url`, with the remote patch stack folded into
+> the merged document beneath the overlay.
+>
+> This is what the escape hatch was for, so the case that motivated it is
+> already covered: two Web Integration cards on one `<user>.github.io` origin
+> share one localStorage, and each still gets its own configuration from plain
+> URL params, with no flag to remember. The trade is the other direction — a URL
+> choice is deliberately temporary and never written back to storage. **To make
+> one permanent, set it in CAM**, where it persists like any other setting.
+
+
 
 Merge semantics: deep merge, **per leaf**, later layer wins. Arrays and `source` objects replace wholesale (never element-merged). `null` is a value, not an absence. The result is `Object.freeze`d recursively in DEV.
 
@@ -606,10 +627,10 @@ Merge semantics: deep merge, **per leaf**, later layer wins. Arrays and `source`
 // src/state/precedence.ts
 export interface Layers { defaults: AppState; url: DeepPartial<AppState>;
                           persisted: DeepPartial<AppState>; remote: DeepPartial<AppState>; }
-export function resolveState(l: Layers, opts: { pin: boolean }): AppState {
-  const order = opts.pin ? [l.defaults, l.persisted, l.url, l.remote]
-                         : [l.defaults, l.url, l.persisted, l.remote];
-  return validateAppState(order.reduce(deepMergeLeaf));
+export function resolveState(l: Layers): AppState {
+  // No pin option: the parsed URL patch is ALSO installed as a store overlay by
+  // mountDisplayApp, so it wins over this result for the life of the page load.
+  return validateAppState([l.defaults, l.url, l.persisted, l.remote].reduce(deepMergeLeaf));
 }
 ```
 
@@ -633,7 +654,6 @@ The **remote layer is in-memory**, so a reload drops it — recovered from the M
 | `room` | 8-char code | `sync.roomCode` + `sync.enabled=true` | normalized Crockford; never auto-persisted from the display page |
 | `sync` | `auto｜mqtt｜ntfy｜off` | `sync.transport` | |
 | `fps` | int 1–60 | `platform.fallbackTargetFps` | only used when `window.nzxt` absent |
-| `pin` | `1` | precedence | §4.1 |
 | `debug` | `1` | on-display overlay | one load only, not persisted |
 | `sim` | `1` | force simulator | ignored if real `window.nzxt` present |
 | `simW`/`simH`/`simShape`/`simFps` | — | simulator geometry | used by `#/preview` iframe |
@@ -926,7 +946,7 @@ Safe area, circle:
 - `radiusPx = min(width, height) / 2`
 - `inscribedSquarePx = min(width,height) / Math.SQRT2` → 452 px on 640. Content fully inside this is guaranteed visible; the corresponding inset (~93.7 px) is too aggressive for general layout.
 - `safeInsetPx = round(min(width,height) * render.safeAreaPct)`, default `0.08` → **51 px on 640**, matching community practice (6–10 %). Configurable 0–0.2.
-- Square shape → `safeInsetPx = 0`, `inscribedSquarePx = min(w,h)`.
+- Square shape → `safeInsetPx = round(min(w,h) · render.safeAreaPct)` — **19 px on the 240 px square panel** — and `inscribedSquarePx = min(w,h)`. The inset is not zero on a square: a rectangle has no cropped corners, but it still has bezel and a viewing angle, and the one number every module lays text out against must not change meaning with the shape.
 
 `applyGeometryToDom` sets on `:root`: `--kh-w, --kh-h, --kh-r, --kh-safe, --kh-inscribed, --kh-target-fps, --kh-bg`, plus `<html data-shape="circle|square" data-kraken="1">`.
 
@@ -954,13 +974,20 @@ export function createFrameClock(getTargetFps: () => number): FrameClock;
 - `pause()` on `document.hidden` (saves the user's CPU when CAM isn't capturing) — but note the watchdog uses `setInterval`, not rAF, precisely so it keeps ticking while rAF is throttled.
 - Sets the `inFrame` flag used by invariant I4.
 
-**Low-FPS banner** (`LowFpsBanner.tsx`). Shown when all hold:
-`geometry.targetFps <= platform.lowFpsThreshold (5)` **and** `activeModule.capabilities.motionLevel === 'full'` **and** `diagnostics.lowFpsBannerDismissedForFps !== geometry.targetFps`.
-Content, laid out entirely inside `safeInsetPx`, high contrast, ~28 px type at 640:
-> **1 FPS**
-> Open CAM → Lighting → Kraken → Web Integration → **Frame Rate** and drag to maximum.
+**Low-FPS banner** (`LowFpsBanner.ts`). Shown when all hold:
+`geometry.targetFps <= platform.lowFpsThreshold (5)` **and** the composed stack is not entirely static (`stackMotionLevel(look) !== 'static'`) **and** the base module does not draw its own advisory (`capabilities.ownsFpsAdvisory`, video only) **and** — round 12, F12-1 — **the slider has somewhere to go**: `maxTargetFpsForPanel(width, height, shape) === null || targetFps < that maximum`.
 
-Auto-fades after 20 s, re-shows on every boot until `targetFps > 5` is observed once. Mirrored as a telemetry flag and as a persistent warning card in the config UI's SetupView — this single message is the highest-leverage piece of UX in the whole app, because a user who never touches the slider sees a 1 FPS slideshow and blames us.
+That last clause is the whole of a Kraken Z: CAM offers it exactly one frame rate, 1 FPS, which is also the threshold — so a stock Z wore a permanent card telling it to drag a slider that is already at maximum to maximum, and then a permanent badge. A panel at its ceiling is shown nothing. An **unrecognised** panel (`null`) still gets the advisory: a ceiling we cannot name is not a ceiling we can claim was reached. The same gate is inside the video module's own advisory (`modules/video/ui/FpsAdvisory.ts`, `maxTargetFps` option), because it is the surface the shell stands down for.
+
+Content, laid out entirely inside `safeInsetPx`, high contrast, 26.9 px body type at 640: the frame rate as a title, then `camPaths.fpsAdvisoryBody(max, { leadIn: true })` — the ONE sentence, with the attached panel's ceiling in it (*"Drag … to maximum (40 FPS on this panel)."*) — then *"This notice disappears once a higher frame rate is set."* The shell must never re-assemble that sentence from `CAM_FRAME_RATE_LEAD`/`_TAIL` (F12-3): doing so dropped the per-panel number and left the paragraph starting on a lowercase verb.
+
+**Round 13, M2 — `leadIn`.** Re-assembly was fixed; the lowercase verb was not. `fpsAdvisoryBody()` shipped only the mid-sentence form, because About and `CamSetupCard` end a longer sentence with it (*"Point CAM at this page, then drag …"*). The display card and the config home banner are whole paragraphs, and both began *"drag CAM → …"*. One function now serves both: `{ leadIn: true }` capitalises the verb and nothing else, from the derived `CAM_FRAME_RATE_LEAD_SENTENCE` — which is also what JSX surfaces that bold the path themselves pick up, so there is still one instruction.
+
+**Round 13, F1 — "entirely inside `safeInsetPx`" was aspirational.** The card's type was `--kh-inscribed / 14`, with title 1.5em, body 0.95em and footer 0.8em on top of it, and the resulting box was **taller than the box it is centred in**: 405 px in 398 px of room on a 640 Elite, and 233 px in 202 px on a 240 Kraken — 12 px past the glass, with the footer sheared off. The video module's own card on the same panel fit exactly, because it sizes each paragraph off `--kh-inscribed` directly (`/13`, `/18`, `/22`). The shell card is sized the same way now — divisor **16**, putting the body at `inscribed / 16.8` — and below **300 px inscribed** the footer line is *dropped rather than shrunk*, the same rule and the same threshold as the video card's route footer (`FOOTER_MIN_INSCRIBED`). Measured on the built app: 640 Elite 322 px of card in 398 px of room (body 26.9 px, footer kept); 240 Kraken 146 px in 202 px (body 14.3 px, footer dropped); a 320 Z is silent under F12-1 anyway.
+
+It shipped because every display spec ran at the config's default 640×640 viewport and asserted on **text**, so a card hanging off the disc read as passing. `boot-display.spec.ts` now sets the viewport per panel and asserts geometry — card height and width ≤ `panel − 2 × safeInset`, card bottom on the panel — at 240 and 640.
+
+Shrinks to a badge after 20 s — `‹n› FPS ⚠`, the same string the video module's badge uses — and re-shows as a full card whenever a NEW `targetFps` is observed, until `targetFps > 5` is seen. Mirrored as a telemetry flag and as a persistent warning card in the config UI's SetupView — this single message is the highest-leverage piece of UX in the whole app, because a user who never touches the slider sees a 1 FPS slideshow and blames us.
 
 ### 6.4 `src/platform/monitoring.ts`
 
@@ -1038,9 +1065,9 @@ Target: black pixels immediately, module visible within ~300 ms, zero blocking n
    a. `installSimulator()` if `sim=1`/DEV **and** no real `window.nzxt`.
    b. `geometry = readGeometry()` (possibly `source:'fallback'`) → `applyGeometryToDom()`. Start `watchGeometry` (2 s poll).
    c. Kick `whenNzxt(2000)` **without awaiting** — on resolve, re-read geometry, re-apply DOM, arm the monitoring handler, re-evaluate the low-FPS banner.
-   d. `const persisted = readState()` (parse → migrate → validate). `const url = parseUrlParams()`. `const resolved = resolveState({defaults, url, persisted, remote:{}}, {pin})`.
+   d. `const persisted = readState()` (parse → migrate → validate). `const url = parseUrlParams()`. `const resolved = resolveState({defaults, url, persisted, remote:{}})`. The same parsed `url` patch is then installed as a non-persistent store overlay by `mountDisplayApp` (f), which is what makes a URL parameter win unconditionally (§4.1) — there is no `pin` flag.
    e. Create `monitoring`, `frameClock`, `mediaStore`, `blobUrls`.
-   f. `createRoot(#root).render(<DisplayApp …/>)` — `ErrorBoundary > Stage > [ModuleHost, LowFpsBanner, DebugOverlay?, IdentifyFlash?]`. Total tree ≈ 12 nodes.
+   f. `mountDisplayApp(#root, runtime)` — stage > [compositor root, splash | error card, LowFpsBanner?, DebugOverlay?, DiagOverlay?]. Total tree ≈ 12 nodes, written directly; no framework is downloaded on this path (§2.1).
    g. `ModuleHost` resolves `activeModuleId` → `getModule(id)` (falls back to `DEFAULT_MODULE_ID` if unknown) → `await mod.loadDisplay()` → `createRenderer()` → `mount(host, ctx, cfg)`. A minimal splash (module name) appears only if the dynamic import exceeds 200 ms.
    h. Start `watchState()` → on change: if `activeModuleId` changed → unmount + mount; else compute the changed dot-path set and call `renderer.update(cfg, {changed, origin:'local'})`.
    i. If `sync.enabled && sync.roomCode` → `new SyncService({role:'display'}).start()` in the background. **Never blocks rendering.** Subscribes `state` + `cmd`; publishes `tele` at 1 Hz.
@@ -1132,16 +1159,16 @@ Target: black pixels immediately, module visible within ~300 ms, zero blocking n
 | Feedback loop between the three surfaces | role matrix (§5.5) + `writerId` echo suppression + `rev` monotonicity | Structurally impossible: the display never publishes state. |
 | IndexedDB evicted (`persist()` denied) | `getMedia(id)` miss | "Media missing — re-upload" card; config offers re-link by name+bytes+sha256. State retains the `mediaId`. |
 | CAM webview lacks a codec (HEVC needs GPU decode; AV1 uncertain) | `capabilities.probe()` at boot | Config UI warns at input time; player falls back or shows an actionable error instead of a black frame. |
-| Module throws in `mount`/`frame`/`monitoring` | try/catch + 3-strike unsubscribe + ErrorBoundary | `ModuleErrorCard` sized for 640 px with the error text; telemetry carries the stack. Other subsystems keep running. |
+| Module throws in `mount`/`frame`/`monitoring` | try/catch + 3-strike unsubscribe + the shell's own `try`/`catch` (§2.1) | `ModuleErrorCard` sized for 640 px with the error text; telemetry carries the stack. Other subsystems keep running. |
 | Watchdog reload loop | `kraken-hub:watchdog:v1` counters (survive the reload) | 1 reload / 5 min; after 3 in 30 min, stop reloading permanently for the session and show a static error card. |
-| React reconciliation cost regression at 40 fps | CI display-chunk budget (120 KB gz) + I4 lint/DEV assert + `longFrames` telemetry | `VITE_PREACT=1` one-line alias to `preact/compat` (~12 KB gz); display code avoids React-18-concurrent-only APIs so the alias stays viable. |
+| A UI framework returns to the display path | `displayCriticalPath` budget (35 KB gz) + the `displayNoFramework` graph walk + `longFrames` telemetry | W9 removed the framework outright rather than shrinking it — the `preact/compat` alias this row used to reserve is moot. A reintroduced component fails `npm run size` on the built graph, not in review. |
 | Fork on a different `<user>.github.io` | — | All keys namespaced `kraken-hub:`; `base: './'`; hostname-dependent embed params read from `location.hostname`; no hardcoded origin anywhere. |
 | GitHub Pages trailing-slash 301 on the CAM URL | — | Docs, one-click buttons, and the "Copy URL" button all emit the trailing slash (`new URL('./', location.href).href`). |
-| `?v=` "does nothing" after the user saves settings (precedence surprise) | — | Documented prominently; `?pin=1` promotes URL above persisted. The config UI's DiagnosticsView lists every URL param it saw and which layer won. |
+| `?v=` "does nothing" after the user saves settings (precedence surprise) | — | **Not a surprise as shipped, and `?pin=1` is gone (round 13, M1).** A URL parameter is applied as an overlay ON TOP of the resolved document (`src/app/display/mount.ts`), so it already wins over persisted state on every load and there is nothing to promote — `flags.pin` was written by the parser and read by no file in the tree, which is a worse failure than the one it was meant to mitigate: a reader told to add `?pin=1` would get an "unknown parameter" note and conclude the override itself had not worked. The mitigation that does exist is the readout: the config UI lists every URL param it saw, and every one it ignored with the reason. |
 
 **Unknowns, each wired to a Diagnostics readout so the community fills them in:** `devicePixelRatio` in the Kraken Browser (the YouTube square-iframe quality math assumes 1); whether CAM applies its own circular mask; the exact Chromium/Electron version and thus WebCodecs/AV1/HEVC availability; whether webview audio reaches the speakers (why `platform.audioOptIn` defaults false and the display forces `muted`); whether CAM mutates `targetFps` live (why `watchGeometry` polls every 2 s); CAM's reload cadence and whether changing CAM settings reloads the page; localStorage/IndexedDB persistence across CAM restarts and updates (determines whether the room code survives on the display side); Kraken Plus (2025) reported geometry; and achieved FPS for a video frame vs. a flat frame at max slider. `#/diagnostics` → **"Copy report"** emits a markdown block ready to paste into a GitHub issue; `docs/92-troubleshooting.md` asks users to do exactly that.
 
-**Testing plan (brief):** Vitest + jsdom for `state/*` (migration fixtures `state-v<N>.json`, precedence matrix incl. `pin`, validator fuzz), `sync/*` (roomCode round-trip, crypto seal/open + AAD-mismatch rejection, envelope dedup/staleness, failover state machine with fake transports), `platform/fpsGovernor` (fake timers: gating, drift, spiral-of-death guard), `platform/watchdog` (fake timers: each escalation step and the reload rate limiter); `fake-indexeddb` for `media/*`; the §2.4 registry conformance suite over every module; Playwright for both boot paths, a scripted two-context localStorage handoff (config write → display apply), and a `?kraken=1&sim=1` visual snapshot at 640/320/240.
+**Testing plan (brief):** Vitest + jsdom for `state/*` (migration fixtures `state-v<N>.json`, precedence matrix incl. the URL overlay, validator fuzz), `sync/*` (roomCode round-trip, crypto seal/open + AAD-mismatch rejection, envelope dedup/staleness, failover state machine with fake transports), `platform/fpsGovernor` (fake timers: gating, drift, spiral-of-death guard), `platform/watchdog` (fake timers: each escalation step and the reload rate limiter); `fake-indexeddb` for `media/*`; the §2.4 registry conformance suite over every module; Playwright for both boot paths, a scripted two-context localStorage handoff (config write → display apply), and a `?kraken=1&sim=1` visual snapshot at 640/320/240.
 
 ---
 

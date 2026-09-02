@@ -279,6 +279,19 @@ test('the unpaired remote is a sentence and one button, then a code', async ({ c
  */
 test('an unpaired remote mounts pairing and nothing else', async ({ context }) => {
   const remote = await context.newPage();
+  /*
+   * A DESKTOP width, because the last assertion in this test is about the one
+   * thing that only exists at one — round 12.
+   *
+   * The preamble above says it in words ("at a DESKTOP width only… A phone
+   * never sees it") and `RemoteView` gates the install card behind `!narrow`,
+   * which is `PHONE_QUERY`'s 700 px. The page ran at the suite's default
+   * 640x640 viewport, so `setup-about` was correctly absent and the test
+   * demanded it anyway — a failure at HEAD, on the sibling assertion's own
+   * terms; the QR test three hundred lines down sets 1000x900 for exactly this
+   * reason.
+   */
+  await remote.setViewportSize({ width: 1000, height: 900 });
   await remote.goto('/?transport=fake#/remote');
   await expect(remote.getByTestId('pairing-card')).toHaveAttribute('data-paired', 'false');
 

@@ -47,4 +47,19 @@ test('the ring target pattern renders for the visible-radius measurement', async
   const img = page.locator('.kh-diag__rings');
   await expect(img).toBeVisible();
   await expect(img).toHaveAttribute('src', './diag/ring-target.svg');
+  /*
+   * F12-7: the measurement pattern OWNS the stage, exactly as `pattern=stack`
+   * does. It used to draw over the configured look, so the ring target was
+   * photographed on top of a playing video and H20's outermost visible ring was
+   * read off a frame the video had a say in.
+   */
+  await expect(page.locator('[data-module]')).toHaveCount(0);
+});
+
+test('the flat pattern owns the stage, so H09 measures a near-static frame', async ({ page }) => {
+  await page.goto('/?kraken=1&sim=elite&diag=1&pattern=flat');
+  await expect(page.locator('.kh-diag--flat')).toBeVisible();
+  // No module underneath: with the video base still mounted, H09's "capture FPS
+  // for low-entropy content" was measured with a video decoder on the frame path.
+  await expect(page.locator('[data-module]')).toHaveCount(0);
 });

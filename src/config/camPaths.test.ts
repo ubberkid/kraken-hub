@@ -8,6 +8,7 @@ import { DEVICE_PRESETS } from '../platform/devicePresets';
 import {
   CAM_FRAME_RATE_INSTRUCTION,
   CAM_FRAME_RATE_LEAD,
+  CAM_FRAME_RATE_LEAD_SENTENCE,
   CAM_FRAME_RATE_TAIL,
   CAM_PATH_CONFIGURE,
   CAM_PATH_FRAME_RATE,
@@ -45,6 +46,43 @@ describe('the CAM frame-rate instruction', () => {
 
   it('always carries the one spelling of the path', () => {
     expect(fpsAdvisoryBody(40)).toContain(CAM_PATH_FRAME_RATE);
+  });
+
+  /*
+   * Round 13, M2. The instruction is used two ways: as the tail of a longer
+   * sentence (About, CamSetupCard — *"Point CAM at this page, then drag …"*)
+   * and as a paragraph of its own (the display's advisory card, the config
+   * home banner). It shipped only in the first form, so the paragraph surfaces
+   * started on a lowercase verb, which §6.3 named as a defect. One function
+   * owns both, and the two differ in exactly one character.
+   */
+  describe('and the sentence-start variant', () => {
+    it('capitalises the verb and nothing else', () => {
+      const mid = fpsAdvisoryBody(40);
+      const start = fpsAdvisoryBody(40, { leadIn: true });
+      expect(start.charAt(0)).toBe(CAM_FRAME_RATE_LEAD.charAt(0).toUpperCase());
+      expect(start.slice(1)).toBe(mid.slice(1));
+      expect(start).toBe(
+        `${CAM_FRAME_RATE_LEAD_SENTENCE} ${CAM_PATH_FRAME_RATE} to maximum (40 FPS on this panel).`,
+      );
+    });
+
+    it('is still the same instruction, path and ceiling included', () => {
+      const start = fpsAdvisoryBody(25, { leadIn: true });
+      expect(start).toContain(CAM_PATH_FRAME_RATE);
+      expect(start).toContain(CAM_FRAME_RATE_TAIL);
+      expect(start).toContain('25 FPS on this panel');
+    });
+
+    it('leaves the mid-sentence form lowercase, for the surfaces that continue a sentence', () => {
+      expect(fpsAdvisoryBody(40).startsWith(CAM_FRAME_RATE_LEAD)).toBe(true);
+      expect(CAM_FRAME_RATE_LEAD.charAt(0)).toBe(CAM_FRAME_RATE_LEAD.charAt(0).toLowerCase());
+    });
+
+    it('derives the capitalised verb rather than retyping it', () => {
+      expect(CAM_FRAME_RATE_LEAD_SENTENCE.toLowerCase()).toBe(CAM_FRAME_RATE_LEAD.toLowerCase());
+      expect(CAM_FRAME_RATE_LEAD_SENTENCE).not.toBe(CAM_FRAME_RATE_LEAD);
+    });
   });
 });
 

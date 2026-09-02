@@ -1,6 +1,3 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-
 import { createLogger } from '../../lib/log';
 import { createFrameClock } from '../../platform/fpsGovernor';
 import { applyGeometryToDom, readGeometry, watchGeometry } from '../../platform/geometry';
@@ -13,7 +10,7 @@ import { readState } from '../../state/storage';
 import { createStore } from '../../state/store';
 import { parseUrlParams } from '../../state/urlParams';
 
-import { DisplayApp } from './DisplayApp';
+import { mountDisplayApp } from './DisplayApp';
 import { createExternalValue, type DisplayRuntime } from './runtime';
 
 const log = createLogger('boot/display');
@@ -126,9 +123,12 @@ export function mountDisplay(container: HTMLElement): void {
     log.warn(`ignored or coerced: ${note}`);
   }
 
-  createRoot(container).render(
-    <StrictMode>
-      <DisplayApp runtime={runtime} />
-    </StrictMode>,
-  );
+  /*
+   * The shell, mounted directly (W9). There is no framework on this page: the
+   * display's whole tree is a stage, the compositor's root and four advisory
+   * cards, written by `DisplayApp.ts` from the same two subscriptions the
+   * component tree used. `vendor-react` is not reachable from this entry any
+   * more, and `scripts/check-bundle-size.mjs` fails the build if it becomes so.
+   */
+  mountDisplayApp(container, runtime);
 }

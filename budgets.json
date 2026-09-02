@@ -1,19 +1,14 @@
 {
   "displayCriticalPath": {
-    "gzipKb": 90,
-    "chunks": [
-      "index",
-      "vendor-react",
-      "core",
-      "display-shell",
-      "render-shared",
-      "rolldown-runtime"
-    ],
-    "note": "`rolldown-runtime` is the bundler's own module-registry shim. It is a STATIC import of the display entry — displayGraph reaches it on every build — so the Kraken Browser downloads it before the LCD shows anything, and leaving it out of this list made the gate flatter than the download. It is counted because it is on the path, not because it is ours."
+    "gzipKb": 35,
+    "chunks": ["index", "core", "display-shell", "render-shared", "rolldown-runtime"],
+    "note": "2026-09-02 (W9): 90 -> 35, because the download really got smaller. `vendor-react` LEFT this list — it is not in it as a relaxation, it is gone because the display entry no longer reaches it. The display page's shell (stage, compositor root, splash, error card, low-FPS advisory, debug overlay, diagnostics overlay) is a dozen nodes that change a handful of times per session, and it was booting a framework to write them; W9 rewrote it as plain DOM against the same two subscriptions (`src/app/display/DisplayApp.ts`). MEASURED on the same build, same gzip level: 89.15 -> 31.94 kB gzip, of which 57.50 kB was `vendor-react` and the remaining +0.27 kB is the shell's own DOM code growing as it stopped being JSX. 35 is the smallest MULTIPLE OF FIVE — the unit every kB gate in this file is written in — that leaves at least 5 % headroom over the measured 31.94 (it leaves 8.7 %); 34 would also have qualified at 6.1 % and 33 would not, at 3.2 %. `rolldown-runtime` stays: it is the bundler's own module-registry shim and a STATIC import of the display entry, so the Kraken Browser downloads it before the LCD shows anything, and leaving it out made the gate flatter than the download. It is counted because it is on the path, not because it is ours. The configuration page is untouched — it is a real application with forms, routing and a component library, it is never downloaded by the panel, and `configUi` is unchanged."
   },
   "displayGraph": {
     "roots": ["index", "display-shell"],
-    "forbidden": ["src/ui/", "src/app/config/"]
+    "forbidden": ["src/ui/", "src/app/config/"],
+    "noFramework": ["node_modules/react/", "node_modules/react-dom/", "node_modules/scheduler/"],
+    "note": "`noFramework` is the W9 half of this walk, and it is a separate row because it is a separate claim: `forbidden` says the LCD never downloads the configuration UI, `noFramework` says the LCD never downloads a UI framework AT ALL. Both are checked over the same transitive walk from the display roots, so the second one fails the build the moment a `.tsx` file, a `useState` or a stray `import 'react'` finds its way back onto the display path — which is the only thing that keeps 35 kB from silently becoming 90 again. `scheduler` is listed with the other two because it is react-dom's own dependency and shares the `vendor-react` chunk: naming only the two packages a person thinks of would let the walk pass on a chunk that is two thirds of the framework."
   },
   "perModuleChunk": {
     "gzipKb": 25,

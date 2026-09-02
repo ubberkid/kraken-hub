@@ -54,8 +54,6 @@ export interface RuntimeFlags {
   kraken: boolean;
   diag: boolean;
   demo: boolean;
-  /** `?pin=1` promotes URL params above persisted state for this load only. */
-  pin: boolean;
   sim: DevicePresetId | null;
   /** `?fps=` — simulator/fallback frame rate override. */
   fps: number | null;
@@ -115,7 +113,7 @@ const KNOWN_KEYS = new Set([
   'transport',
   'demo',
   'diag',
-  'pin',
+  'debug',
   'sim',
   'fps',
   'monitor',
@@ -135,6 +133,30 @@ function parseBoolParam(raw: string): boolean | undefined {
   if (raw === '1' || raw === 'true') return true;
   if (raw === '0' || raw === 'false') return false;
   return undefined;
+}
+
+/**
+ * `?loop=<start>-<end>` — the A-B loop, in seconds.
+ *
+ * Two non-negative decimal counts of seconds with `start < end`, returned in a
+ * canonical `"<start>-<end>"` spelling (`012.50-31` becomes `12.5-31`) so the
+ * module on the other side of `moduleParams` can split on the hyphen and trust
+ * both halves. `null` for anything else — no negatives (the hyphen is the
+ * separator, so a negative start is unspellable rather than special-cased), no
+ * empty halves, no reversed or zero-length span.
+ *
+ * The pair to this lives in `src/modules/video/index.ts`. It is four lines of
+ * `split`, and it is written there rather than imported from here because this
+ * file pulls in `devicePresets` and `roomCode`, neither of which belongs in the
+ * eager module manifest the LCD downloads.
+ */
+function parseLoopRange(raw: string): string | null {
+  const m = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(raw);
+  if (m === null) return null;
+  const start = Number(m[1]);
+  const end = Number(m[2]);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return null;
+  return `${String(start)}-${String(end)}`;
 }
 
 function parseIntParam(raw: string, min: number, max: number): number | undefined {
@@ -157,7 +179,6 @@ export function parseUrlParams(search: string): ParsedUrlParams {
     kraken: false,
     diag: false,
     demo: false,
-    pin: false,
     sim: null,
     fps: null,
     monitor: null,
@@ -187,14 +208,27 @@ export function parseUrlParams(search: string): ParsedUrlParams {
       case 'diag':
         flags.diag = isOne(raw);
         break;
+      /*
+       * `?debug=1` — the per-layer debug overlay (`DebugOverlay.ts`), which
+       * `design-architecture.md` §6.3 and the hardware checklist's H30 both tell
+       * the reader to switch on this way. It was never in this table, so the
+       * only surface that could reach `diagnostics.showDebugOverlay` was stored
+       * state a panel has no keyboard to edit, and the parameter itself was
+       * reported back as "ignored or coerced" (round 12, F12-5).
+       *
+       * It is NOT `diag=1`: that mounts the photographable diagnostics card,
+       * which REPLACES the look. This one draws achieved FPS and one line per
+       * layer OVER the running look, which is the only way to read the numbers
+       * H30 asks for while the stack under test is actually compositing.
+       */
+      case 'debug':
+        patch.diagnostics = { ...patch.diagnostics, showDebugOverlay: isOne(raw) };
+        break;
       case 'demo':
         flags.demo = isOne(raw);
         // Also handed to the active module: `?demo=1` is a module-level
         // instruction ("play your bundled sample"), not just a boot flag.
         if (flags.demo) moduleParams['demo'] = '1';
-        break;
-      case 'pin':
-        flags.pin = isOne(raw);
         break;
       case 'cam': {
         const cam = parseBoolParam(raw);
@@ -224,9 +258,20 @@ export function parseUrlParams(search: string): ParsedUrlParams {
         break;
       }
 
+      /*
+       * `contain-circle` is one of the four, not three — round 13, F2.
+       *
+       * The mode is first-class everywhere else: `RenderSettings['fit']`
+       * declares it, `validateRenderSettings` accepts it, the compositor
+       * implements it, the config panel offers it as "Circle", and state
+       * migration 1 → 2 exists purely to introduce it. This guard was written
+       * before it did and never caught up — so the ONE framing mode a round
+       * panel actually wants was the one a kiosk link could not ask for, and
+       * the diagnostics readout reported it as "ignored or coerced".
+       */
       case 'fit': {
-        if (raw !== 'cover' && raw !== 'contain' && raw !== 'fill') {
-          reject(key, raw, 'expected cover|contain|fill');
+        if (raw !== 'cover' && raw !== 'contain' && raw !== 'contain-circle' && raw !== 'fill') {
+          reject(key, raw, 'expected cover|contain|contain-circle|fill');
           break;
         }
         patch.render = { ...patch.render, fit: raw };
@@ -337,14 +382,44 @@ export function parseUrlParams(search: string): ParsedUrlParams {
         moduleParams['src'] = raw;
         break;
       }
-      case 'loop':
+      /*
+       * `loop` is two parameters wearing one name — round 13, F3.
+       *
+       * `?loop=1` means "loop the whole clip" and `?loop=12-31.5` means "loop
+       * between these two seconds", which is the A-B loop the scrubber draws
+       * and the one thing a kiosk link most wants to say. It was documented in
+       * the getting-started table as `loop=<start>-<end>` and parsed HERE as a
+       * boolean, so the range never reached the module at all: `12-31.5` failed
+       * `parseBoolParam` and was reported as ignored.
+       *
+       * Both spellings are normalised to a string, because that is the contract
+       * `applyUrlParams` takes; `src/modules/video/index.ts` turns the range
+       * into `{ enabled: true, start, end }`. The END is NOT validated against
+       * the clip here — nothing on this side of the app knows the duration.
+       * That check belongs to the module's own loop rules (§3.2), which clamp
+       * an end past the media's length at play time.
+       */
+      case 'loop': {
+        const value = parseBoolParam(raw);
+        if (value !== undefined) {
+          moduleParams['loop'] = value ? '1' : '0';
+          break;
+        }
+        const range = parseLoopRange(raw);
+        if (range === null) {
+          reject(key, raw, 'expected 0|1 or <start>-<end> in seconds, start < end');
+          break;
+        }
+        moduleParams['loop'] = range;
+        break;
+      }
       case 'mute': {
         const value = parseBoolParam(raw);
         if (value === undefined) {
           reject(key, raw, 'expected 0|1');
           break;
         }
-        moduleParams[key] = value ? '1' : '0';
+        moduleParams['mute'] = value ? '1' : '0';
         break;
       }
       /*

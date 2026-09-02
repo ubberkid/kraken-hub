@@ -29,6 +29,161 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **The low-frame-rate advisory card hung off the edge of every panel that
+  showed it.** The card's type was sized `--kh-inscribed / 14` with a title,
+  body and footer stacked on top of that, which built a box taller than the safe
+  box it is centred in: 405 px of card in 398 px of room on a 640 Elite, and
+  233 px in 202 px on a 240 Kraken — 12 px past the glass, with the footer
+  sheared off — while the architecture doc promised the card is "laid out
+  entirely inside `safeInsetPx`". The video module's own card on the same panel
+  fit exactly, because it sizes each paragraph off `--kh-inscribed` directly.
+  The shell card is sized the same way now (divisor 16), and below 300 px
+  inscribed the footer line is dropped rather than shrunk — the same rule and
+  threshold the video card's route footer already used. Measured on the built
+  app: 322 px in 398 px at 640 (body 26.9 px), 146 px in 202 px at 240. It
+  shipped because every display end-to-end test ran at the default 640×640
+  viewport and asserted on text, so a card hanging off the disc read as passing;
+  `boot-display.spec.ts` now sets the viewport per panel and asserts the card's
+  box against `panel − 2 × safeInset` at 240 and 640.
+- **The frame-rate instruction started a paragraph on a lowercase verb.**
+  _"drag CAM → Lighting → your Kraken → Web Integration → Frame Rate to
+  maximum"_ is correct where it ends a longer sentence (About, the CAM setup
+  card: _"Point CAM at this page, then drag …"_), and wrong where it is the
+  whole paragraph — the display's advisory card and the config home banner.
+  `camPaths.fpsAdvisoryBody()` takes `{ leadIn: true }` for the second case and
+  derives the capital from the same verb constant, so there is still exactly one
+  instruction and it differs in exactly one character.
+- **A stock Kraken Z was told, permanently, to drag a slider that is already at
+  maximum to maximum.** CAM offers a Kraken Z exactly one frame rate — 1 FPS —
+  which is also the low-FPS threshold, so the display's banner showed the full
+  advisory card and then a permanent `1 FPS ⚠` badge on hardware that was
+  already configured as well as it can be. Both advisories — the display shell's
+  `LowFpsBanner` and the video module's own `FpsAdvisory`, which the shell stands
+  down for — now gate on the ceiling for the panel actually attached
+  (`maxTargetFpsForPanel`): a panel at its maximum is shown nothing, and an
+  unrecognised panel still advises, because a ceiling we cannot name is not a
+  ceiling we can claim was reached.
+
+- **The display's banner re-assembled the frame-rate instruction by hand, and so
+  said something different from the video module's card on the same panel.** It
+  concatenated `CAM_FRAME_RATE_LEAD` + path + `_TAIL` instead of calling
+  `camPaths.fpsAdvisoryBody()`, which meant every non-video base lost the
+  per-panel _"(40 FPS on this panel)"_ the single owner adds. The shell now calls
+  the function with the geometry it already holds, the two badges are one string
+  (`‹n› FPS ⚠`), and a source-tree test fails any `.ts` file that names the
+  instruction's pieces — they exist only so JSX can bold the middle one.
+
+- **`?debug=1` was documented in three places and implemented in none.** The
+  per-layer debug overlay is what the hardware checklist's H24/H30 tell a tester
+  to read, and the parameter that switches it on was missing from `KNOWN_KEYS`,
+  so the display logged it as ignored and the overlay was reachable only by
+  editing stored state a panel has no keyboard to edit. It now sets
+  `diagnostics.showDebugOverlay` for that load, and the checklist says `&debug=1`
+  rather than naming an internal state field.
+
+- **`?pattern=rings` and `?pattern=flat` measured with the configured look still
+  running underneath.** Only `pattern=stack` owned the stage, so the ring target
+  for the true-visible-radius measurement (H20) was photographed on top of a
+  playing video, and H09's "near-static frame whose only moving element is a
+  counter" had a video decoder on the frame path. Both patterns now own the stage
+  exactly as `stack` does — no module is mounted — whenever `?diag=1` is what
+  draws them.
+
+- **The diagnostics build line named a commit whose code was not what was
+  running.** `build 0.1.0 6912550` on a build made from a modified working tree
+  is the one thing a build identity must never do, and that line is what a bug
+  report quotes. The Vite define now appends `+dirty` when `git status
+--porcelain` is non-empty, failing soft to the bare SHA wherever git cannot
+  answer; CI builds from a clean checkout, and `GITHUB_SHA` bypasses it entirely,
+  so a published build never carries the marker.
+
+- **The reduced-motion rule is written down.** `docs/getting-started.md` now says
+  what the code does: the configuration UI's animations and transitions collapse,
+  the stats module snaps its numbers instead of gliding them, the video
+  placeholder's pulse holds still — and the content you chose keeps running,
+  because reduced motion is a request about an interface's flourishes, not an
+  instruction to blank a panel whose job is moving pictures.
+
+- **A seven-row table of video aspect-ratio labels rode the LCD's first
+  download to serve a three-way control.** `SOURCE_ASPECT_PRESETS` and
+  `sourceAspectKey()` lived in `src/modules/video/types.ts` — the one video file
+  the eager module manifest imports, so it ships in `core` — and four of the
+  seven rows (4:3, 1:1, 21:9, 2.39:1) could only ever return a key the shape
+  control does not offer, which it discarded for `'auto'`. Nothing rendered any
+  of the labels. The three-way match now derives from the control's own rows in
+  `VideoConfigPanel.tsx`; stored ratios are still validated and still drive the
+  geometry exactly as before. MEASURED: `core` 23.08 → 22.76 kB gzip,
+  `displayCriticalPath` 31.9 → 31.6 kB against a 35 kB gate. The same round
+  moved the YouTube embed adapter and the four helpers only it uses — the mask
+  state machine, the quality policy, the quality watchdog and the IFrame API
+  loader — out of `module-video` into a lazily-fetched `provider-youtube`
+  chunk, the same trick the embed, resolver and ingest groups already use
+  (ranked _below_ `module-video` so it claims the six leaf files and leaves the
+  shared `youtube/geometry.ts` where `embedSurface.ts` needs it): MEASURED
+  `module-video` 24.1 → 20.2 kB gzip against its 25 kB budget, with a 5.1 kB
+  chunk beside it that a panel playing a local clip never fetches, and every
+  other chunk byte-identical.
+
+- **The display page downloaded a UI framework to render static DOM. It does
+  not any more.** The hidden Kraken Browser's first download was **89.15 kB
+  gzip**, and **57.5 kB of it — nearly two thirds — was React**, booted to
+  render a shell that is a stage `<div>`, the compositor's root, and four
+  advisory cards that are either on screen or not. That shell re-rendered, by
+  its own docstring, "at most a handful of times per session". The compositor
+  underneath it has been framework-free since the layer work; this finishes the
+  job for the shell around it.
+
+  `src/app/display/DisplayApp.ts` now subscribes to the same two external
+  sources the component tree read — the store and the geometry value — and
+  writes the nodes that can differ, through an ~80-line helper
+  (`src/app/display/dom.ts`): `el` to build a node in one expression,
+  `setText`/`setAttr`/`setClass` that write only on CHANGE, and `slot`, a fixed
+  position in a parent holding zero or one node, which is what `{cond &&
+<Card/>}` was doing and is what keeps the stage's z-order stable as cards come
+  and go. There is no diffing and no virtual DOM: every caller knows exactly
+  which node it owns. `Stage`, `LayerStack`, `LowFpsBanner`, `ModuleErrorCard`,
+  `DebugOverlay` and `src/diag/DiagOverlay` went the same way, and the error
+  boundary became a `try`/`catch` around the one function that can throw — the
+  panel still degrades to a readable card rather than to black hardware.
+
+  **Measured on the same build at the same gzip level: `displayCriticalPath`
+  89.15 → 31.94 kB gzip (−57.21 kB, −64.2 %), across 7 → 6 JS requests, 93,472 →
+  34,448 bytes of JavaScript on the wire. First contentful paint on the display
+  route went 36–40 ms → 24–28 ms and `.kh-stage` was in the document at 36–39 ms
+  → 27–29 ms, over seven cold loads per build against a local preview.** The
+  budget gate went from 90 kB to **35 kB** — the smallest multiple of five, the
+  unit every kB gate in `budgets.json` is written in, leaving at least 5 % over
+  the measured figure.
+
+  Nothing about the panel changed: every class, test id and attribute is the one
+  it was, the whole 408-test end-to-end suite passes against the new build with
+  **zero selector edits**, and `?sim=`, `?diag=1`, `?demo=1`, `&pattern=stack`,
+  the DPR handling, the watchdog, the FPS governor, the monitoring feed, the
+  storage listener and the lazily-imported sync layer all behave exactly as
+  before.
+
+  The saving is enforced rather than remembered: `npm run size` walks the built
+  manifest transitively from the display entry and now fails on any reached
+  chunk containing `react`, `react-dom` or `scheduler`, reported as its own
+  `displayNoFramework` row beside the existing invariant-I8 row — the two are
+  separate claims and are named separately. Run against the previous build it
+  fails, which is how we know it is checking something.
+
+  **The configuration page is untouched.** It is a real application with forms,
+  routing and a component library; it is never downloaded by the panel;
+  `vendor-react` still exists for it and its `configUi` budget is unchanged.
+  This is not a project-wide framework removal — it is the observation that the
+  _display_ was never rendering anything that needed one.
+
+- **CI's actions ran on a runtime GitHub had already deprecated.** Every green
+  run carried the same annotation — `actions/checkout@v4` and friends being
+  force-migrated off Node 20 onto Node 24 — so the whole set was moved to the
+  majors that declare `runs.using: node24` themselves: checkout v7, setup-node
+  v7, upload-artifact v7, download-artifact v8, cache v6, configure-pages v6,
+  upload-pages-artifact v5, deploy-pages v5, and create-issue-from-file v6. No
+  workflow logic changed; every `with:` input in use is still a valid input on
+  its new major.
+
 - **The editor's chrome painted over itself, hid what it was for, and lied
   about what could be a background.** Fourteen measured findings from the
   eleventh closing audit's config half, all of them cases of a surface having
@@ -123,7 +278,15 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
   of its own and took it from **320 px down to 199** on a cold profile at
   866 × 537 — the gutter is width a square halo leaves over in a column that is
   not square, so the cards are free and the halo is 320 px again, with a compact
-  82 px row as the fallback on windows too narrow or too tall to have a gutter; the add sheet's tile summaries get the **two lines** the
+  82 px row as the fallback on windows too narrow or too tall to have a gutter;
+  on those same narrow windows the **setup card** stops wrapping — at 760 × 537
+  its one sentence went three lines deep and the card took **122 px** out of a
+  grid whose canvas row is whatever the window has left, so the halo was 196 px
+  with the starters row already as small as it goes; under 800 px of editor grid
+  the instruction is now a single line with the whole sentence on its `title`
+  (still the one `camPaths.ts` spelling) and both actions share one 44 px row, so
+  the card is **86 px** and the halo **233** — with the 866 × 537 form, and its
+  320 px halo, untouched; the add sheet's tile summaries get the **two lines** the
   242 px card has room for instead of one clipped line losing a third to a half
   of every sentence; the drag HUD and the strip's numeric readouts print a real
   **U+2212** rather than a hyphen among their tabular figures; and
@@ -825,6 +988,138 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
     an opaque scrim _reduces_ the area CAM has to compress, because the pixels
     underneath it stop moving.
 
+- **Three of the seven backgrounds could not be reached with a mouse at CAM's
+  window.** The rail's BASE chip row is the background picker, and at
+  `max-height: 640px` it was a one-line hidden-scrollbar scroller with none of
+  the machinery that makes one usable — no measured `data-clipped`, no edge
+  fade, and a vertical mouse wheel that left `scrollLeft` at 0. MEASURED at
+  866x537 with seven overlays up: a 221 px box over 417 px of chips, so Image
+  was sliced at the edge and Shape, Effect and Solid were off-screen, and the
+  BASE label beside them opened nothing. The chips WRAP onto two lines there
+  now — the padding, the gap and the type give back the pixels — which puts all
+  seven on the screen (7 of 7 inside the box, page-fit 0) while the layer list
+  still shows four whole rows: 176 px against the 172 that four rows of forty
+  need, where the scroller's own number was 202. Both variants were measured
+  before choosing. The `BASE` label is a real disclosure as well: it opens
+  **+ Add a layer** at its Background row, all seven as tiles, so there is a
+  path to every background with no sideways gesture in it. The strip's scroller
+  machinery moved to `app/config/editor/scrollEdges.ts` and the chip row uses
+  it, so a row that ever IS clipped fades its cut edge and answers a wheel
+  instead of simply hiding a control.
+
+- **Selection was carried by an accent colour and nothing else, so a
+  high-contrast theme erased it.** Under `forced-colors: active` the user agent
+  replaces author colours with the theme's two, and MEASURED at 866x537 the
+  selected base chip came out identical to the unselected ones in background,
+  text, border and weight — which background is on the panel became
+  unanswerable from the screen (WCAG 1.4.1). Selection now says itself in system
+  colours — `Highlight`/`HighlightText` for chips, segmented options and tiles,
+  a 2 px `Highlight` outline where a fill would hide the thing being chosen (a
+  colour swatch, a whole rail row) — and `tap-targets.spec.ts` asserts a
+  selected control differs from an unselected one in at least one computed
+  property under that emulation.
+
+- **The paste placeholder was cut mid-word at every width the phone rule did not
+  cover.** `text-overflow: ellipsis` on `.kh-paste__input` was written inside
+  `@media (max-width: 700px)` — the one range where `HomeView` already swaps in
+  a shorter placeholder, so the rule could never fire where it was needed. At
+  866, 760 and 1280 the field read _"Paste a video link — YouT"_, clipped by the
+  property's initial value. Hoisted to file scope, with the computed style
+  asserted at four widths.
+
+- **The config page's own frame-rate banner told a Kraken Z to raise a slider
+  that has one position.** The display side of this landed in the same round;
+  this is the other surface that prints the instruction. `homeState.fpsIsAtPanelMax()`
+  compares the reported frame rate with `maxTargetFpsForPanel()` for the panel
+  that actually reported, and at the ceiling the banner keeps the reading — 1 FPS
+  is still why a video stutters — and swaps the instruction for a claim that says
+  so (`CLAIM_FRAME_RATE_AT_MAX`, through the claims registry like every other
+  sentence about the panel). An unrecognised panel still gets the advice.
+
+- **Undo and redo were two glyphs with an empty tooltip.** 26x26 icon-only
+  buttons with an `aria-label` and `title=""`: a screen reader was told and a
+  mouse was not. They carry their words now. The label is the word rather than
+  the shortcut, because the keyboard map accepts ⌘Z and Ctrl+Z alike and nothing
+  in the build detects which one this machine prints.
+
+- **`sync-remote.spec.ts` asserted a desktop-only card at a 640 px viewport.**
+  The test's own preamble says the install card appears "at a DESKTOP width
+  only" and `RemoteView` gates it behind `PHONE_QUERY`'s 700 px; the page ran at
+  the suite's 640x640 default, so the assertion was failing at HEAD on its own
+  terms. It sets 1000x900 first, like its sibling three hundred lines down.
+
+- **`?fit=contain-circle` was documented, implemented everywhere, and rejected
+  by the URL parser.** The mode is declared by `RenderSettings`, accepted by
+  `validateRenderSettings`, drawn by the compositor, offered by the config panel
+  as **Circle**, and introduced by a state migration written for no other
+  purpose — but `src/state/urlParams.ts` listed three of the four framing modes,
+  so the one mode a ROUND panel actually wants was the one a kiosk link could
+  not ask for. It came back as an "ignored or coerced" note in the diagnostics
+  readout, which is the app telling the truth about the wrong thing.
+
+- **`?loop=<start>-<end>` is an A-B loop now, not an unparseable boolean.** The
+  getting-started URL table has always promised `loop=<start>-<end>` in seconds;
+  the parser ran every `loop` value through `parseBoolParam` first, so `12-31.5`
+  failed and the range never reached the video module at all. `?loop=` takes
+  both spellings now — `1`/`0` still means "loop the whole clip" — and the range
+  (two non-negative seconds, `start < end`, decimals allowed, canonicalised so
+  `012.50-31` reaches the module as `12.5-31`) becomes `{ enabled: true, start,
+end }` through the existing `applyUrlParams` seam. The END is deliberately not
+  checked here: nothing on this side of the app knows how long a clip is, and
+  the module's own loop rules already clamp an end past the duration at play
+  time. An unusable range is refused with a reason rather than silently
+  half-applied.
+
+- **`?mute=` now has a row in the URL table**, which it never had, and the
+  `loop` row says what it actually accepts.
+
+- **`?pin=1` is gone.** It was a known key assigned to `flags.pin` and read by
+  no file in the tree. URL parameters already win: `src/app/display/mount.ts`
+  installs the parsed patch as a store OVERLAY, so a parameter keeps beating
+  anything the configuration browser writes later, without persisting. A
+  documented escape hatch that does nothing is worse than the precedence
+  surprise it was meant to mitigate — a reader who followed the advice got an
+  "unknown parameter" note and concluded the override had failed. The
+  architecture doc's mitigation row says what actually mitigates it (the
+  diagnostics readout listing every parameter and every reason).
+
+- **The phone cannot reach the About page, and `docs/remote-control.md` said
+  twice that it could.** On a phone every route resolves back to the remote
+  (`usePhoneOnly`), so `RemoteView` suppresses the About link — the doc's own
+  §"A phone is a remote, on every address" already said so, two hundred lines
+  above two paragraphs that told the reader to "follow the **About** link at the
+  bottom of the remote" to reach the connection settings and the hardware-report
+  pull. Both are rewritten as what is true: those are PC surfaces, reached from
+  the CAM configuration browser or a paired desktop browser, and what the phone
+  keeps instead — pairing, the ring, the transport, the presence line — is named
+  rather than implied.
+
+- **Pinch and two-finger rotate on the phone editor have end-to-end coverage for
+  the first time.** `page.touchscreen` has one finger and `page.mouse` has none,
+  so nothing in the suite could reach `EditorCanvas`'s second-finger branch and
+  the whole of §8's two-finger model shipped unexercised; round 13's audit read
+  the resulting silence as a defect. `tests/e2e/remote-editor.spec.ts` now puts
+  two real fingers on the glass through the DevTools protocol
+  (`Input.dispatchTouchEvent` with a list of touch points, which Chrome expands
+  into one `pointerdown` per point), and `touch-taps.spec.ts` asserts that
+  harness claim on its own. Measured: two fingers spreading 30 px → 60 px about
+  the layer's centre grow a clock overlay's frame by 2.00× and leave `t.s`
+  alone — a kind whose `resize` is `'frame'` commits a pinch into `layer.frame`
+  by design, which is exactly the "`t.s` stayed 1" the audit reported; a 30°
+  twist lands `t.r` on 30, a tick of the same 15° ladder the desktop rotate
+  handle uses; the selection survives both, including the realistic sequence
+  where the second finger lands 60 ms after the first. No product code changed:
+  the gesture model was right and the measurement was not.
+
+- **Trivia, all of it measured rather than remembered:** the architecture doc's
+  "~80-line" `src/app/display/dom.ts` is ~110 lines; a square panel's
+  `safeInsetPx` is `round(min(w,h) · safeAreaPct)` — 19 px on the 240 px
+  Kraken — not the zero the doc claimed; `docs/editor.md` said "100 %";
+  `src/state/look/file.ts` counted four ways to refuse a Look file and listed
+  five; and `design-ossDx.md`'s corrections table now records that
+  `src/platform/fpsAdvisor.test.ts` and the `?fpshint=0` parameter it describes
+  have never existed.
+
 ### Fixed
 
 - **Five things the closing audit measured, all of which were invisible to the
@@ -1019,8 +1314,11 @@ value}` per leaf, slot version 2, a v1 slot discarded rather than mis-paired
     is deleted.** `fitStateEnvelope`'s byte ladder is the only trimmer, measured
     against the real 8 kB budget, and its new last rung ROTATES the stamp window
     so every stamped leaf travels with its stamp within a bounded number of
-    frames (`n` for `n` stamps; in practice the rung never fires, because the
-    worst legal document plus its whole stamp map is inside the cap). A hard
+    frames. (That parenthesis used to read "in practice the rung never fires,
+    because the worst legal document plus its whole stamp map is inside the
+    cap". The worst legal DOCUMENT does fit; a user tuning settings on top of a
+    full look is not sending the worst legal document, and round 6 measured the
+    rung firing on 96–101 % of frames. See round 6 below.) A hard
     count survives only in the localStorage slot, where a dropped register costs
     ordering after a reload and misleads nobody. `wireStamps.dom.test.ts` and the
     rotation bound in `lookWireBudget.test.ts`.
@@ -1128,6 +1426,142 @@ max(now, seen.t)` is exactly right for a peer that stayed connected, and
   The 2.5 s optimistic hold on the shelf (`RECONCILE_GRACE_MS`) is unrelated to
   the merge and stays: curation rides `cmd`/`tele`, which carry no state at all.
 
+  **Round 6 — the two channels the room-clock work never reached, the frame
+  budget's own delay, and one residue that is stated rather than fixed.**
+
+  - **`cmd` and `tele` were still on raw wall clocks, and `cmd` carries every
+    control there is.** The staleness gate subtracted two of them — `Date.now()
+    - env.ts > 15 s`— so a phone more than fifteen seconds BEHIND had every
+command it ever sent dropped on arrival: play, pause, seek, setModule,
+requestLibrary, the lot. One-directional, with a clean cliff at exactly the
+bound (measured: 0 s → 3 of 3 heard, +90 s → 3, −14 s → 3, −16 s → 0, −90 s
+→ 0), and nothing in the room ever corrects it, so in a display-only room`useSync`'s cold library pull retried forever into the void and the shelf
+stayed blank for the life of the device, across every reload, with the
+status line reading online. Separately, `sendCmd`'s per-op throttle and
+`publishTele`'s were `Date.now() - lastAt`seeded`0`— the arithmetic`publishState`had already been repaired for — so one backward NTP hour
+silenced both for the hour (measured: one play landed, then four taps
+produced nothing). **Both ends now compare ROOM time**:`appSync`'s
+`roomNow()`is passed to the service, writes the`ts`on every outbound
+envelope and answers the age gate, so a peer that has heard one frame from
+anybody — telemetry included — is corrected before its first command, and a
+peer that has heard nothing is no worse off than before. Both throttles
+moved onto`monotonicNow()`, seeded `-Infinity`. `cmdChannelSkew.dom.test.ts`;
+      the harness's telemetry beats now read the device clock at fire time, which
+      is what made the display-side clock step measurable at all.
+  - **The rotating stamp window took twelve seconds to carry the tap somebody
+    had just made.** Under a full look plus 300 tuned knobs — 336 leaves, 29
+    stamps to a frame — the newest stamp rode on one frame in seven, and a
+    DISPLAY is a passive peer, so there is no ping-pong to make the writer emit
+    faster than its ~2 s persist tick. Measured, with no race, no reorder, no
+    skew and one writer: a rejoining display learned a plain sequential edit
+    after **10.2 s**. The scaling law sat just above the documented ceiling —
+    150 knobs → 26 ms, 200 → 176 ms, 250 → 4.2 s, 300 → 10–12 s — which is why
+    nothing shipped had seen it. **The newest eight stamps now travel on EVERY
+    frame** (`RESERVED_NEWEST_STAMPS`) and the remaining budget rotates over the
+    rest, so the leaf a receiver most urgently needs to order arrives on the
+    next frame while a buried leaf still climbs back within
+    `ceil((n − r) / k)`. `lookWireBudget.test.ts` pins both halves — the newest
+    stamp on every frame, and a real rotation bound instead of `frames < 300` —
+    and `newestStampReserve.dom.test.ts` runs the room-level schedules. And a
+    frame the ladder REFUSES (500 knobs on the active module make the bare
+    envelope 8767 B, which no rung can shrink) is no longer silent: it says
+    _"Too much to send — this arrangement no longer fits on the wire"_ on
+    `SyncStatus.lastError`, which the connection panel already renders.
+  - **A badly-wrong clock costs more than the docs claimed, and two of the
+    three residues have no fix at this layer.** The shipped claim — "the room
+    converges on whoever tapped last whatever any clock says" — is true of a
+    CONNECTED room and only of one; the test that measured it never muted
+    anybody. Add a 6.5 s outage and: a peer more than a day SLOW loses its
+    first tap back every time (at 23 h it lands, so the boundary is exactly
+    `MAX_ROOM_OFFSET_MS`); and one far-future stamp pins every peer's ordering
+    clock at its own reading until real time catches up, during which the total
+    order degrades to a per-peer counter and then to the writer's client id in
+    string order — measured, the later tap lost to alphabetical order, with the
+    bad peer's process, slot and clock all gone from the room, and neither
+    correcting the clock nor reloading the page unsticking it. Both proposed
+    caps were tried and both are worse: capping the LOCAL floor splits the room
+    (with it, the shipped "does not let a peer three days fast own every
+    setting" test reads `90` everywhere where it wants `180`), and capping the
+    incoming REGISTER stamps costs the merge its "one write, one stamp,
+    everywhere" property. So the residue is **stated** — `docs/remote-control.md`
+    rewritten to say exactly what is lost and that the mitigation is to set the
+    device's clock — and pinned by `hlcFloorPin.dom.test.ts`, which asserts what
+    the code does rather than what one would like it to.
+
+  **Round 7 — the cliff that only moved, the slot cap that reverted a user's own
+  edit, and the torn read at the root of both.**
+
+  - **Room time did not close the command cliff; it moved it to 24 hours.** Two
+    peers' `roomNow()` readings agree only when the sender has folded at least
+    one frame AND its skew fits `MAX_ROOM_OFFSET_MS` — `noteRoomTime` clamps at
+    24 h by design, so a device further out keeps a residual error and a gate of
+    fifteen seconds cannot survive it. Measured, with the room settled and
+    online: −23 h → 3 of 3 commands heard, −24 h → 3, **−24 h 20 s → 0, −25 h →
+    0, −3 d → 0**, +3 d → 3 (still one-directional, because the subtraction is
+    signed). Permanent, too: reload → 0 of 2, a 2.5 s radio drop and back → 0 of
+    1. Two more shapes fell out of the same subtraction — a phone that taps
+       BEFORE its first inbound frame loses that command at −16 s or worse (`cmd`
+       has no equivalent of the state channel's intent layer, and cannot have one),
+       and a phone with a PERFECT clock loses its first command after a peer three
+       days fast has joined, written and LEFT, because the poison is the receiver's
+       own persisted `roomOffset` (measured: honest visitor 2 of 2, after the liar 1
+       of 2). **The gate is now self-referential per sender**: the first command
+       from an unseen `src` is accepted unconditionally, and afterwards a frame is
+       dropped only when it lags the newest `ts` THAT SAME SENDER has delivered —
+       one device's clock against itself, skew-free by construction. Redelivery was
+       never this gate's job: `(src, seq)` dedup does that, and no shipped transport
+       replays `cmd` at all (ntfy's recovery poll asks for `state` alone, `since=10m`;
+       its live `/sse` carries no `since=`). `types.ts` says so now, where it used
+       to claim the opposite. `cmdChannelSkew.dom.test.ts` gains the offsets past
+       the clamp, the tap-before-first-frame schedule, the departed-liar case, both
+       recovery paths at −25 h, and a stale-replay pin so the widening cannot
+       quietly become "accept everything"; the shipped unit test that asserted the
+       old contract was rewritten against the new one and its untrue justifying
+       comment removed.
+  - **The clock slot's cap evicted the one register the room had not heard.**
+    `saveClock` packed newest-first under `MAX_SLOT_REGISTERS = 32`, and
+    `types.ts` claimed a dropped register "costs ordering after a reload and
+    nothing more". It costs the user their edit. A phone offline taps
+    `render.fit=contain` — the one leaf the room already holds a register for —
+    then turns N other knobs and reloads: at **N = 30 the fit survives; at N = 31
+    and N = 35 it is gone**, the room's stale `cover` wins on every screen, and
+    the other 31 offline edits all land, because the room holds no register to
+    argue with them. No notice, no `lastError`, no way to tell which edit was
+    undone. The boundary is exactly the cap, and 33 stamped registers is not a
+    stress figure — a settled room measures 21 after twenty ordinary config
+    writes. **A cap may now only evict a register the room already holds**:
+    `appSync` tracks an `unshipped` set (added on local commit, cleared when
+    `SyncService` reports the frame carrying that path's stamp actually went out
+    on the room's transport, online) and `saveClock` packs it in a first pass
+    under its own safety bound, the rest newest-first after it — the slot-side
+    twin of `RESERVED_NEWEST_STAMPS`. Two smaller repairs rode along: the byte
+    rung `continue`s instead of `break`ing, so one oversized register no longer
+    discards every older one behind it (measured before: a 200 kB config value
+    wiped the whole slot), and a register whose leaf the document no longer has
+    is dropped on commit, so a deleted module-config key stops holding a capped
+    slot forever. `slotCapUnshipped.dom.test.ts`.
+  - **The first frame of every local commit claimed the value had never been
+    written.** `store.commit` fires the storage bus synchronously, so the page's
+    own write came back through `watchState`, re-resolved the snapshot and
+    NOTIFIED — all before the commit listeners, where the sync layer stamps, had
+    run. The config page publishes on every notification, so the order on a plain
+    tap was `value published → stamp assigned → value republished`, and a missing
+    stamp is not less information: it reads as `EPOCH`, the strongest possible
+    claim that nobody has ever written that leaf. Convergence survived because
+    the next frame was stamped, which is why no reading ever disagreed — but it
+    is the same torn read that produced the phone's undo bug, which
+    `lookHistoryStore` had worked around with a microtask flush. **Fixed at the
+    root**: a per-store re-entrancy guard in `src/state/store.ts` suppresses the
+    notification a commit provokes through its own storage write, so a commit
+    runs its listeners and notifies ONCE, stamped. The snapshot re-resolution the
+    store's comment protects is untouched, and the guard is per store, so the
+    display's watcher still fires for CAM's commits. `lookHistoryStore`'s
+    coalescing stays and says why in its own doc — it still guards `replace()`
+    and the `setResolve` path, which raise several notifications in one turn.
+    `storeSeam.dom.test.ts` measures both sides: the wire (no value ever ships
+    ahead of its stamp) and the store (one notification per commit, the other
+    window still notified, the re-resolution intact).
+
   Regression cover: all four reproductions are permanent tests and every one of
   them is red on the previous build. `twoPeerDisplayOnly.dom.test.ts` is a new
   suite for the room with no CAM in it (a reload then a tap 1.8 s later; two
@@ -1143,6 +1577,106 @@ max(now, seen.t)` is exactly right for a peer that stayed connected, and
   timeout left to wait out. The harness the three suites share now lives in
   `src/sync/roomHarness.ts` — every skeptic had pasted their own copy of it, and
   each copy modelled a slightly different room.
+
+  **Round 8 — four narrow seams, each one a place where a rule was true for
+  exactly one page load, one frame, or one sender.**
+
+  - **Shippedness did not survive a reload, so the second one evicted the edit.**
+    Round 7's slot rule — a cap may only evict a register the ROOM already holds
+    — rests on `appSync`'s `unshipped` set, and that set lived only in memory.
+    So a page load that never reached the room restored the registers, started
+    with an EMPTY unshipped set, and re-packed the slot as if everything had
+    shipped; `stop()` alone is enough to trigger it. A phone edits offline and
+    reloads twice without a round trip to the room — a lift, a locked screen, a
+    tab the browser discarded and restored. Measured, as registers before /
+    after reload #1 / after reload #2: **N = 20 → 22/22/22 and the edit
+    survives; N = 31 → 33/33/32, N = 35 → 37/37/32, N = 60 → 62/62/32 and it is
+    gone**, `fit` reverting to the room's stale value on every screen in both
+    value orders. The boundary is exactly `MAX_SLOT_REGISTERS`, and the
+    gap-filling knobs all land as before, which is what makes the loss invisible.
+    **`StoredClock.unshipped` now writes the set down** beside the registers,
+    `readStoredClock` reads it defensively, `startAppSync` seeds the live set
+    from it intersected with what actually restored, and a MISSING key reads as
+    "every restored register is unshipped" — the conservative direction, the
+    same argument `heard` makes, and why the slot version did not have to move.
+    `persistShippedness.dom.test.ts`, including the older-build slot with no such
+    key at all.
+  - **The command gate accepted a first sighting at any age.** Round 7 made the
+    gate self-referential per sender, which closed every skew cliff and left one
+    word open: FIRST. `clientId()` is minted fresh on every page load, so a
+    display that reboots — or rebuilds its `EventSource` after
+    `NTFY_LIVENESS_MS` — meets every peer as a stranger, and every command in a
+    broker's replay cache is a first sighting. Measured on a cold display, one
+    hand-built `seekBy(+10)` per row, fresh `seq` so dedup has nothing to say:
+    **20 s old → executed, 6 h old → executed, 3 days old → executed**, and a
+    frame flagged `retained` executed too, though `CmdOp` has said since it was
+    written that a command is NEVER retained. The safety argument was prose, and
+    the capability model contradicted it: `TransportCaps.replayMs` was
+    transport-WIDE, ntfy declared 600 000 ms, and `NtfyTransport`'s own comment
+    still promised a defence round 7 had removed. **Three gates now, none of
+    which subtracts one device's clock from another's**: a retained-flagged cmd
+    frame is refused outright; a frame more than `CMD_MAX_AGE_MS` behind the
+    newest BROKER stamp that link has delivered is refused (`FrameMeta.ts` was
+    decoded and thrown away — it is server time against server time, one clock
+    against itself, and it is the only reading a receiver with no history of the
+    sender has); and round 7's per-sender gate stays, because it is the only one
+    that can catch a peer re-sending out of its own past, whose frame is FRESH at
+    the broker. The high-water is fed by `state` and `tele` and never by `cmd`, so
+    a command cannot vouch for itself. **`TransportCaps.cmdReplayMs`** makes the
+    claim a capability rather than a sentence: zero on all four transports, each
+    with the reason it earns that written beside it, and the ntfy comment
+    corrected. `cmdReplayGate.dom.test.ts`, with the fresh-command control that
+    says the gate measures age and not strangeness, and a three-days-fast phone
+    that reloads with a corrected clock and is still heard.
+  - **The wire reserve answered the wrong question.** `RESERVED_NEWEST_STAMPS`
+    reserves the newest eight stamps on every frame, which asks "was this the
+    last thing touched?" — and one ordinary multi-leaf config commit issues a
+    stamp per leaf, so tapping FIRST and tuning the module's settings after (the
+    order a person actually works in) pushes the tap out of the newest eight
+    before the next frame goes out. The suite's own DECISIVE schedule with its
+    two acts swapped: **150 knobs → the returning display learns after 2.1 s,
+    300 knobs → 20.2 s, 400 knobs → 96.2 s**, one writer, no race, no reorder, no
+    skew. **`wireStamps` now hands the unshipped paths over with the map** and
+    `fitStateEnvelope`'s rotating rung takes them first — the wire twin of
+    `saveClock`'s two passes, and the invariant is the same in both places: a
+    budget may only drop a stamp the room already holds. Two details the
+    measurement forced: the newest few of the unshipped head are reserved rather
+    than rotated (a cursor walking a list that loses an entry per shipped stamp
+    does not stay pointed at anything — the tap's own stamp missed eleven
+    consecutive frames), and the reserve for what the room HAS heard is taken
+    before the unshipped head is allowed to rotate (~600 bytes of 8192 for both
+    reserves, and a tap that shipped on the frame right after it was made queued
+    behind 300 fresh knobs and arrived 20 s late). If the unshipped head alone
+    does not fit, it rotates within itself and the page raises
+    `WIRE_TOO_LARGE_CLAIM`, as the slot already does.
+    `newestStampReserve.dom.test.ts` gains the flipped order at 150/300/400 and
+    keeps every original row, `lookWireBudget.test.ts`'s newest-stamp-on-every-
+    frame assertion unchanged.
+  - **The persisted stamping base was written from before the clock moved.**
+    Room time is an anchor plus a monotonic projection, and during an outage a
+    page makes no commits and folds no frames, so nothing advanced the anchor and
+    `saveClock` wrote down a reading from whenever the page last stamped
+    something. Worse, `roomNow()` advances the anchor only on the branch where
+    the WALL CLOCK wins — and after a backward step the wall clock never wins
+    again, so even calling it first would have persisted the pre-step value.
+    Measured: a phone steps its clock back during an outage and RELOADS while
+    still dark, then taps before anything inbound has landed — **−1 s the tap
+    wins, −10 s and −1 h it is silently reverted** (`loss = min(step, elapsed
+since the last save)`), while the identical script with any local commit
+    before the reload passes, because that commit's `nextStamp()` calls
+    `roomNow()`. **`saveClock` now persists `roomNow()`'s return value**, and
+    `StoredClock.baseAt` records `Date.now()` at save so the restore can project
+    across the gap under a `Math.max(0, …)` a backward step cannot drag down.
+    `anchorPersist.dom.test.ts` — both backward steps, the forward step, and the
+    local-commit control that pinned the mechanism.
+
+  The harness gained three things the round needed and a real device already
+  has: the broker stamps what it delivers from a clock no peer can move (and can
+  hand over a message with the stamp it was first accepted with, which is what a
+  replay IS), a peer's `stop()` runs on that peer's own clock — the shutdown
+  flush writes `base` and `baseAt`, so running it on the test's clock handed a
+  skewed phone a correct one for the one write where it matters — and
+  `readClockSlot` lets a test model a slot written by an older build.
 
 - **"I had to click things twice on my phone."** Reported against the remote's
   Library, investigated with real touch emulation, and it is two separate

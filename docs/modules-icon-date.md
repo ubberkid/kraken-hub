@@ -208,8 +208,9 @@ no network. Each has its own chunk group in `vite.config.ts` (`module-icon`,
 **The number that actually constrained the design is the other one.** Every
 manifest is EAGER — the registry imports it so both pages can validate stored
 config before anything renders — so a manifest and everything it imports lands
-in `core`, which is one of the five chunks `budgets.json` caps at **90 kB gzip**
-for the whole display critical path. Adding these two kinds moved that number
+in `core`, which is one of the five chunks `budgets.json` caps for the whole
+display critical path — **35 kB gzip** since W9 took the UI framework off that
+path; it was 90 kB when these two kinds landed. Adding them moved that number
 from 88.74 kB to **89.99 kB**, and it only stayed under because the glyph table
 is not reachable from the eager side: `schema.ts` validates an id by shape and
 `svg.ts` — lazy, in `module-icon` — settles its meaning. Importing the table

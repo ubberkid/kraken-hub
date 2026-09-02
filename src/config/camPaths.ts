@@ -44,6 +44,16 @@ export const CAM_PATH_CONFIGURE = 'CAM → Lighting → your Kraken → your kra
 /** The verb, before the path. */
 export const CAM_FRAME_RATE_LEAD = 'drag';
 
+/**
+ * The same verb, for a surface where the instruction STARTS the sentence.
+ *
+ * Round 13, M2. Derived, never retyped: change the verb above and this follows.
+ * JSX surfaces that bold the path themselves (`HomeView`'s `kh-fps-banner`)
+ * pick this or `CAM_FRAME_RATE_LEAD` by grammar; plain-text surfaces get the
+ * same choice through `fpsAdvisoryBody({ leadIn: true })`.
+ */
+export const CAM_FRAME_RATE_LEAD_SENTENCE = `${CAM_FRAME_RATE_LEAD.charAt(0).toUpperCase()}${CAM_FRAME_RATE_LEAD.slice(1)}`;
+
 /** Where to drag it to, after the path. */
 export const CAM_FRAME_RATE_TAIL = 'to maximum';
 
@@ -63,10 +73,32 @@ export const CAM_FRAME_RATE_INSTRUCTION = `${CAM_FRAME_RATE_LEAD} ${CAM_PATH_FRA
  * This file takes the number rather than importing the preset table, so it stays
  * dependency-free for the display graph (invariant I8).
  */
-export function fpsAdvisoryBody(maxTargetFps: number | null): string {
+export interface FpsAdvisoryOptions {
+  /**
+   * `true` when the sentence STARTS a paragraph rather than continuing one.
+   *
+   * Round 13, M2: the same string is used two ways. On the About card and in
+   * `CamSetupCard` it is the tail of a longer sentence, so it must begin
+   * mid-sentence in lowercase. On the display's advisory card and the config
+   * home banner it is the whole paragraph, and it shipped starting on a
+   * lowercase verb — *"drag CAM → …"* — which §6.3 named as a defect. Both
+   * forms come from here, so there is still exactly one instruction; only its
+   * first letter differs, and only where grammar requires.
+   */
+  readonly leadIn?: boolean;
+}
+
+export function fpsAdvisoryBody(
+  maxTargetFps: number | null,
+  options: FpsAdvisoryOptions = {},
+): string {
   const ceiling =
     maxTargetFps === null || !Number.isFinite(maxTargetFps) || maxTargetFps <= 0
       ? ''
       : ` (${String(Math.round(maxTargetFps))} FPS on this panel)`;
-  return `${CAM_FRAME_RATE_INSTRUCTION}${ceiling}.`;
+  const instruction =
+    options.leadIn === true
+      ? `${CAM_FRAME_RATE_LEAD_SENTENCE} ${CAM_PATH_FRAME_RATE} ${CAM_FRAME_RATE_TAIL}`
+      : CAM_FRAME_RATE_INSTRUCTION;
+  return `${instruction}${ceiling}.`;
 }

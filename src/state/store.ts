@@ -157,10 +157,39 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
     }
   };
 
+  /**
+   * ── The re-entrancy guard, and the torn read it removes ────────────────────
+   *
+   * True only while THIS store's `commit()` is between writing to storage and
+   * finishing. `commitToStorage` fires the in-memory bus synchronously, so this
+   * page's own write comes straight back through `watchState` below, which
+   * re-resolves the snapshot and — until this guard — NOTIFIED from inside the
+   * commit. Every subscriber therefore ran once on a half-finished commit and
+   * again on the finished one.
+   *
+   * That first run is not merely early, it is WRONG in a way that reaches the
+   * wire. `src/app/config/useSync.ts` publishes on every notification, and the
+   * sync layer stamps a commit in its `onCommit` listener, which runs AFTER the
+   * storage write. So the first frame of every local commit carried the new
+   * value with no stamp for it — `EPOCH`, a positive claim that nobody has ever
+   * written that leaf. Convergence survived because the next frame was stamped,
+   * but it is the same torn read that produced the phone's undo bug, which
+   * `lookHistoryStore` had to work around with a microtask flush.
+   *
+   * The guard suppresses only the notification a commit provokes through its own
+   * storage write. The snapshot re-resolution still happens — that is what the
+   * comment inside `commit()` protects, and it is why the assignment below sits
+   * outside the guard — and a write by ANY OTHER store on this bus (the display
+   * watching CAM's document, and vice versa) is a different closure with its own
+   * flag, so it notifies exactly as it always did.
+   */
+  let committing = false;
+
   const stopWatching = watchState((next) => {
     const resolved = fromStorage(next);
     if (resolved === snapshot) return;
     snapshot = resolved;
+    if (committing) return;
     notify();
   });
 
@@ -187,14 +216,22 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
        * module switch in CAM still reverted with the causal fix in place.
        */
       const before = snapshot;
-      snapshot = withOverlay(
-        commitToStorage((stored) => mutate(commitBase === 'snapshot' ? snapshot : stored), {
-          role,
-        }),
-      );
+      committing = true;
+      try {
+        snapshot = withOverlay(
+          commitToStorage((stored) => mutate(commitBase === 'snapshot' ? snapshot : stored), {
+            role,
+          }),
+        );
+      } finally {
+        committing = false;
+      }
       // Commit listeners run BEFORE the ordinary notification on purpose: the
       // sync layer folds the new values into its remote layer here, and a React
       // render that read a half-updated set of layers would flash the old value.
+      // With the re-entrancy guard above, the `notify()` below is now the ONLY
+      // notification a commit raises — so the first frame it provokes carries
+      // the stamps this loop has just written, not an EPOCH claim.
       for (const l of commitListeners) {
         try {
           l(snapshot, origin, before);

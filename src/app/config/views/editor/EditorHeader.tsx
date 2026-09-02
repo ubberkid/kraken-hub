@@ -99,12 +99,28 @@ export function EditorHeader({
         </button>
       )}
 
+      {/*
+        Two 26×26 glyphs, and the words that go with them — round 12's F12-8.
+
+        `aria-label` was there, so a screen reader was told; a mouse was not.
+        `↶` and `↷` are the whole of the button, and an icon-only control with
+        an EMPTY `title` is the one shape a hover cannot resolve: nothing
+        appears, so the glyph is all there is.
+
+        The label is the word and not the shortcut. The keyboard map in
+        `HomeView` accepts ⌘Z and Ctrl+Z alike — `event.metaKey || event.ctrlKey`
+        — and nothing in this build detects which of the two this machine
+        prints, so a title naming one of them would be wrong on the other
+        platform. A tooltip that is right everywhere beats a keystroke that is
+        right on Macs.
+      */}
       <span className="kh-ed__hist">
         <button
           type="button"
           className="kh-iconbtn"
           data-testid="undo"
           aria-label="Undo"
+          title="Undo"
           disabled={!canUndo}
           onClick={onUndo}
         >
@@ -115,6 +131,7 @@ export function EditorHeader({
           className="kh-iconbtn"
           data-testid="redo"
           aria-label="Redo"
+          title="Redo"
           disabled={!canRedo}
           onClick={onRedo}
         >

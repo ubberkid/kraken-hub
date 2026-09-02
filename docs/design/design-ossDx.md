@@ -34,6 +34,12 @@ This document is historical source material: it records the design as it was rea
 |---|---|---|
 | What the docs are allowed to assert (§2.9, §2.11) | The docs suite is a per-page contents list; nothing says what keeps a page true | **The docs asserted a shipped feature was impossible.** `docs/remote-control.md`'s "Cannot" list opened with *"Add files to the clip library"* and `docs/troubleshooting.md` answered "You are expecting it to upload a file" with *"It cannot, and this is not a bug"* — for a wave and a half after the LAN file transfer shipped, documented correctly two hundred lines further up the **same file**. Both also pointed at a one-click link to open kraken-hub in CAM that has never existed on the remote, whose only navigation is one quiet **About** link. This is the round's theme in its purest form: prose is the one surface with no compiler, no test and no reviewer who has to look at it, so a doc goes on confidently describing a product that has changed underneath it. The corrected claims are in those two files; the standing rule is that a "cannot" is a claim about the code and has to be re-read against the code (round 5, S2). |
 
+### Post-M4: the design audit (round 13)
+
+| Topic | This doc says | Shipped reality (authoritative) |
+|---|---|---|
+| The low-FPS advisory and how it is suppressed (§3.1) | `src/platform/fpsAdvisor.test.ts` proves `targetFps ≤ 5` → `'prompt'`, `6..14` → `'badge'`, `≥ 15` → `'none'`, and that **`?fpshint=0` suppresses** | **No such file, no such parameter.** The advisory belongs to the video module, not to the platform: `src/modules/video/ui/FpsAdvisory.ts` and its test. There are two states rather than three — a full card below `LOW_FPS_THRESHOLD` (5), which shrinks to a badge after `ADVISORY_CARD_MS` (20 s) — and a panel already at its ceiling is told nothing at all. Suppression is a **config-side** act, not a URL one: `setFpsAdvisoryDismissed()` writes a namespaced key from the settings panel, and `src/state/urlParams.ts` has never had an `fpshint` key, so `?fpshint=0` is reported back as an unknown parameter. |
+
 ---
 
 ## 0. Decisions made here (no options left open)
@@ -483,7 +489,7 @@ export default defineConfig(({ mode }) => ({
 
 ```json
 {
-  "displayCriticalPath": { "gzipKb": 90,  "chunks": ["index", "vendor-react", "core", "display-shell", "render-shared", "rolldown-runtime"] },
+  "displayCriticalPath": { "gzipKb": 35,  "chunks": ["index", "core", "display-shell", "render-shared", "rolldown-runtime"] },
   "perModuleChunk":      { "gzipKb": 25 },
   "perProviderChunk":    { "gzipKb": 60 },
   "configUi":            { "gzipKb": 140 },
@@ -492,7 +498,7 @@ export default defineConfig(({ mode }) => ({
 }
 ```
 
-Illustrative, **as of 2026-09-02** — `budgets.json` is the source of truth and each entry there carries the note explaining its number. Two of them are worth reading here: `displayCriticalPath` lists six chunks because `rolldown-runtime` is a *static* import of the display entry, so the Kraken Browser downloads it before the LCD shows anything; and `totalDistMb` is 10.6 rather than 4 because 7.49 MiB of the measured build is **sourcemaps** (emitted JS is 2.20 MiB, CSS 72 kB), with `public/fonts/` and `public/looks/` adding 0.21 MiB of lazily-fetched assets that no critical path touches. That gate exists to catch an accidental megabyte, not to bound what a panel downloads — `displayCriticalPath` is the budget that does that.
+Illustrative, **as of 2026-09-02** — `budgets.json` is the source of truth and each entry there carries the note explaining its number. Two of them are worth reading here: `displayCriticalPath` lists `rolldown-runtime` because it is a *static* import of the display entry, so the Kraken Browser downloads it before the LCD shows anything — and it no longer lists `vendor-react`, because since W9 the display page ships no UI framework at all (design-architecture.md §2.1), which is what took the measured path from 89.15 to 31.94 kB gzip and the gate from 90 to 35; and `totalDistMb` is 10.6 rather than 4 because 7.49 MiB of the measured build is **sourcemaps** (emitted JS is 2.20 MiB, CSS 72 kB), with `public/fonts/` and `public/looks/` adding 0.21 MiB of lazily-fetched assets that no critical path touches. That gate exists to catch an accidental megabyte, not to bound what a panel downloads — `displayCriticalPath` is the budget that does that.
 
 ### 4.5 Versioning and release
 

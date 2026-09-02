@@ -344,7 +344,13 @@ test('a locked layer can still be selected, and says why it cannot be moved', as
   expect(id).not.toBe('');
 
   await page.getByTestId(`layer-lock-${id}`).click();
+  /*
+   * Selecting the base also opens the background picker over the rail now
+   * (F12-2 — `BASE` is a disclosure), so the sheet is closed again before the
+   * next press, which is a press on a row underneath it.
+   */
   await page.getByTestId('layer-select-base').click();
+  await page.getByTestId('add-sheet-close').click();
   await page.locator(`[data-testid="layer-row-${id}"] .kh-rail__pick`).click();
 
   await expect(page.locator(`[data-testid="layer-row-${id}"]`)).toHaveAttribute(
@@ -919,4 +925,98 @@ test('the add sheet’s descriptions get two lines, not one clipped one', async 
   }
   // At least one of them genuinely needed the second line, or the rule is vacuous.
   expect(lines.some((l) => l.lines === 2)).toBe(true);
+});
+
+/**
+ * Every background is reachable with a mouse — round 12's F12-2.
+ *
+ * The rail's BASE chip row is the base picker, and at CAM's height round 11
+ * turned it into a one-line hidden-scrollbar scroller with none of the
+ * machinery that makes a scroller usable. Measured at 866x537: a 231 px box
+ * over 417 px of chips, so **Image** was sliced at the edge and **Shape**,
+ * **Effect** and **Solid** were off-screen; a mouse wheel over it left
+ * `scrollLeft` at 0, there was no fade, and the BASE label opened nothing.
+ * Three of the seven backgrounds could not be reached with a mouse at all.
+ *
+ * The row wraps onto two lines now. This asserts the OUTCOME rather than the
+ * technique — every chip inside its own box, in the viewport, and the rail
+ * still showing four rows of the stack — so a future round may go back to a
+ * scroller if it brings the fade and the wheel with it.
+ */
+test('all seven backgrounds are on screen at CAM’s window, with seven overlays up', async ({
+  page,
+}) => {
+  await cam(page);
+  await page.goto('/');
+  for (const kind of ['text', 'shape', 'image', 'effect', 'icon', 'clock', 'stats']) {
+    await addLayer(page, kind);
+  }
+  await settle(page);
+
+  const row = await page.evaluate(() => {
+    const mods = document.querySelector('[data-testid="mods-row"]');
+    if (mods === null) return null;
+    const box = mods.getBoundingClientRect();
+    const chips = [...mods.querySelectorAll('button')];
+    const list = document.querySelector('.kh-rail__list');
+    const rowH = list?.querySelector('.kh-rail__row')?.getBoundingClientRect().height ?? 0;
+    return {
+      chips: chips.length,
+      inside: chips.filter((c) => {
+        const r = c.getBoundingClientRect();
+        return (
+          r.width > 0 &&
+          r.left >= box.left - 0.5 &&
+          r.right <= box.right + 0.5 &&
+          r.right <= window.innerWidth + 0.5
+        );
+      }).length,
+      hiddenBehindScroll: mods.scrollWidth - mods.clientWidth,
+      clipped: mods.getAttribute('data-clipped'),
+      railRows: rowH > 0 ? Math.floor((list?.getBoundingClientRect().height ?? 0) / rowH) : 0,
+    };
+  });
+
+  expect(row?.chips, 'the seven backgrounds the registry declares').toBe(7);
+  expect(row?.inside, 'a background that is off the edge cannot be chosen').toBe(row?.chips);
+  expect(row?.hiddenBehindScroll, 'nothing is hiding behind a sideways scroll').toBe(0);
+  expect(row?.clipped, 'nothing is cut, so nothing is faded').toBe('none');
+  // …and the row that fits did not buy itself out of round 11's F-2.
+  expect(row?.railRows, 'the rail still shows four rows of the stack').toBeGreaterThanOrEqual(4);
+  /*
+   * Page-fit only. The rail's row LIST is the one box on this screen that is
+   * meant to scroll — with seven overlays there are more rows than a 537 px
+   * window has room for, which is what the list exists to do — so `clipped`
+   * here is that list doing its job, and the promise being kept is that the
+   * document itself still fits.
+   */
+  expect((await overflowOf(page)).overflow, 'the composition runs past the fold').toBe(0);
+});
+
+/**
+ * …and the second door to the same seven — the BASE label (F12-2).
+ *
+ * A label naming the thing you want to change, which does nothing when you
+ * press it, is a disclosure that forgot to disclose. It opens the add sheet at
+ * the Background row: one press, all seven as tiles, no sideways gesture
+ * anywhere in the path.
+ */
+test('the rail’s BASE label opens the background picker', async ({ page }) => {
+  await cam(page);
+  await page.goto('/');
+
+  const base = page.getByTestId('layer-select-base');
+  await expect(base).toHaveAttribute('aria-expanded', 'false');
+  await base.click();
+
+  await expect(page.getByTestId('add-sheet')).toBeVisible();
+  await expect(base).toHaveAttribute('aria-controls', 'kh-add-sheet');
+  await expect(page.getByTestId('add-group-base')).toBeInViewport();
+
+  // Every background the chip row offers is a tile in that row.
+  const tiles = page.locator('[data-testid="add-group-base"] .kh-tile');
+  await expect(tiles).toHaveCount(7);
+  // …and choosing one is the whole gesture: the sheet closes onto the change.
+  await page.getByTestId('add-tile-solid').click();
+  await expect(page.getByTestId('add-sheet')).toHaveCount(0);
 });

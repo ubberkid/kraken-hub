@@ -280,9 +280,9 @@ thing standing between a corrupt `localStorage` document and a black cooler:
 - **It is idempotent.** `validate(validate(x))` must equal `validate(x)`.
 - **It is pure.** No DOM, no storage, no clock reads.
 
-Do not reach for zod. The display bundle budget is 90 kB gzip for the whole
-critical path and a schema library is a sixth of it to do a job that is twenty
-lines of clamping. The rest of the codebase hand-rolls validators for exactly
+Do not reach for zod. The display bundle budget is 35 kB gzip for the whole
+critical path — the display page ships no UI framework, so a schema library
+would be nearly half of it to do a job that is twenty lines of clamping. The rest of the codebase hand-rolls validators for exactly
 this reason (see [`src/state/validate.ts`](../src/state/validate.ts)).
 
 ---
