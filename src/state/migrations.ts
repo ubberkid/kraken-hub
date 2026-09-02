@@ -144,6 +144,15 @@ function drop(o: Record<string, unknown>, keys: readonly string[]): Record<strin
  *  - `youtube.mode` and `youtube.portraitWidth` — compositor internals, and the
  *    portrait-width control's own help text admitted its alternative was
  *    unverified on hardware.
+ *
+ *    **`youtube.mode` has a control again** — a two-segment "YouTube player
+ *    shape" in the video module's Advanced door — and this step still deletes
+ *    it, which is correct rather than an oversight. A migration is a historical
+ *    record of what one version did to the documents of the version before it:
+ *    at schema 6 the field was unsettable, so every value this step could find
+ *    was a leftover from a control that no longer existed. It does not run again
+ *    (the schema does not move), so a choice made in Advanced is written at
+ *    schema 6 and read back at schema 6, untouched.
  *  - `youtube.sourceAspect` — only when it is one of the four exotic ratios
  *    (4:3, 1:1, 21:9, 2.39:1) the three-segment override can no longer show. A
  *    value with no segment leaves the control displaying nothing selected.

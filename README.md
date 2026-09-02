@@ -314,7 +314,7 @@ reachable from an ordinary browser tab. Start `npm run dev`, then open:
 | `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                             |
 | `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)             |
 | `/#/library`                                    | your library: one grid of clips and pictures, plus the quota          |
-| `/#/remote`                                     | the phone remote, at whatever size the window is                      |
+| `/#/remote`                                     | the remote — and on a phone, every address resolves here              |
 | `/#/about`                                      | About, Connection and Report — with every probe behind one disclosure |
 | `/#/diag`                                       | resolves to `/#/about` — the two pages merged                         |
 

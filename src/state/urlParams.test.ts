@@ -58,6 +58,29 @@ describe('parseUrlParams', () => {
     expect(result.patch).toEqual({});
   });
 
+  /**
+   * The two surface simulators, and the tri-state that makes them honest.
+   *
+   * `cam` and `phone` both answer a question about the BROWSER, and both gate
+   * whole screens — which is exactly why neither may default to a boolean.
+   * `null` means "measure it", and it is what every real visitor gets; the
+   * override exists so a run with no CAM and no touchscreen can still exercise
+   * both sides of a gate that decides which app you are looking at.
+   */
+  it('carries the CAM and phone overrides as a tri-state', () => {
+    expect(parseUrlParams('').flags).toMatchObject({ cam: null, phone: null });
+    expect(parseUrlParams('?cam=1&phone=1').flags).toMatchObject({ cam: true, phone: true });
+    expect(parseUrlParams('?cam=0&phone=0').flags).toMatchObject({ cam: false, phone: false });
+    expect(parseUrlParams('?phone=true').flags.phone).toBe(true);
+
+    // An unparseable override is IGNORED and explained, never guessed at: a
+    // guess here would silently serve somebody the wrong app.
+    const bad = parseUrlParams('?phone=maybe');
+    expect(bad.flags.phone).toBeNull();
+    expect(bad.notes.map((n) => n.key)).toEqual(['phone']);
+    expect(bad.notes[0]?.reason).toContain('0|1');
+  });
+
   it('accepts the diagnostic test patterns', () => {
     expect(parseUrlParams('?pattern=rings&page=2').flags).toMatchObject({
       pattern: 'rings',

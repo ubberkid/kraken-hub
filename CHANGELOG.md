@@ -29,6 +29,110 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **Round 9 — four parked product decisions, made, plus the phone bug they
+  surfaced.** Every item here had been deferred for the same reason: the code
+  already supported both answers and nobody had chosen. Deferring a choice is not
+  neutral — it ships one of the answers silently, with no control and no words.
+
+  - **The YouTube player shape is the user's again.** `youtube.mode` has always
+    had two values and the engine has always read both — `square` makes the
+    iframe as tall as it is wide, so YouTube's own chrome is pushed outside the
+    crop; `tight` makes it exactly as tall as the video plus its bar-safe
+    padding, which is ~25 % fewer composited pixels for the same picture. The
+    round-1 census killed the control, which left a field with exactly one
+    reachable value. It is back as a two-segment **YouTube player shape** row
+    inside the video module's one Advanced door, with words that say what the
+    trade IS rather than labelling one of them "(recommended)", and with a helper
+    line admitting the one case where the app overrides it (a Kraken short of
+    frames uses Tight regardless). No schema change: the field, its validator and
+    its default were all still there. The 5 → 6 migration still deletes what it
+    deleted, and a comment there now says why that is a historical record rather
+    than an oversight.
+
+  - **Storage persistence is a state, not a warning.** The app has called
+    `navigator.storage.persist()` since M1 and CAM's webview **grants** it — the
+    diagnostics report reads `persisted: true` on real hardware — and the Library
+    warned about eviction next to it anyway, in orange, forever. Three things
+    changed. `ensurePersisted` no longer short-circuits on a `persistGranted`
+    flag the app wrote down (site data gets cleared and profiles get copied; a
+    remembered `true` promises a durability the browser has revoked) — it asks
+    `navigator.storage.persisted()` every time. It runs on **every** add rather
+    than the first, and it fires at the TOP of the ingest rather than after the
+    quota check, the metadata probe, the thumbnail and the write — the request
+    Chromium is most likely to grant is the one made while the press is still the
+    reason the page is doing anything. And it moved to `platform/idb`, because it
+    was in the clip store, which meant a library of pictures had never asked at
+    all. The shelf then says one of exactly two true things: a quiet **Kept
+    safely on this PC** when the grant is held, or the existing warning, with its
+    tone and its remedy, when it is not. The warning can no longer appear
+    alongside a grant.
+
+  - **One way into CAM.** The install band and the About card each offered two
+    equally-weighted install buttons, the second for a channel almost nobody is
+    on. One primary **Open in CAM**; **Open in CAM Beta** is a plain text link
+    inside the _Show the address_ reveal — still reachable, still one press, no
+    longer a question asked of somebody in their first minute.
+
+  - **A phone gets the remote, and only the remote.** Typing the site URL on a
+    phone, following an old `#/library` bookmark or landing on `#/about` now
+    resolves to `#/remote`, in page, by rewriting the hash (invariant I1/I2: the
+    app still performs no navigation anywhere). Every configuration screen is
+    advice about a PC — _point CAM at this address_, _raise the frame-rate
+    slider_, a shelf backed by a file picker, a broker field — and a phone is not
+    that PC; this is the argument `ownsBytes()` has always made about the
+    Library's file controls, applied one level up to the pages themselves. The
+    phone keeps everything that drives the one Kraken from somewhere else: the
+    ring, the transport, the A–B loop, the link field, **Send a file** over the
+    LAN, the Library (the same wire-fed shelf `#/library` would have drawn) and
+    the whole of pairing. It loses the About page's connection plumbing, so the
+    remote stops rendering a link to it there — a link that resolves back to the
+    screen it was pressed on is worse than no link. The gate is
+    `(max-width: 700px) and (pointer: coarse)`: the device, not the width, so
+    dragging a desktop window narrow never changes which app you are using. A
+    desktop browser is untouched (it is the same remote at a desk, and it is also
+    a machine that can install CAM), and CAM is never gated at any width.
+    `?phone=1|0` overrides the measurement, the same simulator seam `?cam=` is.
+
+### Fixed
+
+- **"I had to click things twice on my phone."** Reported against the remote's
+  Library, investigated with real touch emulation, and it is two separate
+  things — one reproducible here, one structurally impossible to reproduce in
+  Chromium and now held by a build rule instead.
+
+  - **Hover-gated content (the iOS cause).** A touch browser has no pointer, so
+    it decides what a tap MEANS: iOS Safari delivers the first tap as a hover
+    whenever hovering would reveal, hide or move something, and withholds the
+    click. The library tile's Pin/Rename/Delete row was `opacity: 0` until
+    `:hover`, with an `@media (hover: none)` block putting it back — same pixels
+    on a phone, and the `:hover` rule that makes Safari choose hover was still
+    written. It is hover-first now: the actions are visible by default and only
+    `@media (hover: hover)` ever hides them, so a touch browser never reads a
+    rule it could swallow a tap for. Chromium has no such heuristic at any
+    emulation setting, which is exactly why this is enforced by
+    `scripts/check-invariants.mjs` rather than by a test: any `:hover` selector
+    outside `@media (hover: hover)` that sets `display`, `visibility`, `opacity`,
+    `pointer-events` or `transform` now fails `npm run check`, with a
+    `hover-ok:` escape hatch for the cases that genuinely cannot bite.
+
+  - **A tap that was not acknowledged.** Pressing a tile is a state commit, and
+    the state channel is last-writer-wins — a frame already in flight when the
+    press landed can answer with the previous tile, and a highlight that flicks
+    off is read as "that did nothing", which is answered by pressing again.
+    `RemoteLibrary` now holds its own press for `RECONCILE_GRACE_MS`, the same
+    grace and the same argument `curationOptimistic` already uses for pin,
+    rename and delete: act as if it worked, and be told otherwise. Bounded, so a
+    press that genuinely did not take still ends up telling the truth. Pressing
+    the tile that is already showing remains harmless — `showTile` writes an
+    absolute value rather than toggling.
+
+  - Both are covered by a new e2e suite under real touch emulation
+    (`hasTouch`, `isMobile`, a coarse pointer, `tap()` rather than `click()`),
+    which also sweeps the segments, the transport and the shelf's select mode:
+    one tap, one effect, and the state to prove it.
+
+### Changed
+
 - **Design audit round 8 — the claim in its non-sentence forms, and the two
   scans that could not see it.** Round 7's closing audit found the same failure
   three more times, in three shapes neither round 6's grep nor round 7's type

@@ -131,6 +131,52 @@ export async function requestPersistentStorage(): Promise<boolean> {
   }
 }
 
+/** The browser's own answer to "is this origin's storage durable?". Never throws. */
+export async function isPersisted(): Promise<boolean> {
+  if (!('storage' in navigator)) return false;
+  try {
+    return await navigator.storage.persisted();
+  } catch (err) {
+    log.warn('persisted() failed', err);
+    return false;
+  }
+}
+
+/**
+ * Hold a persistence grant, and keep asking until we do — called on EVERY add.
+ *
+ * ## Why the browser is asked rather than a cached flag
+ *
+ * This used to live in `video/local/clipStore.ts` and short-circuit on a
+ * `persistGranted` boolean in the app's own key/value store. A flag is not the
+ * same fact as a grant: site data can be cleared, a profile copied, a grant
+ * revoked — and once the flag said `true` nothing ever asked again, so the
+ * library went on promising a durability it no longer had. `persisted()` costs
+ * one microtask and is the truth.
+ *
+ * ## Why every add
+ *
+ * Chromium grants `persist()` from a user gesture or an engaged origin and
+ * silently refuses otherwise, which makes the first-ever add — the one the old
+ * code asked on — the request least likely to succeed, with no second attempt
+ * behind it. CAM's webview grants it outright (the diagnostics report reads
+ * `persisted: true` there), an ordinary browser grants it once the origin is
+ * engaged, and an add can walk into either state on any given day.
+ *
+ * ## Why it is here rather than in the video module
+ *
+ * Because a picture is an add too. It sat in the clip store, so the image
+ * library never asked at all, and the shelf that shows both was reporting a
+ * grant only one of them had ever requested. One library, one request.
+ *
+ * `false` is not a failure: it means the library is evictable under disk
+ * pressure, and the shelf says exactly that.
+ */
+export async function ensurePersisted(): Promise<boolean> {
+  if (await isPersisted()) return true;
+  return requestPersistentStorage();
+}
+
 /** Opens (and memoises) the namespaced database. Rejects if IndexedDB is blocked. */
 export function openDb(): Promise<IDBDatabase> {
   handle ??= new Promise<IDBDatabase>((resolve, reject) => {

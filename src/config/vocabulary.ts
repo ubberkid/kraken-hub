@@ -49,6 +49,17 @@ export const KEEPING_A_COPY_NOW = `${KEEPING_A_COPY} ${COPY_HOME}…`;
 export const KEPT_A_COPY = `kept ${COPY_HOME}`;
 
 /**
+ * The library's storage state when the browser has GRANTED persistence.
+ *
+ * The other half of a sentence the app used to only ever say in its warning
+ * voice. `navigator.storage.persist()` is a real grant — CAM's webview gives it
+ * — and once it is held, "May be cleared if the disk fills up" is simply false.
+ * Two states, both true, and neither of them a guess: this one is quiet on
+ * purpose, because a promise being kept is not news to warn somebody about.
+ */
+export const KEPT_SAFELY = `Kept safely ${COPY_HOME}`;
+
+/**
  * The receipt a link gets, wherever it was handed over.
  *
  * The old wording — *"Sent to your Kraken. It does the downloading, so a tile
@@ -288,6 +299,7 @@ export const OWNER_ONLY_TERMS: readonly string[] = [
   'KEEP_A_COPY_LABEL',
   'KEEPING_A_COPY_NOW',
   'KEPT_A_COPY',
+  'KEPT_SAFELY',
 ];
 
 /**

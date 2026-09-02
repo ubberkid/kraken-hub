@@ -53,6 +53,17 @@ export interface RuntimeFlags {
    * user always gets.
    */
   cam: boolean | null;
+  /**
+   * `?phone=1` / `?phone=0` — the phone-class simulator.
+   *
+   * Whether this window is a phone is a property of the DEVICE (a coarse
+   * pointer on a narrow viewport), and it now decides which of the two apps a
+   * non-CAM visitor gets at all. Same seam, and the same reason, as `?cam=`:
+   * without it neither side of the gate can be exercised from a run that has no
+   * touchscreen. `null` means "measure it honestly", which is what every real
+   * visitor gets.
+   */
+  phone: boolean | null;
 }
 
 export interface ParsedUrlParams {
@@ -87,6 +98,7 @@ const KNOWN_KEYS = new Set([
   'pattern',
   'page',
   'cam',
+  'phone',
 ]);
 
 function isOne(raw: string): boolean {
@@ -127,6 +139,7 @@ export function parseUrlParams(search: string): ParsedUrlParams {
     pattern: null,
     page: null,
     cam: null,
+    phone: null,
   };
 
   const reject = (key: string, raw: string, reason: string): void => {
@@ -163,6 +176,15 @@ export function parseUrlParams(search: string): ParsedUrlParams {
           break;
         }
         flags.cam = cam;
+        break;
+      }
+      case 'phone': {
+        const phone = parseBoolParam(raw);
+        if (phone === undefined) {
+          reject(key, raw, 'expected 0|1');
+          break;
+        }
+        flags.phone = phone;
         break;
       }
 

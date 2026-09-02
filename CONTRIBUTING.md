@@ -118,6 +118,29 @@ LCD that is painful to debug — so each is enforced by a lint rule.
 | 7   | No default exports outside manifests              | Keeps the dynamic-import registry mechanical and greppable.                                                                                                                          | `import-x/no-default-export`                                                                                                                     |
 | 8   | Nothing from a CDN                                | Strict CSP, reproducible builds, and an offline demo all depend on it.                                                                                                               | `no-restricted-syntax`                                                                                                                           |
 
+### Two stylesheet rules `npm run invariants` also enforces
+
+Neither is a platform invariant — a violation of either produces a page that
+looks fine on the machine that wrote it and misbehaves on somebody else's — so
+they live in `scripts/check-invariants.mjs` beside invariant 5, with the same
+kind of named escape hatch.
+
+- **Dead media-query rules.** A media query adds nothing to specificity, so a
+  rule inside one, followed later in the file by the same selector at the same
+  specificity, is dead. Qualify it with an ancestor or move it below the base
+  rule; if the later rule really should win, say why in a
+  `/* cascade-collision-ok: … */` comment above it.
+- **Hover-gated content.** A `:hover` rule outside `@media (hover: hover)` that
+  sets `display`, `visibility`, `opacity`, `pointer-events` or `transform`. A
+  touch browser has no pointer, so it decides what a tap MEANS — iOS Safari
+  delivers the first tap as a hover whenever hovering would reveal, hide or move
+  something, and withholds the click, which is a user pressing everything twice.
+  Write the rule hover-first: put the hiding **and** the revealing inside
+  `@media (hover: hover)`, so a touch browser never reads either. A
+  `@media (hover: none)` counter-rule does not fix it. A hover that only changes
+  colour is fine; if one genuinely cannot swallow a tap, say why in a
+  `/* hover-ok: … */` comment.
+
 ## Testing
 
 - **Unit (Vitest).** All pure logic: geometry and crop math, fit math, state

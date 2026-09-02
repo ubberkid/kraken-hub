@@ -41,7 +41,7 @@ import { qrMatrix, qrSvgPath, remoteLinkUrl } from '../qr';
 import { forgetRoom, readRememberedRoom, rememberRoom } from '../rememberedRoom';
 import { currentHash, hashQuery, subscribeRoute } from '../router';
 import { ownsBytes } from '../surface';
-import { PHONE_QUERY, useNarrow } from '../useNarrow';
+import { PHONE_QUERY, useNarrow, usePhoneOnly } from '../useNarrow';
 import { useSync } from '../useSync';
 
 import { CamSetupCard } from './CamSetupCard';
@@ -674,6 +674,18 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const offerInstall = !live && !narrow && !runtime.camDetected;
 
   /**
+   * …and whether this screen is the ONLY screen (the phone rule, `ConfigApp`).
+   *
+   * The About link below is the one door off this page. On a phone every route
+   * resolves back here, so the door opens onto the room it is in — and a link
+   * that lands you where you already are is worse than no link at all. What it
+   * leads to is broker fields and telemetry switches, which are settings for the
+   * machine that talks to the broker; pairing itself — join, rotate, unpair —
+   * has always lived on this screen, and stays.
+   */
+  const phoneOnly = usePhoneOnly(runtime);
+
+  /**
    * …and round 7's F5: WHICH WINDOW is asking for the remote?
    *
    * `#/remote` served one page to every surface, and in CAM's Configuration
@@ -1163,7 +1175,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
       */}
       {offerInstall && <CamSetupCard runtime={runtime} variant="quiet" />}
 
-      {live && (
+      {live && !phoneOnly && (
         <p className="kh-remote__foot">
           {/*
             The label is the destination (round 4, minors).

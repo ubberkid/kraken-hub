@@ -2174,9 +2174,14 @@ html.kh-config-mode .kh-app {
   font-weight: 600;
 }
 
-/* The secondary action: a link in weight, a button in hit area. */
+/* The secondary action: a link in weight, a button in hit area.
+   `inline-flex` because this class is worn by an `<a>` as well as a `<button>`
+   now (the CAM Beta install), and an inline anchor ignores the 44 px floor the
+   phone block sets on it. */
 .kh-band__more {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
   flex: none;
   padding: 0.3rem 0.2rem;
   border: 0;
@@ -2782,8 +2787,6 @@ main > .kh-panel .kh-setup {
   flex-wrap: wrap;
   gap: 0.3rem;
   padding: 0 0.6rem 0.6rem;
-  opacity: 0;
-  transition: opacity var(--kh-dur) var(--kh-ease);
 }
 
 .kh-tile__actions .kh-btn {
@@ -2792,17 +2795,31 @@ main > .kh-panel .kh-setup {
 }
 
 /*
- * Hover reveals the actions; focus-within reveals them too, and a coarse
- * pointer gets them unconditionally — a tablet has no hover and a hidden
- * Delete it can never surface is worse than a busy tile.
+ * The actions are VISIBLE by default, and hover only ever takes them away.
+ *
+ * The old shape was the other way round: hidden at `opacity: 0`, revealed by
+ * `:hover`/`:focus-within`, with an `@media (hover: none)` block putting them
+ * back for touch. Same pixels, and a materially different behaviour on a phone
+ * — because iOS Safari decides whether a tap is a CLICK or a HOVER by asking
+ * whether the hover would change anything, and a `:hover` rule that reveals a
+ * row of buttons is exactly the change that makes it choose hover. The first tap
+ * is then swallowed and the user presses everything twice.
+ *
+ * Writing it hover-first removes the question rather than answering it: a touch
+ * browser never parses a rule that could hide something, because there is no
+ * matching `@media (hover: hover)` context to parse it in. That is now a build
+ * rule — `scripts/check-invariants.mjs` fails any `:hover` selector outside
+ * `@media (hover: hover)` that touches display, visibility, opacity,
+ * pointer-events or transform.
  */
-.kh-tile:hover .kh-tile__actions,
-.kh-tile:focus-within .kh-tile__actions {
-  opacity: 1;
-}
-
-@media (hover: none) {
+@media (hover: hover) {
   .kh-tile__actions {
+    opacity: 0;
+    transition: opacity var(--kh-dur) var(--kh-ease);
+  }
+
+  .kh-tile:hover .kh-tile__actions,
+  .kh-tile:focus-within .kh-tile__actions {
     opacity: 1;
   }
 }

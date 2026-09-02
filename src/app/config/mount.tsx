@@ -66,6 +66,7 @@ export function mountConfig(container: HTMLElement): void {
     persisted: persisted.state,
     url: params.patch,
     camDetected,
+    phoneOverride: params.flags.phone,
     appUrl: canonicalAppUrl(),
   };
 

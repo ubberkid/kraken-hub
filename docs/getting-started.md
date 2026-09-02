@@ -61,9 +61,11 @@ option → paste the URL → _Apply_.**
 
 If you opened kraken-hub in an ordinary browser first, the page does this for
 you: until a Kraken has ever connected, a slim band sits under the halo on the
-home screen with the frame-rate step and one **Open in CAM** button. _Show the
-address_ on that band reveals this page's own URL, a copy button, the CAM Beta
-channel and whether CAM is what is showing the page. The band disappears for good
+home screen with the frame-rate step and one **Open in CAM** button — one
+button, because two equally-weighted install buttons is a question with an
+obvious answer. _Show the address_ on that band reveals this page's own URL, a
+copy button, a plain **Open in CAM Beta** link for the few people on that
+channel, and whether CAM is what is showing the page. The band disappears for good
 the first time the display actually reports in, and the full two-step card lives
 on afterwards under **About** — the version line in the footer.
 
@@ -189,6 +191,25 @@ that room yet; it becomes _Paired with your PC_ once something has.</sub>
   under _Pairing options_ if you ever share a screenshot.
 - Transport failover (MQTT → ntfy) is automatic, and both endpoints are
   user-overridable if you would rather run your own.
+
+### What you see on a phone
+
+**The remote, and only the remote** — whatever address you open. A phone typing
+the site URL, following an old `#/library` bookmark or landing on `#/about` gets
+the remote every time, and the address bar catches up in the page.
+
+Everything on the configuration screens is advice about a PC: point CAM at this
+address, raise the frame-rate slider, add a file from this disk. Your phone is
+not that PC. What it does get is everything that drives the Kraken from the
+sofa — the ring, play/hold, seek, the A–B loop, a link field, **Send a file**
+over the LAN, the Library (the same shelf, fed over the wire) and the whole of
+pairing.
+
+A laptop or desktop browser is unchanged: it is the same remote at a desk, and it
+keeps the configuration screens, because it is also a machine that can install
+CAM. What separates the two is the device — a touchscreen on a small
+viewport — not the window's width, so dragging a desktop window narrow never
+changes what you are looking at.
 
 The full threat model, the transports, and exactly what leaves your machine are
 in [remote-control.md](remote-control.md).

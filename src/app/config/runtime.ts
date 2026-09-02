@@ -23,6 +23,15 @@ export interface ConfigRuntime {
    * ordinary browser tab: `window.nzxt` is present, or the UA says Electron.
    */
   camDetected: boolean;
+  /**
+   * `?phone=1|0`, or `null` when the device is left to answer for itself.
+   *
+   * The measurement is a media query and therefore lives in a hook rather than
+   * in this object (`useNarrow(PHONE_CLASS_QUERY)`); what is captured at boot is
+   * only the OVERRIDE, so a run with no touchscreen can still exercise both
+   * sides of the gate. See `ConfigApp`'s phone rule.
+   */
+  phoneOverride: boolean | null;
   /** Canonical install URL with the trailing slash. */
   appUrl: string;
 }

@@ -13,6 +13,7 @@ import {
   KEEP_A_COPY,
   KEEP_A_COPY_LABEL,
   KEPT_A_COPY,
+  KEPT_SAFELY,
   KEPT_VERB,
   LINK_RECEIPT,
   MACHINE_NOUNS,
@@ -92,6 +93,8 @@ const SINGLE_SOURCE: readonly string[] = [
   STREAM_ONLY,
   KEEPING_A_COPY_NOW,
   KEPT_A_COPY,
+  // The storage line's quiet half — the sentence a granted `persist()` earns.
+  KEPT_SAFELY,
   // Round 4, F4 — the two families that were hand-written twice.
   NOTHING_KEPT,
   FLAT_COLOURS_WHY,

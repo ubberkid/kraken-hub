@@ -21,6 +21,7 @@
 
 import { BYTES_PER_MB } from '../../lib/bytes';
 import { createLogger } from '../../lib/log';
+import { ensurePersisted } from '../../platform/idb';
 
 import { probeImage } from './download';
 import { newImageId, putImage, type ImageRecord } from './imageStore';
@@ -73,6 +74,16 @@ async function quotaAllows(sizeBytes: number): Promise<boolean> {
 
 /** The one function every byte-first picture path ends in. */
 export async function ingestImageBlob(blob: Blob, name: string): Promise<ImageIngestResult> {
+  /*
+   * A picture is an add, so a picture asks too.
+   *
+   * The request used to live only in the clip path, which meant a library made
+   * entirely of pictures had never once asked for the durability the shelf
+   * reports on. Fired first and not awaited, for the reason `video/local/ingest`
+   * spells out: everything below this line is time spent after the press.
+   */
+  void ensurePersisted().catch(() => false);
+
   const mime = blob.type;
   if (mime.length > 0 && !IMAGE_MIME_RE.test(mime)) {
     return {

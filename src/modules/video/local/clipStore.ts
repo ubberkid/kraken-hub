@@ -22,13 +22,7 @@
 
 import { formatBytes } from '../../../lib/bytes';
 import { createLogger } from '../../../lib/log';
-import {
-  STORE_KV,
-  idbRequest,
-  idbTxDone,
-  openDb,
-  requestPersistentStorage,
-} from '../../../platform/idb';
+import { STORE_KV, idbTxDone, isPersisted, openDb } from '../../../platform/idb';
 import {
   CLIP_INDEX_SUFFIX,
   deleteMedia,
@@ -93,7 +87,6 @@ export interface ClipSummary {
 /** §5.1 — the `tele` payload budget caps the published index. */
 const CLIP_INDEX_MAX = 40;
 
-const KV_PERSIST_GRANTED = 'persistGranted';
 const KV_LAST_QUOTA_CHECK = 'lastQuotaCheck';
 
 /**
@@ -230,15 +223,18 @@ export async function touchClip(id: string): Promise<void> {
 // kv scratch
 // ---------------------------------------------------------------------------
 
-export async function kvGet<T>(k: string): Promise<T | null> {
-  const db = await openDb();
-  const tx = db.transaction(STORE_KV, 'readonly');
-  const row = await idbRequest(
-    tx.objectStore(STORE_KV).get(k) as IDBRequest<{ k: string; v: T } | undefined>,
-  );
-  return row?.v ?? null;
-}
-
+/*
+ * `kvGet` is gone with the `persistGranted` flag that was its only reader.
+ *
+ * The flag was a cached copy of an answer the browser will give for free
+ * (`navigator.storage.persisted()`), and caching it is what let the app promise
+ * a durability a cleared profile had revoked — see `platform/idb`. Deleting the
+ * reader and leaving the accessor would be a dead export that reads as though
+ * something still consults this store, which is the shape the `surfaceName()`
+ * removal made a rule of. The only thing written here now is
+ * `lastQuotaCheck`, which nothing reads back yet either but is a diagnostic
+ * breadcrumb rather than an accessor.
+ */
 export async function kvSet(k: string, v: unknown): Promise<void> {
   const db = await openDb();
   const tx = db.transaction(STORE_KV, 'readwrite');
@@ -269,11 +265,7 @@ export async function readQuota(): Promise<QuotaInfo> {
   } catch (err) {
     log.warn('estimate() failed', err);
   }
-  try {
-    out.persisted = await navigator.storage.persisted();
-  } catch {
-    /* not fatal: an unknown persistence state is reported as best-effort */
-  }
+  out.persisted = await isPersisted();
   void kvSet(KV_LAST_QUOTA_CHECK, Date.now());
   return out;
 }
@@ -298,19 +290,6 @@ export async function checkQuotaFor(sizeBytes: number): Promise<QuotaVerdict> {
       quota.usageBytes,
     )} of ${formatBytes(quota.quotaBytes)}. Delete a clip and try again.`,
   };
-}
-
-/**
- * §5.3 step 6 — ask for persistent storage on the first successful add, and
- * keep asking on later adds until it is granted. `false` is not a failure: it
- * means clips are evictable under disk pressure, which the panel says plainly.
- */
-export async function ensurePersisted(): Promise<boolean> {
-  const already = await kvGet<boolean>(KV_PERSIST_GRANTED);
-  if (already === true) return true;
-  const granted = await requestPersistentStorage();
-  await kvSet(KV_PERSIST_GRANTED, granted);
-  return granted;
 }
 
 // ---------------------------------------------------------------------------

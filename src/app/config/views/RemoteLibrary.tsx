@@ -221,6 +221,50 @@ export function RemoteLibrary({
   const tiles = useMemo(() => applyPending(wireTiles, pending), [wireTiles, pending]);
   const activeKey = activeTileKey(activeModuleId, videoUrl, imageId);
 
+  /*
+   * The tap is acknowledged by THIS device, immediately — round 9's phone bug.
+   *
+   * *"I had to click things from my library twice for it to show that library
+   * item."* Pressing a tile commits `activeModuleId` + the module's `url`, which
+   * is a synchronous local write, so the badge normally moves on the same frame.
+   * Normally. The state channel is last-writer-wins and the display republishes
+   * what it resolved, so a frame that was already in flight when the press
+   * landed can put the previous tile back for a beat — and a badge that flicks
+   * on and off is read as "that did nothing", which is answered by pressing
+   * again.
+   *
+   * This is the same answer `curationOptimistic` gives for pin/rename/delete,
+   * and deliberately the same grace: the surface acts as if it worked and is
+   * told otherwise. It is bounded, so a press that genuinely did not take still
+   * ends up telling the truth — after `RECONCILE_GRACE_MS`, the state wins.
+   *
+   * A second press on the tile that is already showing is harmless by
+   * construction: `showTile` writes an absolute value rather than toggling, so
+   * pressing twice says the same sentence twice.
+   */
+  const [justShown, setJustShown] = useState<{ key: string; at: number } | null>(null);
+  /*
+   * The grace expires on a TIMER rather than by comparing clocks at render time:
+   * render has to be pure (the React compiler enforces it), and "how long ago
+   * was that press" is not. One timeout per press, cleared on unmount.
+   *
+   * There is no early clear when the wire agrees, because there is nothing to
+   * clear: an override that names the same tile the state does is invisible.
+   */
+  useEffect(() => {
+    if (justShown === null) return undefined;
+    const left = Math.max(0, RECONCILE_GRACE_MS - (Date.now() - justShown.at));
+    const timer = setTimeout(() => {
+      setJustShown(null);
+    }, left);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [justShown]);
+
+  /** What the shelf HIGHLIGHTS: this device's own last press, then the wire. */
+  const shownKey = justShown?.key ?? activeKey;
+
   const byId = useMemo(() => {
     const map = new Map<string, LibraryTile>();
     for (const tile of tiles) if (tile.id !== null) map.set(tile.id, tile);
@@ -349,15 +393,19 @@ export function RemoteLibrary({
             <RemoteTile
               key={tile.key}
               tile={tile}
-              active={tile.key === activeKey}
+              active={tile.key === shownKey}
               activeLabel={nowShowingBadge(presence)}
               selecting={selecting}
               selected={tile.id !== null && selected.has(tile.id)}
               renamingDraft={renaming !== null && renaming.id === tile.id ? renaming.draft : null}
               onPress={() => {
                 if (tile.id === null) return;
-                if (selecting) toggleSelected(tile.id);
-                else showTile(store, tile);
+                if (selecting) {
+                  toggleSelected(tile.id);
+                  return;
+                }
+                showTile(store, tile);
+                setJustShown({ key: tile.key, at: Date.now() });
               }}
               onPin={() => {
                 if (tile.id !== null) pin([tile.id], tile.kind, !tile.pinned);

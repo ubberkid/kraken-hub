@@ -15,9 +15,10 @@
  */
 
 import { createLogger } from '../../../lib/log';
+import { ensurePersisted } from '../../../platform/idb';
 import { publish } from '../telemetry/videoTelemetry';
 
-import { checkQuotaFor, ensurePersisted, newClipId, putClip, type ClipRecord } from './clipStore';
+import { checkQuotaFor, newClipId, putClip, type ClipRecord } from './clipStore';
 
 const log = createLogger('video/ingest');
 
@@ -230,6 +231,23 @@ export async function ingestBlob(
 ): Promise<IngestResult> {
   const warnings: IngestWarning[] = [];
 
+  /*
+   * The persistence request goes out FIRST, and it is not awaited here.
+   *
+   * `navigator.storage.persist()` is granted on a user gesture or an engaged
+   * origin, and everything below this line — a quota estimate, an eight-second
+   * metadata probe, a thumbnail draw, a two-store transaction — is time spent
+   * after the press that started it. Asking at the END, which is where this
+   * used to happen, is asking as late as the ingest possibly could. Starting it
+   * now and reading the answer at the bottom costs nothing and asks while the
+   * press is still the reason the page is doing anything.
+   *
+   * It is fired even on the paths that return early: a rejected container or a
+   * full disk is still a person adding to their library, and a grant is about
+   * the library rather than about this one file.
+   */
+  const persistRequest = ensurePersisted().catch(() => false);
+
   if (isRejectedContainer(name)) {
     return {
       ok: false,
@@ -292,7 +310,7 @@ export async function ingestBlob(
   };
 
   await putClip(clip, blob);
-  const persisted = await ensurePersisted();
+  const persisted = await persistRequest;
   publish({
     code: 'clip-added',
     severity: 'info',

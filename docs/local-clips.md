@@ -243,20 +243,25 @@ the same one for a picture as for a clip — there is one library and one quota,
 a shelf full of GIFs is what refuses the next video. The Library page shows a
 usage bar under the grid, counting everything on it.
 
-On the first successful add — inside the user gesture, which is the only time the
-browser will grant it — kraken-hub calls `navigator.storage.persist()` and shows
-the result as a badge:
+**Every add asks for persistent storage**, clips and pictures alike, and the
+request goes out at the top of the ingest rather than at the end of it — while
+the press that started it is still the reason the page is doing anything, which
+is what Chromium's user-gesture rule is looking for. Whether the grant is held is
+read back from `navigator.storage.persisted()` each time, never from a flag
+kraken-hub wrote down: site data gets cleared, profiles get copied, and a
+remembered `true` would go on promising a durability the browser had revoked.
 
-| Chip                                                                  | Meaning                                                                                                                                  |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Kept for good**                                                     | The browser has promised not to evict your library.                                                                                      |
-| **May be cleared if the disk fills up — pin the ones you care about** | Chromium may evict the whole bucket under disk pressure — clips and pictures alike, which is why **Pin** is on every tile of both kinds. |
+Under the usage bar the Library then says one of exactly two true things:
 
-The warning chip is drawn only when it is actionable — once something is
-actually stored, or once the quota is genuinely under pressure. On an empty
-library there is nothing to pin and nothing to lose.
+| Line                                                                            | Meaning                                                                                                                                  |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Kept safely on this PC** (quiet)                                              | The browser has promised not to evict your library. Inside CAM this is the normal case — CAM's webview grants the request.               |
+| **May be cleared if the disk fills up — pin the ones you care about** (warning) | Chromium may evict the whole bucket under disk pressure — clips and pictures alike, which is why **Pin** is on every tile of both kinds. |
 
-If persistence was not granted, kraken-hub asks again on each subsequent add.
+Only the second one is a warning, and it is never shown while the grant is held.
+It is also drawn only when it is actionable — once something is actually stored,
+or once the quota is genuinely under pressure. On an empty library there is
+nothing to pin and nothing to lose.
 
 **Blob URLs are reference-counted.** An adapter acquires one on mount and
 releases it on teardown — _after_ the element has let go of the `src`, because

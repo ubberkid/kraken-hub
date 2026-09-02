@@ -110,11 +110,36 @@ list to update. Do this if you have ever shown the code on stream.
 
 ### Which surfaces exist
 
-| Surface                    | How you get there             | Role      |
-| -------------------------- | ----------------------------- | --------- |
-| CAM Configuration Browser  | CAM opens it                  | `config`  |
-| Any other browser or phone | the site URL, `#/remote`      | `remote`  |
-| The LCD itself             | CAM opens it with `?kraken=1` | `display` |
+| Surface                   | How you get there             | Role      | What it shows                   |
+| ------------------------- | ----------------------------- | --------- | ------------------------------- |
+| CAM Configuration Browser | CAM opens it                  | `config`  | Everything                      |
+| A desktop browser         | the site URL                  | `remote`  | Everything, minus adding files  |
+| A phone                   | the site URL, any address     | `remote`  | The remote, and only the remote |
+| The LCD itself            | CAM opens it with `?kraken=1` | `display` | The panel                       |
+
+### A phone is a remote, on every address
+
+Type the site URL on a phone — with no `#/remote`, or with `#/library`, or with
+a bookmark to `#/about` — and you get **the remote**. The address bar catches up
+in the page, without a navigation.
+
+That is a decision rather than a limitation. Every configuration screen is advice
+about a PC: _point CAM at this address_, _raise the frame-rate slider_, a shelf
+backed by a file picker, a broker field. A phone is not that PC, and a control
+whose bytes would land somewhere your Kraken can never read is worse than no
+control (the same rule the Library's file picker has always followed).
+
+What a phone keeps is everything that drives the one Kraken from somewhere else:
+the ring, the transport, the A–B loop, the link field, **Send a file** over the
+LAN, the Library — the same shelf `#/library` would have drawn, fed from the wire
+— and the whole of pairing: join, rotate, unpair. What it loses is the About
+page's connection plumbing, so the remote does not offer a link to it there.
+
+A **desktop** browser is untouched: it is the same remote at a desk, and it keeps
+the configuration screens, because it is also a machine that can install CAM. The
+signal is the device, not the width — a coarse pointer on a narrow viewport —
+so dragging a desktop window narrow never changes which app you are using.
+`?phone=1` / `?phone=0` overrides it for testing, exactly as `?cam=` does.
 
 The display **never publishes state**. It listens, it obeys, and it reports
 telemetry. That one rule is what stops three surfaces from echoing changes at

@@ -106,6 +106,44 @@ const SHAPE_SEGMENTS: readonly {
   { value: '9:16', label: 'Tall', title: 'Vertical video and Shorts.', aspect: ASPECT_9_16 },
 ];
 
+/**
+ * The player-shape override — restored, in Advanced, with honest words.
+ *
+ * ## Why it was killed, and why it is back
+ *
+ * The round-1 census deleted it along with the rest of the compositor internals,
+ * on the rule that *"every '(recommended)' option is an admission that the
+ * control should not be a control"*. That rule was right about the label and
+ * wrong about the choice: `square` and `tight` are not two qualities of the same
+ * picture, they are a real trade the engine has always implemented (see
+ * `youtube/geometry.ts` — `square` makes the iframe as tall as it is wide so
+ * YouTube's own chrome is pushed outside the crop; `tight` makes it exactly as
+ * tall as the video plus its bar-safe padding). The picture on the panel is the
+ * same either way; what differs is how many pixels the compositor is asked to
+ * carry, and how much room YouTube has to draw a control bar into.
+ *
+ * So it is a genuine choice with a safe default, which is what Advanced is for.
+ * The old copy called one of them "(recommended)" and the other "experimental",
+ * which told the reader nothing about either; these say what the trade IS.
+ *
+ * The engine does NOT always obey this — `perf: 'performance'` forces `tight`,
+ * because a machine short of frames has already answered the question. The
+ * helper line below says so, because a control that is silently overridden and
+ * does not admit it is the kind of lie the audit exists to catch.
+ */
+const YT_SHAPE_SEGMENTS = [
+  {
+    value: 'square',
+    label: 'Square',
+    title: 'A taller frame, so YouTube’s own buttons stay outside the picture.',
+  },
+  {
+    value: 'tight',
+    label: 'Tight',
+    title: 'A smaller frame: less for your PC to draw, and the same picture.',
+  },
+] as const;
+
 /** When kraken-hub asks the downloader to fetch a link, rather than streaming it. */
 const RESOLVER_POLICY_SEGMENTS = [
   { value: 'off', label: 'Never', title: 'Ignore the downloader even when it is running.' },
@@ -223,6 +261,27 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
               }}
             />
           </GroupField>
+
+          <GroupField
+            label="YouTube player shape"
+            id="video-yt-mode"
+            description="Square is the safer of the two: the frame is tall enough that YouTube’s own buttons never reach the picture. Tight draws a smaller frame for the same picture."
+          >
+            <Segmented
+              id="video-yt-mode"
+              labelledBy="video-yt-mode-label"
+              value={cfg.youtube.mode}
+              options={YT_SHAPE_SEGMENTS}
+              onChange={(key) => {
+                const found = YT_SHAPE_SEGMENTS.find((s) => s.value === key);
+                if (found === undefined) return;
+                set({ youtube: { ...cfg.youtube, mode: found.value } });
+              }}
+            />
+          </GroupField>
+          <p className="kh-hint">
+            Only affects YouTube links, and a Kraken that is short of frames uses Tight anyway.
+          </p>
 
           <FramingAdvanced
             idPrefix="video"

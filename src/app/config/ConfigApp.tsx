@@ -3,6 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { Footer } from './Footer';
 import { currentHash, parseRoute, subscribeRoute } from './router';
 import { ownsBytes } from './surface';
+import { usePhoneOnly } from './useNarrow';
 import { AboutView } from './views/AboutView';
 import { HomeView } from './views/HomeView';
 import { LibraryView } from './views/LibraryView';
@@ -117,12 +118,67 @@ function mainKey(name: string): string {
   return LEGACY_ROUTES[name] ?? name;
 }
 
+/**
+ * The whole page, rewritten to `#/remote` — a phone's one screen.
+ *
+ * The hash rewrite is the same in-page mechanism `HashRedirect` uses and for the
+ * same reason (invariant I1/I2: the Kraken Browser cannot follow a navigation,
+ * so the app never performs one anywhere). It is separate from `HashRedirect`
+ * because that component redirects ONE named legacy route and this one catches
+ * every route there is.
+ */
+function PhoneRemote({ runtime }: { runtime: ConfigRuntime }) {
+  useEffect(() => {
+    if (parseRoute(window.location.hash).name !== 'remote') window.location.hash = '#/remote';
+  });
+  return <RemoteView runtime={runtime} />;
+}
+
 export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
   const hash = useSyncExternalStore(subscribeRoute, currentHash, () => '#/');
   // Re-render on every state commit so the views always show the stored truth.
   useSyncExternalStore(runtime.store.subscribe, runtime.store.getSnapshot);
   const route = parseRoute(hash);
   const subTitle = SUBPAGE_TITLE[route.name] ?? null;
+
+  /**
+   * A phone gets the remote, and ONLY the remote.
+   *
+   * ## The rule
+   *
+   * The configuration surface is a set of controls for a machine: an install
+   * band that says "point CAM at this address", a shelf backed by a file picker,
+   * a broker field, a frame-rate instruction. Every one of them is advice about
+   * the PC, and a phone is not the PC — the same argument `ownsBytes()` already
+   * makes about the Library's file controls, applied one level up to the pages
+   * themselves. So a phone-class window that is not CAM's own Configuration
+   * Browser resolves every route to the remote, in page, by rewriting the hash.
+   *
+   * ## Why the two signals, and not the width alone
+   *
+   * `PHONE_QUERY` is a layout question and is true of a desktop window somebody
+   * dragged narrow — and of CAM's 866×537 frame at a high zoom. Gating a whole
+   * app on it would mean a resize changed which product you were using.
+   * `PHONE_CLASS_QUERY` adds a coarse pointer, which is the difference between
+   * "cramped" and "held in a hand".
+   *
+   * ## What a phone therefore keeps, and what it loses
+   *
+   * It keeps everything that drives the one Kraken from somewhere else: the
+   * ring, the transport, the shelf (the same wire-fed `RemoteLibrary` `#/library`
+   * would have shown it), the link field, and the pairing card — join, rotate
+   * and unpair all live on this screen. What it loses is the About page's
+   * connection plumbing, which is why `RemoteView` stops rendering the link to
+   * it here: a link that resolves back to the screen it was pressed on is worse
+   * than no link. Somebody who needs a broker URL is at the machine that talks
+   * to the broker.
+   *
+   * CAM is never gated: `ownsBytes()` is the window whose IndexedDB the LCD
+   * reads, and a Configuration Browser at any width is still that window.
+   * A desktop browser is never gated either — it is the same remote, at a desk
+   * (A6), and it can also install CAM, which is the one thing a phone cannot do.
+   */
+  const phoneOnly = usePhoneOnly(runtime);
 
   /**
    * A6 — there is no Library to show a window that is not attached to a Kraken.
@@ -158,7 +214,12 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
           </a>
         </header>
 
-        {subTitle !== null && <SubPageHeader route={route.name} title={subTitle} />}
+        {/*
+          No sub-page header on a phone. The remote is the only screen there, so
+          "‹ Your Kraken / Remote" would be a breadcrumb back to a page that
+          does not exist on this device — and pressing it would land here again.
+        */}
+        {!phoneOnly && subTitle !== null && <SubPageHeader route={route.name} title={subTitle} />}
 
         {/*
           Keyed on the route so a navigation genuinely REPLACES the element:
@@ -180,56 +241,67 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
           changed key would tear the merged page down and rebuild it — replaying
           the rise animation and re-running every probe on it.
         */}
-        <main key={mainKey(route.name)}>
-          {/*
+        {/*
+          On a phone the key is CONSTANT — `remote`, whatever the hash said when
+          the page opened. The rewrite lands one tick after mount, and a key that
+          moved with the route would tear the remote down and rebuild it (and
+          re-run its pairing effects) for every deep link that arrives here.
+        */}
+        <main key={phoneOnly ? 'remote' : mainKey(route.name)}>
+          {phoneOnly && <PhoneRemote runtime={runtime} />}
+          {!phoneOnly && (
+            <>
+              {/*
             Home and `#/module/<id>` are the SAME element in the same slot, so
             the redirect's hash rewrite does not remount the screen and throw
             away the panel the deep link just opened. `HashRedirect` is inert
             unless the current route is the one it names.
           */}
-          {(route.name === 'home' || route.name === 'module') && (
-            <HashRedirect from="module" to="#/">
-              <HomeView
-                runtime={runtime}
-                openModule={route.name === 'module' ? route.id : undefined}
-              />
-            </HashRedirect>
-          )}
-          {route.name === 'library' &&
-            (reachable ? (
-              <LibraryView runtime={runtime} />
-            ) : (
-              <HashRedirect from="library" to="#/remote">
-                <RemoteView runtime={runtime} />
-              </HashRedirect>
-            ))}
-          {route.name === 'sources' && (
-            <HashRedirect from="sources" to={reachable ? '#/library' : '#/remote'}>
-              {reachable ? <LibraryView runtime={runtime} /> : <RemoteView runtime={runtime} />}
-            </HashRedirect>
-          )}
-          {route.name === 'remote' && <RemoteView runtime={runtime} />}
-          {route.name === 'preview' && (
-            <HashRedirect from="preview" to="#/">
-              <HomeView runtime={runtime} />
-            </HashRedirect>
-          )}
-          {/*
+              {(route.name === 'home' || route.name === 'module') && (
+                <HashRedirect from="module" to="#/">
+                  <HomeView
+                    runtime={runtime}
+                    openModule={route.name === 'module' ? route.id : undefined}
+                  />
+                </HashRedirect>
+              )}
+              {route.name === 'library' &&
+                (reachable ? (
+                  <LibraryView runtime={runtime} />
+                ) : (
+                  <HashRedirect from="library" to="#/remote">
+                    <RemoteView runtime={runtime} />
+                  </HashRedirect>
+                ))}
+              {route.name === 'sources' && (
+                <HashRedirect from="sources" to={reachable ? '#/library' : '#/remote'}>
+                  {reachable ? <LibraryView runtime={runtime} /> : <RemoteView runtime={runtime} />}
+                </HashRedirect>
+              )}
+              {route.name === 'remote' && <RemoteView runtime={runtime} />}
+              {route.name === 'preview' && (
+                <HashRedirect from="preview" to="#/">
+                  <HomeView runtime={runtime} />
+                </HashRedirect>
+              )}
+              {/*
             "Add to CAM" lives here for good once a display has ever connected —
             the home screen shows it prominently until then (see
             `displaySeen.ts`). Somebody reinstalling CAM or setting up a second
             machine looks under About; nobody with a working cooler should be
             shown step one again.
           */}
-          {/*
+              {/*
             About and Diagnostics are one page (F7). Same element in the same
             slot for both routes, so the redirect's hash rewrite does not
             remount it.
           */}
-          {(route.name === 'about' || route.name === 'diag') && (
-            <HashRedirect from="diag" to="#/about">
-              <AboutView runtime={runtime} />
-            </HashRedirect>
+              {(route.name === 'about' || route.name === 'diag') && (
+                <HashRedirect from="diag" to="#/about">
+                  <AboutView runtime={runtime} />
+                </HashRedirect>
+              )}
+            </>
           )}
         </main>
 

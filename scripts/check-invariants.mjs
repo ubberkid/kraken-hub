@@ -287,7 +287,87 @@ for (const abs of cssFiles) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The sticky-hover check
+// ---------------------------------------------------------------------------
+
+/**
+ * The bug shape this catches, reported from a real phone.
+ *
+ * *"I had to click things twice in the remote on my phone for anything to
+ * happen."* iOS Safari does not have a pointer, so it decides what a tap MEANS:
+ * if the element (or an ancestor) would look or lay out differently under
+ * `:hover`, the first tap is delivered as the hover and the click is withheld
+ * until the second. A `:hover` rule that reveals a row of buttons — the library
+ * tile's Pin/Rename/Delete, at `opacity: 0` until hovered — is precisely the
+ * change that triggers it, and no amount of `@media (hover: none)` patching
+ * afterwards un-writes the rule the browser already read.
+ *
+ * ## What counts as a violation
+ *
+ * A selector containing `:hover`, outside `@media (hover: hover)`, that declares
+ * any of `display`, `visibility`, `opacity`, `pointer-events` or `transform` —
+ * the five properties that reveal, hide, or move something rather than tint it.
+ * A hover that only changes colour is fine and always was: it cannot make
+ * content appear, so Safari has nothing to withhold a tap for.
+ *
+ * The fix is not a `hover: none` counter-rule, it is to write the rule
+ * hover-first: put the hiding AND the revealing inside `@media (hover: hover)`,
+ * so a touch browser never sees either.
+ *
+ * ## The escape hatch
+ *
+ *     a CSS comment containing `hover-ok: <why this cannot swallow a tap>`
+ *
+ * on the line above the offending selector, or on it.
+ */
+const HOVER_MARKER = 'hover-ok';
+const HOVER_GATED_PROPS = ['display', 'visibility', 'opacity', 'pointer-events', 'transform'];
+const HOVER_CONTEXT_RE = /@media[^{]*\(\s*hover\s*:\s*hover\s*\)/;
+
+const stickyHovers = [];
+
+for (const abs of cssFiles) {
+  const rel = relative(root, abs).replace(/\\/g, '/');
+  const raw = readFileSync(abs, 'utf8');
+  const rawLines = raw.split('\n');
+  for (const rule of parseRules(stripComments(raw))) {
+    if (!rule.raw.includes(':hover')) continue;
+    if (rule.at !== null && HOVER_CONTEXT_RE.test(rule.at)) continue;
+    const gated = HOVER_GATED_PROPS.filter((p) => rule.props.has(p));
+    if (gated.length === 0) continue;
+    const above = rawLines[rule.line - 2] ?? '';
+    const here = rawLines[rule.line - 1] ?? '';
+    if (above.includes(HOVER_MARKER) || here.includes(HOVER_MARKER)) continue;
+    stickyHovers.push(`${rel}:${String(rule.line)}  ${rule.raw} { ${gated.join(', ')} }`);
+  }
+}
+
 console.log('');
+if (stickyHovers.length > 0) {
+  console.error(
+    `[invariants] Hover-gated content: ${String(stickyHovers.length)} rule(s) a touch browser can swallow a tap for.\n`,
+  );
+  for (const h of stickyHovers) console.error(`  ${h}`);
+  console.error(
+    [
+      '',
+      'iOS Safari delivers the FIRST tap as a hover whenever hovering would reveal,',
+      'hide or move something — so the user presses everything twice. Wrap the rule',
+      '(the hiding AND the revealing) in `@media (hover: hover)` so a touch browser',
+      'never reads it at all. A `@media (hover: none)` counter-rule is not a fix.',
+      '',
+      'A hover that only changes colour is fine. If this one genuinely cannot swallow',
+      'a tap, say why:',
+      '',
+      `    /* ${HOVER_MARKER}: <why> */`,
+      '',
+      'See ui.css `.kh-tile__actions` and CONTRIBUTING.md.',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
 if (collisions.length > 0) {
   console.error(
     `[invariants] Dead media-query rules: ${String(collisions.length)} equal-specificity collision(s).\n`,
@@ -339,5 +419,9 @@ console.log(
 console.log(
   `[invariants] ok  Dead media-query rules — ${String(cssFiles.length)} stylesheet(s), ` +
     `${String(cssRuleCount)} rules, 0 equal-specificity collisions.`,
+);
+console.log(
+  `[invariants] ok  Hover-gated content — 0 rule(s) outside @media (hover: hover) ` +
+    `that reveal, hide or move anything.`,
 );
 console.log('');

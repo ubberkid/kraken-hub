@@ -250,7 +250,12 @@ async function captureConfigUi(browser) {
  */
 async function captureRemote(browser) {
   const { context, page } = await freshPage(browser, { width: 420, height: 900 }, DOC_SCALE);
-  await page.goto(`${ORIGIN}/?transport=fake#/remote`, { waitUntil: 'networkidle' });
+  // `?phone=1` so the capture is the surface a phone genuinely gets: since
+  // round 9 a phone-class window resolves every route to the remote and drops
+  // the link to About (which would resolve straight back to this screen). A
+  // headless viewport has a fine pointer, so without the override this would be
+  // a desktop browser at 420 px pretending to be a phone.
+  await page.goto(`${ORIGIN}/?phone=1&transport=fake#/remote`, { waitUntil: 'networkidle' });
   await page.getByTestId('pairing-card').waitFor();
   await page.getByTestId('pair-rotate').click();
   // Paired: the card collapses to "Paired with your PC · ROOM …", which is the

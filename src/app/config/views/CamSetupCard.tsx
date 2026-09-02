@@ -173,7 +173,23 @@ export function CamSetupCard(props: CamSetupCardProps) {
               <button type="button" className="kh-btn" data-testid="setup-copy-url" onClick={copy}>
                 {copied ? 'Copied' : 'Copy the address'}
               </button>
-              <a className="kh-btn" href={camInstallUrl(runtime.appUrl, true)}>
+              {/*
+                A link, not a button — the product decision behind this round.
+
+                The band and this card each offered TWO one-click installs of
+                the same integration, side by side, in the same weight, and the
+                second one is for a channel almost nobody is on. Two equal
+                buttons is a question ("which?"), and the honest answer is "the
+                first one, unless you already know otherwise" — which is exactly
+                what a primary button and a plain text link say without asking.
+                Still reachable, still one press, and still here where somebody
+                who IS on Beta will look for it.
+              */}
+              <a
+                className="kh-band__more"
+                data-testid="setup-cam-beta"
+                href={camInstallUrl(runtime.appUrl, true)}
+              >
                 Open in CAM Beta
               </a>
               {camChip}
@@ -239,7 +255,12 @@ export function CamSetupCard(props: CamSetupCardProps) {
             <button type="button" className="kh-btn" data-testid="setup-copy-url" onClick={copy}>
               {copied ? 'Copied' : 'Copy the address'}
             </button>
-            <a className="kh-btn" href={camInstallUrl(runtime.appUrl, true)}>
+            {/* A link, not a button — see the band's note above. */}
+            <a
+              className="kh-band__more"
+              data-testid="setup-cam-beta"
+              href={camInstallUrl(runtime.appUrl, true)}
+            >
               Open in CAM Beta
             </a>
             {camChip}

@@ -4,6 +4,7 @@ import {
   COPY_HOME,
   IN_YOUR_LIBRARY,
   KEEPING_A_COPY_NOW,
+  KEPT_SAFELY,
   KEPT_VERB,
   NOTHING_KEPT,
   OFFLINE_PROMISE,
@@ -1057,10 +1058,29 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
                   : `${mb(quota.usageBytes)} of ${mb(quota.quotaBytes)} used`
             }
           />
+          {/*
+            ONE line, in one of two truthful states — and only one of them is a
+            warning.
+
+            The app has asked for persistent storage since M1 and then reported
+            the answer as a green *"Kept for good"* chip next to an orange one,
+            which is two badges for one boolean. Worse, the orange one is what a
+            real CAM install almost never earns: CAM's webview GRANTS the
+            request (the diagnostics report reads `persisted: true` there), and
+            `ensurePersisted` now asks on every add rather than once on the
+            first, so the grant is held wherever it can be. A promise being kept
+            is not news, so the granted state is a quiet line rather than a
+            badge; the warning keeps its tone, because it is one.
+
+            `persisted` is `navigator.storage.persisted()`, read fresh with the
+            quota — never a flag this app wrote down (see `platform/idb`).
+          */}
           {quota?.persisted === true ? (
-            <Chip tone="ok">Kept for good</Chip>
+            <p className="kh-hint" data-testid="storage-persisted">
+              {KEPT_SAFELY}
+            </p>
           ) : (
-            <Chip tone="warn">
+            <Chip tone="warn" testId="storage-evictable">
               May be cleared if the disk fills up — pin the ones you care about
             </Chip>
           )}

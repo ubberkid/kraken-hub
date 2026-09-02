@@ -5,6 +5,7 @@ import {
   ASPECT_9_16,
   CROSSFADE_MAX_MS,
   CROSSFADE_MIN_MS,
+  DEFAULT_YOUTUBE,
   LOOP_DEFAULTS,
   MAX_URL_LEN,
   PERF_HYSTERESIS_MS,
@@ -134,6 +135,30 @@ describe('validateVideoConfig', () => {
       unknown
     >;
     expect(c['evil']).toBeUndefined();
+  });
+});
+
+/**
+ * The player-shape field, now that a person can set it again.
+ *
+ * It has always existed and the engine has always read it — what it lacked was a
+ * control, so the only value any install could hold was the default. Restoring
+ * the control in Advanced makes the validator load-bearing rather than
+ * theoretical: whatever the segment writes has to survive a round trip through
+ * localStorage, and whatever a fork or a future build writes has to land on the
+ * safe end rather than anywhere.
+ */
+describe('the YouTube player shape', () => {
+  it('round-trips both values a person can choose', () => {
+    expect(validateVideoConfig({ youtube: { mode: 'square' } }).youtube.mode).toBe('square');
+    expect(validateVideoConfig({ youtube: { mode: 'tight' } }).youtube.mode).toBe('tight');
+  });
+
+  it('falls back to the safe shape for anything else', () => {
+    expect(DEFAULT_YOUTUBE.mode).toBe('square');
+    expect(validateVideoConfig({ youtube: { mode: 'wide' } }).youtube.mode).toBe('square');
+    expect(validateVideoConfig({ youtube: { mode: 7 } }).youtube.mode).toBe('square');
+    expect(validateVideoConfig({}).youtube.mode).toBe('square');
   });
 });
 
