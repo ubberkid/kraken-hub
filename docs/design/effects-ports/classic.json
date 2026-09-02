@@ -1,0 +1,86 @@
+{
+  "id": "classic",
+  "displayName": "Classic",
+  "colourSlots": [
+    "Top",
+    "Bottom",
+    "Gloss",
+    "Accent"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#00DEFC",
+        "#00FFFE",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#999999",
+        "#5F5F5F",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#D3F67D",
+        "#00D062",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Bubblegum",
+      "colors": [
+        "#FFBBD2",
+        "#F98ABD",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Amethyst",
+      "colors": [
+        "#DBC1FA",
+        "#B351EC",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Ember",
+      "colors": [
+        "#FF0000",
+        "#F47474",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#FFFFFF",
+        "#DDDDDD",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Sunburst",
+      "colors": [
+        "#FFFF00",
+        "#FFD700",
+        "#FFFFFF",
+        "#FFFFFF"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/classic/ClassicBanner.shader"
+}

@@ -1,0 +1,23 @@
+/*
+ * Shape layer styles. Imported from `display.ts`, so they ride in the module's
+ * own lazy chunk rather than on the display critical path.
+ *
+ * There is almost nothing here on purpose: every colour, every length and every
+ * dash is an attribute written by `svg.ts` from the config, because a shape's
+ * geometry has to be a pure function that a node test can read. What is left is
+ * the box the `<svg>` fills.
+ */
+
+.kh-shape {
+  position: absolute;
+  inset: 0;
+  display: block;
+  /* The layer is one flat vector; nothing here should ever scroll or spill. */
+  overflow: hidden;
+}
+
+.kh-shape__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

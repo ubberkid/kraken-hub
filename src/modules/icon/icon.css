@@ -1,0 +1,29 @@
+/*
+ * Icon layer styles. Imported from `display.ts`, so they ride in the module's
+ * own lazy chunk rather than on the display critical path.
+ *
+ * There is almost nothing here on purpose: the colour, the stroke width and the
+ * side length are attributes written by `svg.ts` from the config, because a
+ * glyph's geometry has to be a pure function a node test can read. What is left
+ * is the centring — the visual centre of the glyph IS the layer's anchor, which
+ * is what `place-items: center` says and what the dom test measures.
+ */
+
+.kh-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  /* One flat vector; nothing here should ever scroll or spill. */
+  overflow: hidden;
+}
+
+.kh-icon__svg {
+  display: block;
+}
+
+.kh-icon--glow .kh-icon__svg {
+  /* One soft halo, no gradient ramp: legibility over a busy base without
+     giving CAM's compressor a smear to chew on. */
+  filter: drop-shadow(0 0 0.12em rgb(0 0 0 / 70%));
+}

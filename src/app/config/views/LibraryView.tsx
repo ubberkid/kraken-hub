@@ -49,6 +49,7 @@ import { ingestFile, makeThumbnail } from '../../../modules/video/local/ingest';
 import { detect } from '../../../modules/video/routing/detect';
 import { validateVideoConfig } from '../../../modules/video/types';
 import { Button, Chip, Meter, Notice } from '../../../ui';
+import { withBaseKind } from '../../state/switchBase';
 import { hasDisplayBeenSeen } from '../displaySeen';
 import { RECEIPT_LINGER_MS, failureLine } from '../homeState';
 import { buildLibraryTiles, tileDetail, type LibraryTile } from '../libraryItems';
@@ -274,6 +275,59 @@ interface Message {
   text: string;
   /** The shelf entry this message asserts something about, by name. */
   claim?: string;
+}
+
+/**
+ * The Library, for a window that cannot reach one — round 11's M-c.
+ *
+ * There is exactly one Kraken and exactly one library, and it lives where the
+ * bytes are (`surface.ts`). A window that neither owns those bytes nor is
+ * paired to the window that does has no shelf to draw: `LibraryView`'s unowned
+ * branch renders `RemoteLibrary` off the WIRE, and with no room there is no
+ * wire.
+ *
+ * What used to happen was a redirect: `#/library` mounted `RemoteView` and
+ * rewrote the hash to `#/remote` a tick later. So the route lied twice over —
+ * the breadcrumb read "Your Kraken / Remote" over a page the user had asked for
+ * by another name, the address they had bookmarked was silently replaced, and
+ * the remote screen's own composition (a ring, a pairing card, a QR) overflowed
+ * a 866x537 window by 234 px, because it was never laid out to arrive there.
+ *
+ * A route that exists answers for itself. This is that answer: the shelf's own
+ * page, saying where the shelf is and offering the one thing that would put it
+ * within reach. The breadcrumb stays "Library", the hash stays `#/library`, and
+ * the composition is three lines and a button — page-fit 0 at CAM's window.
+ */
+export function LibraryElsewhere() {
+  return (
+    <section className="kh-library" data-testid="library" data-owns="false" data-reach="none">
+      <div className="kh-library__head">
+        <p className="kh-hint" data-testid="library-lede">
+          Your library lives on your Kraken.
+        </p>
+      </div>
+      <div className="kh-panel" data-testid="library-unreachable">
+        <p>
+          The shelf is a property of the machine, not of this window: the clips and pictures{' '}
+          {IN_YOUR_LIBRARY} are kept beside the Kraken, on the PC with CAM on it, so that the
+          network can be unplugged.
+        </p>
+        {/*
+          One way forward, and it is the real one: this window is not CAM's, so
+          the only route to that shelf is a pairing. `Remote` is where a pairing
+          is made, and it is the page the redirect used to dump people on
+          without telling them why.
+        */}
+        <p className="kh-hint">
+          This window is not paired with one yet. Pair it and the same shelf appears here, over the
+          wire.
+        </p>
+        <a className="kh-btn kh-btn--primary" href="#/remote" data-testid="library-pair">
+          Pair with your Kraken
+        </a>
+      </div>
+    </section>
+  );
 }
 
 export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
@@ -842,7 +896,7 @@ export function LibraryView({ runtime }: { runtime: ConfigRuntime }) {
                 className="kh-quiet"
                 data-testid="library-add-switch"
                 onClick={() => {
-                  runtime.store.commit((prev) => ({ ...prev, activeModuleId: videoModule.id }));
+                  runtime.store.commit((prev) => withBaseKind(prev, videoModule.id));
                   window.setTimeout(() => addInput.current?.focus(), 0);
                 }}
               >

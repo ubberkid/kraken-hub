@@ -56,12 +56,18 @@ export const LIBRARY_REPUBLISH_MS = 300_000;
  * How long an arriving `playback` waits for a module to exist.
  *
  * A retained snapshot is delivered the instant the transport connects, which on
- * a cold boot is routinely *before* `ModuleHost` has finished its dynamic
- * import — so `runtime.onCommand.current` is still `null` and a seek issued
- * then would simply vanish. Commands are dropped when no module is mounted for
- * good reason (replaying a seek at mount is a bug), but this is not a replay:
- * it is the FIRST delivery of a position the display has never applied, and it
- * carries its own timestamp, so re-anchoring on each attempt keeps it honest.
+ * a cold boot is routinely *before* the compositor has finished its dynamic
+ * import — so the base module has no renderer yet and a seek issued then would
+ * simply vanish. Commands are dropped when nothing is mounted for good reason
+ * (replaying a seek at mount is a bug), but this is not a replay: it is the
+ * FIRST delivery of a position the display has never applied, and it carries
+ * its own timestamp, so re-anchoring on each attempt keeps it honest.
+ *
+ * What is waited ON changed with the compositor. The single-module host
+ * registered `runtime.onCommand` only once its renderer was mounted, so a
+ * non-null handler was the readiness signal; the compositor's handler is
+ * installed with the stage and outlives every renderer, so the signal is now
+ * the handler's RETURN — `false` until a live renderer takes the command.
  */
 export const PLAYBACK_RETRY_MS = 250;
 export const PLAYBACK_RETRY_LIMIT = 60;
@@ -177,32 +183,45 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
     if (appliedPosAtTs !== null && p.posAtTs <= appliedPosAtTs) return;
     if (seekTimer !== null) clearTimeout(seekTimer);
 
-    const deliver = (attempt: number): void => {
+    function retry(attempt: number): void {
+      if (attempt >= PLAYBACK_RETRY_LIMIT) return;
+      seekTimer = setTimeout(() => {
+        deliver(attempt + 1);
+      }, PLAYBACK_RETRY_MS);
+    }
+
+    function deliver(attempt: number): void {
       seekTimer = null;
       const command = runtime.onCommand.current;
       if (command === null) {
-        if (attempt >= PLAYBACK_RETRY_LIMIT) return;
-        seekTimer = setTimeout(() => {
-          deliver(attempt + 1);
-        }, PLAYBACK_RETRY_MS);
+        retry(attempt);
         return;
       }
-      // Marked applied even when the sample is too old to act on: a stale
-      // position does not become fresh by being retried, and re-examining it on
-      // every keepalive would be pure noise.
-      appliedPosAtTs = p.posAtTs;
       const anchored = anchorPosition(
         { posSec: p.posSec, posAtTs: p.posAtTs, paused: p.paused, rate: p.rate },
         Date.now(),
         p.durationSec,
       );
       if (anchored.stale) {
+        // Marked applied even though nothing was acted on: a stale position does
+        // not become fresh by being retried, and re-examining it on every
+        // keepalive would be pure noise.
+        appliedPosAtTs = p.posAtTs;
         log.warn(`ignoring a playback position ${String(Math.round(anchored.staleSec))}s old`);
         return;
       }
+      // The handler exists for the whole life of the compositor, so its ANSWER
+      // is what says a renderer was there to take the seek — on a cold boot the
+      // base module's chunk is routinely still in flight. Keep asking, and
+      // re-anchor every time, so the position that finally lands is the position
+      // as of the moment it lands rather than the one this snapshot arrived with.
+      if (!command('seekTo', anchored.posSec)) {
+        retry(attempt);
+        return;
+      }
+      appliedPosAtTs = p.posAtTs;
       writeReadout({ pos: Number(anchored.posSec.toFixed(1)), posAtTs: p.posAtTs });
-      command('seekTo', anchored.posSec);
-    };
+    }
 
     deliver(0);
   }

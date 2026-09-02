@@ -1,0 +1,65 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "effect": 1
+  },
+  "configs": {
+    "effect": {
+      "colors": [
+        "#00BCFF",
+        "#E1FFFF",
+        "#000089",
+        "#00003E"
+      ],
+      "effect": "twisted-nebula",
+      "preset": "classic",
+      "speed": 0.75
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "A slow nebula behind the time.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "effect",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "cfg": {
+          "face": "digital",
+          "showSeconds": false,
+          "theme": "mono"
+        },
+        "frame": {
+          "h": 0.6,
+          "shape": "square",
+          "w": 1.4
+        },
+        "id": "lclock",
+        "kind": "clock",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        },
+        "v": 1
+      }
+    ]
+  },
+  "media": [],
+  "name": "Nebula clock",
+  "version": 7
+}

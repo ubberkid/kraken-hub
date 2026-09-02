@@ -1,0 +1,68 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "effect": 1
+  },
+  "configs": {
+    "effect": {
+      "colors": [
+        "#D6B700",
+        "#F0FF00",
+        "#00FFAF",
+        "#A900FF"
+      ],
+      "effect": "plasma",
+      "preset": "classic"
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "A strip of three compact meters along the bottom of a moving background.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "effect",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "cfg": {
+          "layout": "strip",
+          "metrics": [
+            "cpuTemp",
+            "gpuTemp",
+            "liquidTemp"
+          ],
+          "theme": "mono"
+        },
+        "frame": {
+          "h": 0.5,
+          "shape": "square",
+          "w": 1.9
+        },
+        "id": "lstrip",
+        "kind": "stats",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0.62
+        },
+        "v": 1
+      }
+    ]
+  },
+  "media": [],
+  "name": "Overlay",
+  "version": 7
+}

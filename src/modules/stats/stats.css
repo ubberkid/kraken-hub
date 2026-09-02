@@ -3,8 +3,25 @@
  * own lazy chunk rather than on the display critical path.
  *
  * Every size comes from a custom property the renderer writes from `Geometry`
- * (invariant I3). Flat colours only — no gradient, no blur, no shadow, no
- * transition: CAM re-compresses every captured frame and charges for change.
+ * (invariant I3): there is not a pixel in this file that is not derived from
+ * the frame the layer was given, so a face is the same design on the largest
+ * round panel, on the smallest square one, and at a 0.6 overlay scale.
+ *
+ * Three rules from the dataviz brief are enforced HERE rather than by good
+ * intentions in the renderer:
+ *
+ *  1. **Text wears text colours.** `.kh-stats__value` is `--kh-stats-ink` in
+ *     every state. The series colour lives on the arc and on the sparkline and
+ *     nowhere else, so a threshold cannot repaint the digits.
+ *  2. **The track is recessive.** It is a flat, darker step of the arc's own
+ *     hue — never a second series, never a gradient.
+ *  3. **A warm colour never travels alone.** Every `[data-state]` rule that
+ *     changes a stroke has a `.kh-stats__chip` beside it carrying the word.
+ *
+ * Flat colours only — no gradient, no blur, no shadow, no transition. The
+ * motion is the renderer's tween, which paints one changed arc segment per
+ * frame; a CSS transition would hand the same job to the compositor and take
+ * the timing out of the governor's reach.
  */
 
 .kh-stats {
@@ -12,12 +29,28 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--kh-stats-fg, #f2f4f8);
+  color: var(--kh-stats-ink, #eaf4ff);
+  /*
+   * A linear gauge's stroke, derived rather than written by the renderer: it is
+   * a fraction of the smallest type size, which is already a fraction of the
+   * box, so the mark scales with the face without a fifth custom property
+   * crossing the JS/CSS boundary. ~45 % of the label height puts a bar at the
+   * same visual weight as a ring's 2–3 % arc.
+   */
+  --kh-stats-mark: calc(var(--kh-stats-label, 0.9rem) * 0.45);
 }
 
 .kh-stats__grid {
   display: grid;
   grid-template-columns: repeat(var(--kh-stats-cols, 1), 1fr);
+  /*
+   * `minmax(0, 1fr)` rather than `1fr`: a bare `1fr` is `minmax(auto, 1fr)`,
+   * so a row containing anything with an intrinsic size — an `<svg>` whose
+   * height is a percentage of the row it is in — can push its own row past its
+   * share and blow the grid out of the box the renderer measured. The `chart`
+   * face did exactly that.
+   */
+  grid-template-rows: repeat(var(--kh-stats-rows, 1), minmax(0, 1fr));
   gap: 4%;
   align-items: center;
   justify-items: center;
@@ -25,21 +58,12 @@
   height: var(--kh-stats-box, 100%);
 }
 
-/* Two dials side by side read better as one row than as a 2x1 grid cell pair. */
-.kh-stats[data-layout='dual'] .kh-stats__grid {
-  grid-template-columns: 1fr 1fr;
-  height: auto;
-}
-
-.kh-stats[data-layout='grid'] .kh-stats__grid {
-  grid-template-rows: repeat(var(--kh-stats-rows, 3), 1fr);
-}
-
 .kh-stats__tile {
   position: relative;
   display: grid;
   place-items: center;
   width: 100%;
+  height: 100%;
   text-align: center;
 }
 
@@ -50,6 +74,10 @@
   max-width: 100%;
 }
 
+/*
+ * The track is dashed to the same sweep as the arc, so an open face keeps its
+ * gap and the ring never closes behind the reading.
+ */
 .kh-stats__track {
   stroke: var(--kh-stats-track, #2a2f38);
 }
@@ -58,40 +86,186 @@
   stroke: var(--kh-stats-fg, #f2f4f8);
 }
 
-/* The readout sits inside its dial; in the grid layout there is no dial. */
-.kh-stats__readout {
+/*
+ * The linear gauges — `bar` and `vertical`.
+ *
+ * The same two marks as a ring (a recessive track with an accent fill over it,
+ * both with rounded ends), drawn straight and out of two boxes rather than out
+ * of SVG. The THICKNESS is a fraction of `--kh-stats-label`, which is itself a
+ * fraction of the box the renderer measured, so nothing here is a typed pixel
+ * and the mark stays proportionate from the smallest square panel to a full
+ * 640 round one.
+ *
+ * `--kh-stats-fill` is the one number a frame writes — a percentage of the
+ * track — and each face below decides whether that percentage is a length or a
+ * height. Rounded ends on both, flat fills, no transition: the motion is the
+ * renderer's tween, exactly as it is on the rings.
+ */
+.kh-stats__bar {
+  position: relative;
+  display: block;
+}
+
+.kh-stats__bar-track,
+.kh-stats__bar-fill {
   position: absolute;
+  border-radius: 99em;
+}
+
+.kh-stats__bar-track {
+  inset: 0;
+  background: var(--kh-stats-track, #2a2f38);
+}
+
+.kh-stats__bar-fill {
+  background: var(--kh-stats-fg, #f2f4f8);
+}
+
+.kh-stats__tile[data-state='warm'] .kh-stats__bar-fill {
+  background: var(--kh-stats-warm, #e0a93e);
+}
+
+.kh-stats__tile[data-state='warm'] .kh-stats__bar-track {
+  background: var(--kh-stats-warm-track, #33280f);
+}
+
+.kh-stats__tile[data-state='hot'] .kh-stats__bar-fill {
+  background: var(--kh-stats-hot, #ff8a8a);
+}
+
+.kh-stats__tile[data-state='hot'] .kh-stats__bar-track {
+  background: var(--kh-stats-hot-track, #3a1d1d);
+}
+
+/*
+ * The one place a colour changes, and it changes with the chip below it.
+ * The hue is the same in every palette: a warning that follows the user's
+ * taste is not a warning.
+ */
+.kh-stats__tile[data-state='warm'] .kh-stats__arc {
+  stroke: var(--kh-stats-warm, #e0a93e);
+}
+
+.kh-stats__tile[data-state='warm'] .kh-stats__track {
+  stroke: var(--kh-stats-warm-track, #33280f);
+}
+
+.kh-stats__tile[data-state='hot'] .kh-stats__arc {
+  stroke: var(--kh-stats-hot, #ff8a8a);
+}
+
+.kh-stats__tile[data-state='hot'] .kh-stats__track {
+  stroke: var(--kh-stats-hot-track, #3a1d1d);
+}
+
+/* Sixty seconds of history, one line, no axis and no chrome around it. */
+.kh-stats__spark {
+  position: absolute;
+  width: calc(var(--kh-stats-dial, 50%) * 0.44);
+  height: calc(var(--kh-stats-value, 1rem) * 0.5);
+  top: 68%;
+  overflow: visible;
+}
+
+.kh-stats__spark-line {
+  stroke: var(--kh-stats-fg, #f2f4f8);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.55;
+}
+
+/* The endpoint is the value the number beside it is showing. */
+.kh-stats__spark-dot {
+  fill: var(--kh-stats-fg, #f2f4f8);
+  stroke: none;
+}
+
+/*
+ * The switch turns the little line under a hero on and off — but it has nothing
+ * to say about the `chart` face, where the history is not a garnish on the
+ * reading, it IS the reading's shape.
+ */
+.kh-stats[data-spark='off']:not([data-layout='chart']) .kh-stats__spark {
+  display: none;
+}
+
+/*
+ * The reading and its words, as one centred block.
+ *
+ * A single stack rather than four separately-positioned boxes: the vertical
+ * rhythm then comes out of the type sizes instead of out of four percentages
+ * that have to be re-tuned per face. `left`/`top` move the whole block, which
+ * is how the dual face puts two heroes on one ring and the triple face puts
+ * two readings under one.
+ */
+.kh-stats__stack {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35em;
+  font-size: var(--kh-stats-label, 0.9rem);
+  line-height: 1.1;
+}
+
+.kh-stats__readout {
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 0.12em;
+  /* Tabular, so an integer gliding one step at a time never changes width. */
   font-variant-numeric: tabular-nums;
   font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1;
   font-size: var(--kh-stats-value, 2rem);
+  color: var(--kh-stats-ink, #eaf4ff);
 }
 
+/* Size two of three. */
 .kh-stats__unit {
   font-size: var(--kh-stats-unit, 1rem);
   font-weight: 500;
+  letter-spacing: 0;
   color: var(--kh-stats-dim, #7c8798);
 }
 
+/* Size three of three, shared by the label, the sub-line and the chip. */
 .kh-stats__label {
-  position: absolute;
-  bottom: 8%;
   font-size: var(--kh-stats-label, 0.9rem);
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   color: var(--kh-stats-dim, #7c8798);
 }
 
 .kh-stats__sub {
-  position: absolute;
-  top: 12%;
   font-size: var(--kh-stats-sub, 0.8rem);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--kh-stats-dim, #7c8798);
+}
+
+/*
+ * The word. It is the only element that wears a semantic colour and it is
+ * present whenever one is worn, so the state is legible in a photograph, in
+ * greyscale, and to a reader who cannot separate amber from teal.
+ */
+.kh-stats__chip {
+  font-size: var(--kh-stats-label, 0.9rem);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 0.15em 0.6em;
+  border-radius: 99em;
+  border: 1px solid currentcolor;
+  color: var(--kh-stats-warm, #e0a93e);
+}
+
+.kh-stats__tile[data-state='hot'] .kh-stats__chip {
+  color: var(--kh-stats-hot, #ff8a8a);
 }
 
 .kh-stats[data-labels='off'] .kh-stats__label,
@@ -99,22 +273,498 @@
   display: none;
 }
 
-/* The grid layout is text-first: no dial, label above the value. */
-.kh-stats[data-layout='grid'] .kh-stats__dial {
+/*
+ * ## Every word carries its own scrim (audit 10, M11)
+ *
+ * The strip face has had one since it was written — the layer's own box, filled
+ * flat and opaque, because a reading over somebody's video has to be READABLE
+ * and the frozen pixels underneath cost CAM's compressor nothing. What the audit
+ * photographed is that the scrim belongs to the FACE and not to the layer: the
+ * `pattern=stack` diagnostics put a 512 × 160 stats overlay on the `single` face
+ * over a full-panel plasma effect, and the near-white hero and its ~10 px label
+ * landed on the effect's brightest lobe at a contrast of about 1.1:1. Invisible,
+ * on the exact composition the layer system exists to make possible.
+ *
+ * A box scrim cannot be the general answer: a stats layer that fills the panel
+ * would then wash out whatever it is over, which is the opposite of an overlay.
+ * The words can carry their own, though, and that is what this is — a flat,
+ * fully opaque plate behind the type and nothing else. Over the black stage it
+ * is invisible; over a bright base it is the difference between a reading and a
+ * smudge. Flat fill, no gradient, no blur, no shadow, exactly like everything
+ * else in this file: the plate is the same rectangle every frame, so the
+ * compressor is charged for it once.
+ *
+ * Opaque, and BLACK rather than the strip's near-black 62 % wash. Two reasons,
+ * and they are the same reason twice: over the black stage a pure-black plate is
+ * not merely subtle, it is not there at all — the single, triple and grid faces
+ * look exactly as they did — and over the brightest pixel any base can produce
+ * it is still black, which is the largest contrast the small type can be given.
+ * The 62 % wash cleared 4.5:1 for the ink hero and missed it for the dim label.
+ */
+.kh-stats__readout,
+.kh-stats__label,
+.kh-stats__sub {
+  background: var(--kh-stats-plate, #000);
+  border-radius: 0.22em;
+  padding: 0.02em 0.22em;
+}
+
+/* The chip keeps its pill: it only wants the plate BEHIND the pill's fill. */
+.kh-stats__chip {
+  background: var(--kh-stats-plate, #000);
+}
+
+/* ---- single ------------------------------------------------------------- */
+
+/*
+ * The hero sits a touch above centre: the label and the sub-line hang below it,
+ * and centring the BLOCK would push the number the reader came for downward.
+ */
+.kh-stats[data-layout='single'] .kh-stats__stack {
+  top: 46%;
+}
+
+/* ---- dual: two heroes, one ring ----------------------------------------- */
+
+/*
+ * Both tiles occupy the same cell, because the two mirrored half-arcs are two
+ * halves of ONE circle — which is the shape a round panel actually has. The
+ * stacks step out to either side of the centre.
+ */
+.kh-stats[data-layout='dual'] .kh-stats__tile,
+.kh-stats[data-layout='triple'] .kh-stats__tile {
+  grid-area: 1 / 1;
+}
+
+.kh-stats[data-layout='dual'] .kh-stats__tile[data-slot='0'] .kh-stats__stack {
+  left: 30%;
+}
+
+.kh-stats[data-layout='dual'] .kh-stats__tile[data-slot='1'] .kh-stats__stack {
+  left: 70%;
+}
+
+/* ---- triple: concentric rings, one centre hero -------------------------- */
+
+/*
+ * ## Why the three readings sit in a column and not around the dial
+ *
+ * The audit's M8. The two outer readings used to be placed at `left: 33%` and
+ * `left: 67%`, which on a full panel puts them roughly 114 px either side of
+ * centre — and the INNERMOST ring passes through exactly that band at the
+ * height they were sitting at, so the arc struck through both labels. The whole
+ * gauge group also sat about 30 px high, because the hero was nudged up to
+ * `42%` and the outer pair only went down to `66%`.
+ *
+ * The rule now is a geometric one rather than a nudge: **every glyph on this
+ * face lives inside the innermost ring.** The three rows are stacked, centred
+ * on the box, and the widest of them ("LIQUID 30 °C") is comfortably inside the
+ * chord the inner arc cuts at the lowest row's baseline — with the type sizes
+ * being fractions of the same box as the radii, that stays true at every panel
+ * size rather than at the one it was eyeballed on.
+ *
+ * The percentages below are the three rows' CENTRES, and they are symmetric
+ * about 50 %: 43 %, 57 % and 64 % put the group's midpoint back on the middle
+ * of the panel, which is what "drag it to the centre" has to mean. Four
+ * distinct baselines — the hero, its label, and one per outer reading — so no
+ * two lines share one.
+ */
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='0'] .kh-stats__stack {
+  top: 43%;
+}
+
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='1'] .kh-stats__stack {
+  top: 57%;
+}
+
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='2'] .kh-stats__stack {
+  top: 64%;
+}
+
+/*
+ * The outer readings are one line each — name then number — so they take a row
+ * of the height a stacked pair would have needed and stay clear of both the
+ * hero above and the arc around them.
+ */
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='1'] .kh-stats__stack,
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='2'] .kh-stats__stack {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5em;
+}
+
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='1'] .kh-stats__label,
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='2'] .kh-stats__label {
+  order: -1;
+}
+
+/*
+ * The two outer rings report in the middle size, not the hero size. One hero
+ * per face is the whole rule; three equal numbers is a table.
+ */
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='1'] .kh-stats__readout,
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='2'] .kh-stats__readout {
+  font-size: var(--kh-stats-unit, 1rem);
+}
+
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='1'] .kh-stats__unit,
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='2'] .kh-stats__unit {
+  font-size: var(--kh-stats-label, 0.9rem);
+}
+
+/* Only the hero carries a sparkline; three of them would be a chart. */
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='1'] .kh-stats__spark,
+.kh-stats[data-layout='triple'] .kh-stats__tile[data-slot='2'] .kh-stats__spark {
   display: none;
 }
 
-.kh-stats[data-layout='grid'] .kh-stats__tile {
-  grid-template-rows: auto auto;
-  align-content: center;
+/* ---- grid: six tiles, each a thin arc behind its number ------------------ */
+
+/*
+ * ## Why the text-first face has a meter now (audit 10, F6)
+ *
+ * It did not, and the absence was not a design decision anybody could see: the
+ * renderer wrote `--kh-stats-dial: 0px` and this file then hid the six `<svg>`s
+ * that were 0 × 0 anyway — while `step()` went on writing a fresh
+ * `stroke-dasharray` to every one of them, forty-two times a minute, to elements
+ * with no box. The face was six numbers in a table.
+ *
+ * A table is the one thing a hue-led face may not be. Every rule at the top of
+ * this file — the arc carries the series colour, a warm state moves the arc AND
+ * shows the word — needs a mark for the colour to live on; with no mark, a
+ * crossed threshold on this face could only repaint the chip, and the rule that
+ * says the digits stay in ink meant the reading itself never moved at all.
+ *
+ * So the tile is laid out like the strip's, at tile scale: a thin ring in row 1
+ * with the reading centred inside it, the long label under it in row 2, and the
+ * chip — when there is one — inside the ring's own bottom gap, which is exactly
+ * the room a 270° sweep leaves free.
+ *
+ * ## Why the two overlaid pieces are offset by hand
+ *
+ * The obvious way to centre something on the ring is to give it the ring's GRID
+ * AREA (`position: absolute; grid-row: 1`) and let the grid supply the
+ * containing block. Chromium does not do that: measured, the readout's
+ * containing block is the whole tile, not row 1 — so the reading sits about
+ * half a label BELOW the ring's centre, and a chip aligned to the end of
+ * "row 1" lands on the label instead. The strip face used to have the false
+ * version written down; it now wraps its ring in a `position: relative` box
+ * instead, which is the fix with nothing to know (see that section below).
+ *
+ * The offset is not a fudge, though, because the amount is exactly known: the
+ * tile's two rows are centred as a block, so the ring's centre is above the
+ * tile's by half of (the label + the gap over it). Both pieces that belong
+ * inside the ring subtract that, and the gap is written as a share of the label
+ * rather than as a percentage of the tile so the whole correction is one term.
+ */
+
+.kh-stats[data-layout='grid'] .kh-stats__grid {
+  grid-template-rows: repeat(var(--kh-stats-rows, 3), 1fr);
 }
 
-.kh-stats[data-layout='grid'] .kh-stats__readout,
+/* Six minutes of history at once is a chart, not a face. */
+.kh-stats[data-layout='grid'] .kh-stats__spark {
+  display: none;
+}
+
+/*
+ * `display: contents` rather than a second set of positioning rules: the stack
+ * hands its children straight to the tile, so a text-first face lays them out
+ * as ordinary flow and the block-positioning above simply does not apply.
+ */
+.kh-stats[data-layout='grid'] .kh-stats__stack,
+.kh-stats[data-layout='strip'] .kh-stats__stack {
+  display: contents;
+}
+
+.kh-stats[data-layout='grid'] .kh-stats__tile {
+  /* Two rows in flow: the ring, then the label under it. */
+  grid-template-rows: auto auto;
+  align-content: center;
+  /* A share of the label rather than of the tile, so the correction below is
+     one term and not two. */
+  row-gap: calc(var(--kh-stats-label, 0.9rem) * 0.3);
+
+  /* Half of (label + the gap over it) — how far the ring's centre is above the
+     tile's, and therefore what everything drawn inside the ring subtracts. */
+  --kh-stats-ring-shift: calc(var(--kh-stats-label, 0.9rem) * -0.72);
+}
+
+.kh-stats[data-layout='grid'] .kh-stats__readout {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin-top: var(--kh-stats-ring-shift);
+}
+
 .kh-stats[data-layout='grid'] .kh-stats__label {
-  position: static;
+  grid-row: 2;
+  grid-column: 1;
+}
+
+/*
+ * The word, in the gap the arc leaves. The 270° sweep starts at 135°, so the
+ * bottom of every ring on this face is open — which is the one place a chip can
+ * go without a tile growing a third row and pushing its neighbours off the box.
+ * A third of the way down the ring clears the reading above it and stays inside
+ * the 90° the arc is not drawn through.
+ */
+.kh-stats[data-layout='grid'] .kh-stats__chip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  margin-top: calc(var(--kh-stats-ring-shift) + var(--kh-stats-dial, 0px) * 0.36);
+  padding: 0 0.4em;
+  border: 0;
 }
 
 .kh-stats[data-layout='grid'] .kh-stats__sub {
+  display: none;
+}
+
+/* ---- strip: the overlay face -------------------------------------------- */
+
+/*
+ * The layer's own box IS the strip, so the scrim is simply this element's
+ * background — one flat, opaque fill, no gradient and no blur. Over a video it
+ * pays for itself twice: it makes the readings legible, and it freezes the
+ * pixels underneath so CAM's compressor stops charging for them.
+ */
+.kh-stats[data-layout='strip'] {
+  place-items: center;
+  background: var(--kh-stats-scrim, rgb(5 7 11 / 62%));
+}
+
+.kh-stats[data-layout='strip'] .kh-stats__grid {
+  grid-template-columns: repeat(var(--kh-stats-cols, 3), 1fr);
+  gap: 0;
+  width: 100%;
+  height: auto;
+}
+
+/* Ring on top, reading inside it, one short label underneath. */
+.kh-stats[data-layout='strip'] .kh-stats__tile {
+  grid-template-rows: auto auto;
+  align-content: center;
+  height: auto;
+  gap: 2%;
+}
+
+/*
+ * ## The ring and its reading are one box
+ *
+ * This face used to say that an absolutely-positioned grid child is laid out
+ * inside its GRID AREA, and centre the reading by naming row 1. Chromium does
+ * not do that: measured, the readout resolved `top: 49.05px` and `bottom:
+ * 49.06px` — the two summing to the whole TILE, not to row 1 — so the reading
+ * sat 12.2 px below the ring's centre on every strip, at every panel size. (The
+ * grid face hit the same thing and worked around it with a known offset,
+ * `--kh-stats-ring-shift`; this is the version with nothing to know.)
+ *
+ * So the ring gets a box: the wrapper is the grid item, it is `position:
+ * relative`, and it is the size of the `<svg>` inside it and nothing else.
+ * The reading is then absolute against the RING, and centred on it by
+ * construction — no offset, no share of a label, nothing that has to be
+ * re-derived when the label size or the row gap changes.
+ */
+.kh-stats[data-layout='strip'] .kh-stats__ring {
+  position: relative;
+  display: block;
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.kh-stats[data-layout='strip'] .kh-stats__readout {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.kh-stats[data-layout='strip'] .kh-stats__label {
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* No room for a second reading per meter, and a third meter is worth more. */
+.kh-stats[data-layout='strip'] .kh-stats__sub,
+.kh-stats[data-layout='strip'] .kh-stats__spark {
+  display: none;
+}
+
+/*
+ * The chip still appears — a strip that changed an arc to amber and said
+ * nothing would be exactly the failure the rule exists to prevent — but it
+ * sits under the label, in the tile's own flow.
+ */
+.kh-stats[data-layout='strip'] .kh-stats__chip {
+  grid-row: 3;
+  grid-column: 1;
+  padding: 0 0.4em;
+  border: 0;
+}
+
+/* ---- bar: three linear gauges, stacked ---------------------------------- */
+
+/*
+ * The face for a reader who thinks in bars rather than in dials, and the one
+ * CAM's own stats modes lead with. Three rows, each one a name, a number and a
+ * gauge under them — a linear gauge is easier to compare across rows than three
+ * arcs are, which is exactly what a three-metric face is for.
+ */
+.kh-stats[data-layout='bar'] .kh-stats__grid,
+.kh-stats[data-layout='chart'] .kh-stats__grid {
+  gap: 4%;
+}
+
+.kh-stats[data-layout='bar'] .kh-stats__tile {
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto auto;
+  align-content: center;
+  column-gap: 0.6em;
+  row-gap: 0.35em;
+}
+
+.kh-stats[data-layout='bar'] .kh-stats__label {
+  grid-row: 1;
+  grid-column: 1;
+  justify-self: start;
+}
+
+.kh-stats[data-layout='bar'] .kh-stats__readout {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+}
+
+.kh-stats[data-layout='bar'] .kh-stats__bar {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: var(--kh-stats-mark);
+}
+
+/* Left to right: the reading grows the way the row is read. */
+.kh-stats[data-layout='bar'] .kh-stats__bar-fill {
+  inset: 0 auto 0 0;
+  width: var(--kh-stats-fill, 0%);
+}
+
+.kh-stats[data-layout='bar'] .kh-stats__chip {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 0 0.4em;
+  border: 0;
+}
+
+/* ---- vertical: the same three, stood on end ----------------------------- */
+
+.kh-stats[data-layout='vertical'] .kh-stats__grid {
+  gap: 0;
+}
+
+.kh-stats[data-layout='vertical'] .kh-stats__tile {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  align-content: stretch;
+  justify-items: center;
+  row-gap: 0.35em;
+}
+
+.kh-stats[data-layout='vertical'] .kh-stats__readout {
+  grid-row: 1;
+}
+
+.kh-stats[data-layout='vertical'] .kh-stats__bar {
+  grid-row: 2;
+  width: var(--kh-stats-mark);
+  height: 100%;
+}
+
+/* Bottom to top, because a rising number should rise. */
+.kh-stats[data-layout='vertical'] .kh-stats__bar-fill {
+  inset: auto 0 0;
+  height: var(--kh-stats-fill, 0%);
+}
+
+.kh-stats[data-layout='vertical'] .kh-stats__label {
+  grid-row: 3;
+}
+
+.kh-stats[data-layout='vertical'] .kh-stats__chip {
+  grid-row: 4;
+  padding: 0 0.4em;
+  border: 0;
+}
+
+/* ---- chart: sixty seconds, as the face rather than as a garnish --------- */
+
+/*
+ * The sparkline was always here — a thin line under a hero, off by default.
+ * Promoted to a face it answers the question the number cannot: whether the
+ * reading you are looking at is where it has BEEN. Still no axis, no gridline
+ * and no label: the number beside it already says where the line ended up, and
+ * a 60-sample line on a panel this size has no room to say anything else.
+ */
+.kh-stats[data-layout='chart'] .kh-stats__tile {
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 0.6em;
+  row-gap: 0.3em;
+}
+
+.kh-stats[data-layout='chart'] .kh-stats__label {
+  grid-row: 1;
+  grid-column: 1;
+  justify-self: start;
+}
+
+.kh-stats[data-layout='chart'] .kh-stats__readout {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+}
+
+/*
+ * A definite height, derived from the face's own hero size rather than from the
+ * row it sits in. A percentage height inside a row that sizes to its content is
+ * the circular reference that blew the face's grid open; one and a half times
+ * the number beside it is a shape a minute of history can be read from and a
+ * number no layout pass has to solve for.
+ */
+.kh-stats[data-layout='chart'] .kh-stats__spark {
+  position: static;
+  top: auto;
+  grid-row: 2;
+  grid-column: 1 / -1;
+  width: 100%;
+  height: calc(var(--kh-stats-value, 1rem) * 1.5);
+}
+
+.kh-stats[data-layout='chart'] .kh-stats__chip {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+  align-self: start;
+  padding: 0 0.4em;
+  border: 0;
+}
+
+/* The three new faces are one hero row each: no second reading, no dial. */
+.kh-stats[data-layout='bar'] .kh-stats__stack,
+.kh-stats[data-layout='vertical'] .kh-stats__stack,
+.kh-stats[data-layout='chart'] .kh-stats__stack {
+  display: contents;
+}
+
+.kh-stats[data-layout='bar'] .kh-stats__sub,
+.kh-stats[data-layout='vertical'] .kh-stats__sub,
+.kh-stats[data-layout='chart'] .kh-stats__sub,
+.kh-stats[data-layout='bar'] .kh-stats__spark,
+.kh-stats[data-layout='vertical'] .kh-stats__spark {
   display: none;
 }
 
@@ -134,12 +784,14 @@
  *
  * The UA sheet's `[hidden] { display: none }` is a bare attribute selector and
  * loses to any class selector that sets `display`, which is exactly what the
- * grid and the waiting card do — so without this the renderer's `hidden = true`
- * is silently ignored and both are painted at once.
+ * grid, the stack and the waiting card do — so without this the renderer's
+ * `hidden = true` is silently ignored and both are painted at once.
  */
 .kh-stats__grid[hidden],
 .kh-stats__waiting[hidden],
 .kh-stats__label[hidden],
+.kh-stats__chip[hidden],
+.kh-stats__spark[hidden],
 .kh-stats__sub[hidden] {
   display: none;
 }

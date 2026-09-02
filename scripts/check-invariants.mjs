@@ -343,7 +343,89 @@ for (const abs of cssFiles) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The z-order check (layers, W1)
+// ---------------------------------------------------------------------------
+
+/**
+ * A look has exactly one z-order and it is the array: `look.layers` is bottom
+ * first, DOM order under `.kh-stage` is the same order, and Chromium composites
+ * it (docs/design/design-layers-architecture.md §1.2, §2.2).
+ *
+ * The bug shape this prevents is the one every layered UI grows: someone adds a
+ * `zIndex` to nudge one thing above another, and now the array says one order
+ * and the stacking context says a different one. The compositor reconciles by
+ * `insertBefore`, the editor reorders by index, and neither of them can see a
+ * `z-index` written by hand — so the LCD and the editor's preview disagree, and
+ * the disagreement only shows up on the device.
+ *
+ * ## What counts as a violation
+ *
+ * A `zIndex`, `zOrder` or `z-index` token, after comments are stripped, in a
+ * `.ts`/`.tsx` file under `src/state/`, `src/render/` or `src/modules/`.
+ *
+ * ## The escape hatch
+ *
+ * Stacking WITHIN one module's own subtree is legitimate — the video module
+ * puts its mask over its stage and its error card over both, and none of that
+ * is layer order. Mark those with
+ *
+ *     // layer-order-ok: <why this is not layer z-order>
+ *
+ * on the same line or the line above.
+ */
+const Z_ORDER_MARKER = 'layer-order-ok';
+const Z_ORDER_RE = /\b(?:zIndex|zOrder)\b|z-index/;
+const Z_ORDER_ROOTS = ['src/state/', 'src/render/', 'src/modules/'];
+
+const zOrders = [];
+let zScanned = 0;
+let zMarked = 0;
+
+for (const abs of files(srcDir)) {
+  const rel = relative(root, abs).replace(/\\/g, '/');
+  if (!Z_ORDER_ROOTS.some((dir) => rel.startsWith(dir))) continue;
+  if (!/\.tsx?$/.test(rel) || rel.endsWith('.d.ts')) continue;
+  zScanned += 1;
+
+  const raw = readFileSync(abs, 'utf8').split('\n');
+  const code = stripComments(raw.join('\n')).split('\n');
+  for (let i = 0; i < code.length; i += 1) {
+    if (!Z_ORDER_RE.test(code[i])) continue;
+    const here = raw[i] ?? '';
+    const above = raw[i - 1] ?? '';
+    if (here.includes(Z_ORDER_MARKER) || above.includes(Z_ORDER_MARKER)) {
+      zMarked += 1;
+      continue;
+    }
+    zOrders.push(`${rel}:${String(i + 1)}  ${here.trim()}`);
+  }
+}
+
 console.log('');
+if (zOrders.length > 0) {
+  console.error(
+    `[invariants] Layer z-order: ${String(zOrders.length)} unexplained stacking literal(s).\n`,
+  );
+  for (const z of zOrders) console.error(`  ${z}`);
+  console.error(
+    [
+      '',
+      'A look has ONE z-order: `look.layers`, bottom first, mirrored by DOM order',
+      'under .kh-stage. A hand-written z-index is a second, invisible one — the',
+      'compositor reorders by insertBefore and the editor by array index, and',
+      'neither can see it. Reorder the array instead.',
+      '',
+      "Stacking inside one module's own subtree is fine. If that is what this is:",
+      '',
+      `    // ${Z_ORDER_MARKER}: <why this is not layer z-order>`,
+      '',
+      'See docs/design/design-layers-architecture.md §2.2.',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
 if (stickyHovers.length > 0) {
   console.error(
     `[invariants] Hover-gated content: ${String(stickyHovers.length)} rule(s) a touch browser can swallow a tap for.\n`,
@@ -423,5 +505,9 @@ console.log(
 console.log(
   `[invariants] ok  Hover-gated content — 0 rule(s) outside @media (hover: hover) ` +
     `that reveal, hide or move anything.`,
+);
+console.log(
+  `[invariants] ok  Layer z-order — ${String(zScanned)} module/render/state file(s) scanned, ` +
+    `${String(zMarked)} documented exception(s), 0 hand-written stacking literals.`,
 );
 console.log('');

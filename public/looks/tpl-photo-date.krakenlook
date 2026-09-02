@@ -1,0 +1,59 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "image": 1
+  },
+  "configs": {
+    "image": {
+      "url": ""
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "A picture with the date and time along the bottom. The picture is yours to pick.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "image",
+        "name": "Your picture",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "cfg": {
+          "face": "digital",
+          "showDate": true,
+          "showSeconds": false,
+          "theme": "mono"
+        },
+        "frame": {
+          "h": 0.5,
+          "shape": "square",
+          "w": 1.5
+        },
+        "id": "ldate",
+        "kind": "clock",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0.6
+        },
+        "v": 1
+      }
+    ]
+  },
+  "media": [],
+  "name": "Photo + date",
+  "version": 7
+}

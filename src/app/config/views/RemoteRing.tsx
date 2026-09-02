@@ -89,6 +89,17 @@ export interface RemoteRingProps {
   /** 0–1 through the clip, or `null` when there is no known duration. */
   progress: number | null;
   held: boolean;
+  /**
+   * The ring's diameter in CSS px. Defaults to the remote's own 132.
+   *
+   * The one prop W6 added, and it is the whole of what "the ring becomes the
+   * canvas" costs this component: editing needs a target a thumb can hit, so
+   * the phone editor mounts the SAME ring at ~300 px and draws its overlay on
+   * top. Nothing else changes — the replica is still sized to the reported
+   * panel and scaled to whatever this number is, which is exactly the rule that
+   * made 132 px honest in the first place.
+   */
+  sizePx?: number;
 }
 
 export function RemoteRing(props: RemoteRingProps) {
@@ -148,8 +159,9 @@ export function RemoteRing(props: RemoteRingProps) {
     handleRef.current?.update(input);
   });
 
-  const radius = RING_PX / 2 - ARC_STROKE;
-  const centre = RING_PX / 2;
+  const ringPx = props.sizePx ?? RING_PX;
+  const radius = ringPx / 2 - ARC_STROKE;
+  const centre = ringPx / 2;
 
   return (
     <div
@@ -157,6 +169,16 @@ export function RemoteRing(props: RemoteRingProps) {
       data-testid="remote-mirror"
       data-module={props.moduleId}
       data-mode={replicated ? 'replica' : 'still'}
+      /*
+        Inline only when the caller asked for a different size, so the ordinary
+        remote is styled entirely by `.kh-minihalo` and nothing in the DOM
+        duplicates the stylesheet's 132.
+      */
+      style={
+        ringPx === RING_PX
+          ? undefined
+          : { width: `${String(ringPx)}px`, height: `${String(ringPx)}px` }
+      }
     >
       {replicated && props.display !== null ? (
         <div
@@ -175,7 +197,7 @@ export function RemoteRing(props: RemoteRingProps) {
             */
             width: `${String(props.display.w)}px`,
             height: `${String(props.display.h)}px`,
-            transform: `scale(${String(RING_PX / props.display.w)})`,
+            transform: `scale(${String(ringPx / props.display.w)})`,
           }}
         />
       ) : props.posterUrl === null ? (
@@ -193,7 +215,7 @@ export function RemoteRing(props: RemoteRingProps) {
       {props.moduleId === 'video' && props.progress !== null && (
         <svg
           className="kh-minihalo__arc"
-          viewBox={`0 0 ${String(RING_PX)} ${String(RING_PX)}`}
+          viewBox={`0 0 ${String(ringPx)} ${String(ringPx)}`}
           aria-hidden="true"
           data-testid="ring-arc"
           data-progress={props.progress.toFixed(4)}

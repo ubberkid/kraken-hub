@@ -20,9 +20,25 @@
   border-radius: 50%;
 }
 
+/* The compositor's root. It is the stage's box exactly, so a layer host's
+   `inset: 0` (base) or `left/top: 50%` (overlay) resolves against the panel
+   whether or not this wrapper is there. */
+.kh-stack {
+  position: absolute;
+  inset: 0;
+}
+
 .kh-stage__module {
   position: absolute;
   inset: 0;
+}
+
+/* One host per ON layer, DOM order = z-order. Everything else about an overlay
+   host — its box, its transform, its own `--kh-*` variables — is written
+   imperatively from `src/render/layerBox.ts`, because it is per-layer geometry
+   and invariant I3 keeps geometry out of stylesheets. */
+.kh-layer {
+  transform-origin: 50% 50%;
 }
 
 /* --- overlay cards -------------------------------------------------------

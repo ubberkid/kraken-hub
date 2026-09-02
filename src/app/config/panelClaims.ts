@@ -263,6 +263,130 @@ export const CLAIM_FRAME_RATE = claim(
   'Your Kraken is set to run at',
 );
 
+/**
+ * The editor's budget meter, when it is reading a MEASURED frame rate.
+ *
+ * The meter has two voices and they are not the same claim. This one is only
+ * ever shown on a number the DISPLAY published (`TelePacket.achievedFps`): the
+ * panel is keeping up, or it is not, and both are facts about a machine on the
+ * other end of a telemetry packet. `CLAIM_BUDGET_ESTIMATE` below is the other
+ * voice — the declared-cost arithmetic, which is available on a window that has
+ * never seen a Kraken and is therefore never allowed to sound like a reading.
+ */
+export const CLAIM_BUDGET_MEASURED = claim(
+  'Your Kraken is keeping up with this look',
+  'Your Kraken was keeping up with this look',
+  'Your Kraken will report how it copes once it connects',
+);
+
+/**
+ * …and the same meter when the panel is struggling.
+ *
+ * Split rather than composed with a negation, because the three tenses are not
+ * a negation of the three above: "was falling behind" is a fact about the last
+ * reading, and the never-seen form has nothing to report at all.
+ */
+export const CLAIM_BUDGET_BEHIND = claim(
+  'Your Kraken is falling behind this look',
+  'Your Kraken was falling behind this look',
+  'Your Kraken will report how it copes once it connects',
+);
+
+/**
+ * The estimate — §7.2's word, and the reason the meter has two voices.
+ *
+ * Declared cost is arithmetic over what each module SAYS it does. Nothing on
+ * this page can see CAM's capture and compressor, which is where a busy look
+ * actually gets expensive, so the sum is a prediction and the meter says the
+ * word. It is presence-independent in substance — the arithmetic is the same on
+ * every window — but it still goes through the spine, because the sentence is
+ * about what a panel would do and a window that has never seen one may not
+ * imply there is a panel to do it.
+ */
+export const CLAIM_BUDGET_ESTIMATE = claim(
+  'Estimated, until your Kraken reports a frame rate',
+  'Estimated, from what each layer says it costs',
+  'Estimated, from what each layer says it costs',
+);
+
+/*
+ * ── The same three claims, at the width the meter actually has ──────────────
+ *
+ * Round 10's F10. `.kh-meter__label` is capped at 22ch beside a 120 px bar and a
+ * figure; measured at 866×537 it wanted 275 px and got 182, so every one of the
+ * three sentences above rendered as *"Estimated, from what each la…"* — an
+ * ellipsis where the honesty was.
+ *
+ * The long sentence is still the right sentence and it is still said: it is the
+ * meter's `title`, beside the attribution. What the LABEL needs is the two or
+ * three words that fit, and those are claims too — they are the same assertion
+ * about the same panel, so they go through the same door rather than being
+ * typed into `EditorHeader.tsx` as literals.
+ */
+
+/** The measured voice, short. Paired with {@link CLAIM_BUDGET_MEASURED}. */
+export const CLAIM_BUDGET_MEASURED_SHORT = claim('Keeping up', 'Kept up', 'No reading yet');
+
+/** The measured voice when the panel is behind. Pairs with {@link CLAIM_BUDGET_BEHIND}. */
+export const CLAIM_BUDGET_BEHIND_SHORT = claim('Falling behind', 'Fell behind', 'No reading yet');
+
+/**
+ * …and the declared-cost voice, short.
+ *
+ * One word in all three tenses, and deliberately: an estimate is arithmetic
+ * this window does on its own, so there is no fact about the other end whose
+ * tense could move. What the tense would have carried — *until your Kraken
+ * reports a frame rate* — is in the long form, which is what the tooltip says.
+ */
+export const CLAIM_BUDGET_ESTIMATE_SHORT = claim('Estimate', 'Estimate', 'Estimate');
+
+/**
+ * The readings in the editor's halo are the simulator's — round 10's F8.
+ *
+ * The editor mounts the real stats renderer, and on a window with no telemetry
+ * `previewMonitoring` feeds it `platform/simulator.ts` rather than leaving the
+ * dials on "waiting" forever. That is the right call — an empty gauge teaches a
+ * person nothing about the face they are arranging — and it was made silently:
+ * the halo read *41 °C · CPU · 16 % load* with nothing anywhere on the surface
+ * saying the number was invented. A cooler app showing a made-up temperature
+ * without saying so is the single most dishonest thing it can do.
+ *
+ * One sentence, in one place, and the same one on a Look preview card. All three
+ * tenses are identical because the claim is about THIS WINDOW's data source
+ * rather than about the panel: the numbers are samples whatever the Kraken is
+ * doing, and the condition that ends them — CAM sending real ones — is the same
+ * condition in every state.
+ */
+export const CLAIM_SAMPLE_READINGS = claim(
+  'Sample readings — until CAM sends real ones',
+  'Sample readings — until CAM sends real ones',
+  'Sample readings — until CAM sends real ones',
+);
+
+/**
+ * The phone editor's standing line — W6, "the phone edits the same Look".
+ *
+ * The remote's replica ring became a canvas, and a canvas invites exactly one
+ * dishonest sentence: *saved to your Kraken*. An arrangement made on a phone is
+ * a commit to this window's store, and whether it reaches the panel is a
+ * question about the WIRE — which does not carry `look` yet (§5–6; W1c) — not a
+ * question about whether a Kraken is on the other end. So the tense is chosen
+ * by `views/remote/lookReach.ts`, which demotes a live presence to `quiet` on
+ * any window that cannot deliver, and this claim says what is true in each:
+ *
+ *  - **live** — the look really did land where the panel reads it, and the
+ *    panel is talking, so the arrangement is on it.
+ *  - **quiet** — a Kraken exists and this edit is not there yet. It is kept
+ *    here, which is the whole promise, and the sentence names the condition.
+ *  - **never-seen** — the same promise, with "back" replaced by the honest
+ *    "connects": nothing has ever connected, so nothing can come back.
+ */
+export const CLAIM_ARRANGEMENT = claim(
+  'Your Kraken has this arrangement.',
+  'Kept here until your Kraken is back.',
+  'Kept here until your Kraken connects.',
+);
+
 // ---------------------------------------------------------------------------
 // The composed claims — same rule, shapes a bare string cannot carry
 // ---------------------------------------------------------------------------

@@ -26,11 +26,16 @@
  *    anything else), which is what keeps two config surfaces from ping-ponging.
  *  - `cmd` older than 15 s is dropped, which is what makes ntfy's 12 h replay
  *    cache safe to subscribe to.
- *  - `state` is applied only when `rev` strictly exceeds the last applied one,
- *    so a retained redelivery or a keepalive republish is inert.
+ *  - A frame is deduped on `(src, seq)` and on nothing else. There is no rev
+ *    floor and no "is this a replay?" branch: a retained redelivery or a
+ *    keepalive republish is inert because the MERGE is idempotent
+ *    (`src/sync/merge.ts`), not because this file recognised it.
+ *  - Every `state` frame carries `stamps` and `clock`; `appSync.ts` owns both
+ *    and this file only carries them, trims them and hands them over.
  */
 
 import { createLogger } from '../lib/log';
+import { monotonicNow } from '../lib/monotonic';
 
 import { createBackoff } from './backoff';
 import { deriveRoomKeys, seal, open, type RoomKeys } from './crypto';
@@ -41,12 +46,20 @@ import {
   NTFY_SCHEMES,
   normalizeEndpoint,
 } from './endpoints';
-import { decodeEnvelope, encodeEnvelope, EnvelopeTooLargeError } from './envelope';
+import {
+  decodeEnvelope,
+  encodeEnvelope,
+  envelopeBytes,
+  EnvelopeTooLargeError,
+  stampsOf,
+} from './envelope';
+import { enumerateLeaves } from './leaves';
 import { normalizeRoomCode } from './roomCode';
 import { createFakeTransport } from './transports/FakeTransport';
 import { createLocalStorageTransport } from './transports/LocalStorageTransport';
-import { PROTOCOL_VERSION, CMD_MAX_AGE_MS, type Channel } from './types';
+import { PROTOCOL_VERSION, CMD_MAX_AGE_MS, MAX_ENVELOPE_BYTES, type Channel } from './types';
 
+import type { StampTuple } from './hlc';
 import type {
   CmdBody,
   CmdOp,
@@ -111,6 +124,22 @@ export interface SyncServiceOptions {
   factories?: Partial<Record<TransportId, (slot?: 'primary' | 'fallback') => SyncTransport>>;
   /** Skip the zero-network slot (the live smoke test wants only the broker). */
   withLocal?: boolean;
+  /**
+   * The per-leaf stamps and the clock for the next state publish.
+   *
+   * Read at publish time rather than passed in with the body, because the answer
+   * lives in `appSync`'s register table — the only place that knows when each
+   * leaf was decided — while the body comes from the store, which knows nothing
+   * about the wire. A service constructed without it publishes no stamps at
+   * all, which is the honest answer for a peer that merges nothing (the live
+   * smoke test) and reads on the far side as "every leaf is unstamped".
+   *
+   * It is handed the BODY it is stamping, and that is the whole of the converse
+   * invariant: a stamp may only travel for a leaf whose value in this body is
+   * the value the stamp describes. See `appSync.ts`'s implementation for what
+   * happens without it.
+   */
+  wireStamps?: (body: SyncStateBody) => { map: Record<string, StampTuple>; clock: StampTuple };
 }
 
 export interface PublishStateOptions {
@@ -137,6 +166,15 @@ export interface SyncService {
    * chunks pass `immediate`.
    */
   publishTele(body: TeleBody, opts?: { immediate?: boolean }): void;
+  /**
+   * A state subscriber.
+   *
+   * It reports nothing back, and that is the shape of the fix: under the
+   * acknowledgement design a receipt travelled from here into the far peer's
+   * arbitration, so every disagreement about what "applied" meant became a
+   * disagreement about who was allowed to write. The merge is now a function of
+   * the frame's own stamps, so there is nothing for the receiver to answer.
+   */
   onState(cb: (body: SyncStateBody, meta: RecvMeta) => void): Unsub;
   onCmd(cb: (body: CmdBody, meta: RecvMeta) => void): Unsub;
   onTele(cb: (body: TeleBody, meta: RecvMeta) => void): Unsub;
@@ -324,7 +362,7 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
   const backoff = createBackoff();
 
   const seen = new Set<string>();
-  let lastAppliedRev = -1;
+
   let lastSeenAt: number | null = null;
   let decryptFailures = 0;
   let decryptWindowStart = 0;
@@ -332,10 +370,26 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
   let failedOver = false;
 
   // Pending publishes, coalesced by the 5 Hz throttle.
-  let pendingState: { env: Envelope<SyncStateBody> } | null = null;
+  let pendingState: Envelope<SyncStateBody> | null = null;
   let stateTimer: ReturnType<typeof setTimeout> | null = null;
-  let lastStatePublishAt = 0;
+  /**
+   * On the MONOTONIC clock — see `src/lib/monotonic.ts`.
+   *
+   * `-Infinity` rather than `0`, and the difference is not cosmetic: a monotonic
+   * clock's origin is somewhere near process start, so `0` would mean "published
+   * a fraction of a second ago" and would throttle the FIRST publish of a page —
+   * the one that carries the whole snapshot to a cold display. A wall clock hid
+   * that by being an epoch number.
+   */
+  let lastStatePublishAt = -Infinity;
   let lastRetained: Envelope<SyncStateBody> | null = null;
+  /**
+   * Where `fitStateEnvelope`'s rotating stamp window starts next.
+   *
+   * Per service, so two peers in one test process rotate independently, and
+   * only advanced when the rung that uses it actually fires.
+   */
+  let stampCursor = 0;
   const lastCmdAt = new Map<CmdOp, number>();
   let lastTeleAt = 0;
   let keepalive: ReturnType<typeof setInterval> | null = null;
@@ -424,6 +478,8 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
       rev: env.rev ?? null,
       retained: meta.retained,
       via: transport.id,
+      stamps: stampsOf(env),
+      clock: env.clock === undefined ? null : { t: env.clock[0], c: env.clock[1], s: env.clock[2] },
     };
 
     if (ch === 'cmd') {
@@ -435,9 +491,22 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
     }
 
     if (ch === 'state') {
-      const rev = env.rev ?? null;
-      if (rev !== null && rev <= lastAppliedRev) return;
-      if (rev !== null) lastAppliedRev = rev;
+      /*
+       * Handed straight over — no rev floor, no replay branch, no receipt.
+       *
+       * There used to be a guard here that dropped any frame whose `rev` did
+       * not strictly exceed the last one applied from that peer, and it was the
+       * single most expensive line in the layer: a reloaded page's persisted
+       * `rev` is by construction at least the rev of the frame the broker
+       * retained, so on EVERY reload the bootstrap was dropped before any
+       * subscriber saw it. The merge below is idempotent by construction
+       * (`src/sync/merge.ts`), so a redelivery, a keepalive republish and a
+       * retained replay are all no-ops on their own merits, and `(src, seq)`
+       * dedup above already spares the work of merging the same frame twice.
+       *
+       * The whole envelope is handed over, because the stamps are what the
+       * merge is made of — see `onState` in `appSync.ts`.
+       */
       for (const cb of [...stateSubs]) cb(env.body as SyncStateBody, recv);
       emitStatus();
       return;
@@ -533,30 +602,139 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
    * modules that were left out keep whatever the receiver already had.
    */
   function fitStateEnvelope(env: Envelope<SyncStateBody>): Envelope<SyncStateBody> | null {
-    try {
-      encodeEnvelope(env);
-      return env;
-    } catch (err) {
-      if (!(err instanceof EnvelopeTooLargeError)) return null;
-    }
     const active = env.body.modules[env.body.activeModuleId];
-    const trimmed: Envelope<SyncStateBody> = {
-      ...env,
-      body: {
-        ...env.body,
-        modules: active === undefined ? {} : { [env.body.activeModuleId]: active },
+
+    /**
+     * Step 1: the module bank, down to the base kind — AND the stamps of the
+     * leaves that went with it.
+     *
+     * Dropping those stamps is not a second rung, it is the other half of this
+     * one: a stamp for a leaf the body no longer carries is a stamp with no
+     * value, which is the mirror of the rule the ladder exists to protect. It
+     * costs nothing to the receiver (a stamp it cannot pair with anything is
+     * ignored on arrival) and it is exactly the bytes the trim was for.
+     */
+    const trim = (e: Envelope<SyncStateBody>): Envelope<SyncStateBody> => {
+      const body: SyncStateBody = {
+        ...e.body,
+        modules: active === undefined ? {} : { [e.body.activeModuleId]: active },
         partial: true,
-      },
+      };
+      if (e.stamps === undefined) return { ...e, body };
+      const leaves = enumerateLeaves(body);
+      const kept: Record<string, [number, number, string]> = {};
+      for (const [path, stamp] of Object.entries(e.stamps)) {
+        if (!leaves.has(path)) continue;
+        kept[path] = stamp;
+      }
+      const { stamps: _dropped, ...rest } = e;
+      return Object.keys(kept).length === 0 ? { ...rest, body } : { ...rest, stamps: kept, body };
     };
-    try {
-      encodeEnvelope(trimmed);
-      return trimmed;
-    } catch (err) {
-      log.error('state snapshot does not fit the 8 KB sync cap even when trimmed', err);
-      lastError = err instanceof Error ? err.message : String(err);
-      emitStatus();
-      return null;
+
+    /**
+     * Step 2: a ROTATING slice of the stamps that are left.
+     *
+     * This is the last rung, and the one that needs an argument. A stamp
+     * dropped from a frame whose body still names the leaf is not an omission —
+     * the receiver reads the unstamped value as `EPOCH`, the beginning of time,
+     * so that leaf cannot win an argument it should win. Under a FIXED window
+     * that is permanent: a leaf buried under newer edits never climbs back, and
+     * a peer that was not listening when the stamp was fresh never converges.
+     * Measured, before this existed: thirty seconds of continuous republishing
+     * and the phone never learned the module CAM had picked.
+     *
+     * So the window ROTATES. Each frame takes as many stamps as the remaining
+     * bytes hold, starting where the last frame stopped, and the cursor moves
+     * on by that many. Since at least one stamp travels per frame, every
+     * stamped leaf carries its stamp within at most `n` frames for `n` stamps —
+     * in practice one or two, since the budget only bites on a snapshot near
+     * the 8 kB cap. `lookWireBudget.test.ts` pins the bound.
+     */
+    const rotateStamps = (e: Envelope<SyncStateBody>): Envelope<SyncStateBody> | null => {
+      const entries = Object.entries(e.stamps ?? {});
+      if (entries.length === 0) return null;
+      const { stamps: _all, ...bare } = e;
+      const spent = envelopeBytes(bare);
+      // `,"stamps":{}` is the wrapper the entries below go inside.
+      let budget = MAX_ENVELOPE_BYTES - spent - 12;
+      if (budget <= 0) return null;
+      const kept: Record<string, [number, number, string]> = {};
+      let taken = 0;
+      for (let i = 0; i < entries.length; i += 1) {
+        const entry = entries[(stampCursor + i) % entries.length];
+        if (entry === undefined) break;
+        const [path, stamp] = entry;
+        const cost = JSON.stringify(path).length + JSON.stringify(stamp).length + 2;
+        if (cost > budget) break;
+        budget -= cost;
+        kept[path] = stamp;
+        taken += 1;
+      }
+      if (taken === 0) return null;
+      stampCursor = (stampCursor + taken) % entries.length;
+      return { ...bare, stamps: kept };
+    };
+
+    /*
+     * ── The trim order, and why `look.layers` is not in it (§6.2) ─────────────
+     *
+     *  1. **The module bank, down to the base kind** (`partial: true`), with the
+     *     stamps of the leaves it dropped. Costs a receiver the configuration of
+     *     modules it is not showing, which it keeps from its own copy because
+     *     every leaf merges on its own stamp.
+     *  2. **A rotating slice of the remaining stamps.** Costs the leaves left
+     *     out one frame's worth of ordering, and they are back in the next one.
+     *  3. **Nothing else.** `look.layers` is NEVER truncated or stripped: a
+     *     look with a layer missing is not a smaller look, it is a different
+     *     arrangement, and half of somebody's panel silently disappearing is a
+     *     worse failure than a refused publish. Past this rung the frame is
+     *     dropped, logged and surfaced through `lastError`.
+     *
+     * What is NOT a rung, at any point: shipping a leaf's value while silently
+     * dropping the stamp that dates it, FOR GOOD. There used to be a rung above
+     * these that did exactly that — it dropped the stamps of every leaf whose
+     * value happened to equal the built-in default, on the argument that "a
+     * receiver that does not get one keeps whatever it already holds, which for
+     * a leaf still sitting on its default is the same value". The premise was
+     * false in the only case that mattered: the receiver is not holding the
+     * default, it is holding the value the ROOM agreed on, and the unstamped
+     * default reads as `EPOCH` and loses to it forever. Setting anything BACK to
+     * its default — `render.fit` to 'cover', "undo my crop" — became unsendable
+     * the moment a frame crossed 8 kB, on every frame, permanently. Unlike the
+     * rotating rung below, nothing repaired it. Measured: CAM tunes 150 knobs
+     * and commits fit=contain, the room agrees, the phone commits fit=cover 1.5 s
+     * later, and eleven seconds and seven hundred frames on the room still holds
+     * two values.
+     *
+     * So the ladder now has exactly one stamp-dropping rung and it ROTATES.
+     */
+    // Lazy, because rung 2 has a side effect (the cursor) that must not run for
+    // a frame that fitted a rung earlier.
+    const candidates: (() => Envelope<SyncStateBody> | null)[] = [
+      () => env,
+      () => trim(env),
+      () => rotateStamps(trim(env)),
+    ];
+    let last: unknown = null;
+    for (const build of candidates) {
+      const candidate = build();
+      if (candidate === null) continue;
+      try {
+        encodeEnvelope(candidate);
+        return candidate;
+      } catch (err) {
+        if (!(err instanceof EnvelopeTooLargeError)) return null;
+        last = err;
+      }
     }
+    log.error(
+      'state snapshot does not fit the 8 KB sync cap even with the bank trimmed; ' +
+        'the look is never truncated, so this frame is not sent',
+      last,
+    );
+    lastError = last instanceof Error ? last.message : String(last);
+    emitStatus();
+    return null;
   }
 
   function flushState(): void {
@@ -567,10 +745,10 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
     const pending = pendingState;
     pendingState = null;
     if (pending === null) return;
-    const fitted = fitStateEnvelope(pending.env);
+    const fitted = fitStateEnvelope(pending);
     if (fitted === null) return;
     lastRetained = fitted;
-    lastStatePublishAt = Date.now();
+    lastStatePublishAt = monotonicNow();
     publishEnvelope(fitted, 'state');
   }
 
@@ -686,6 +864,22 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
 
     async stop() {
       started = false;
+      /*
+       * ── The last publish, BEFORE the transports go ────────────────────────
+       *
+       * A snapshot handed over inside the 200 ms throttle window is held in
+       * `pendingState` waiting for a timer. `stop()` used to clear that timer
+       * and drop it, so the last tap of a session — a tap and then a lock, a
+       * tap and then a close, which is how a phone is actually used — never
+       * reached the room at all. In a display-only room there is nobody to ask
+       * for it afterwards, so it was gone: measured at `display=90` after the
+       * phone tapped 90 and then 180 forty milliseconds later.
+       *
+       * `flushState()` is synchronous down to the transport's own publish, and
+       * a `pagehide` handler has time for it — the same budget the two
+       * localStorage writes in `appSync`'s `stop()` already spend.
+       */
+      flushState();
       abort.abort();
       if (stateTimer !== null) clearTimeout(stateTimer);
       stateTimer = null;
@@ -702,6 +896,7 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
 
     publishState(body, opts) {
       const seq = nextSeq();
+      const wire = o.wireStamps?.(body);
       const env: Envelope<SyncStateBody> = {
         v: PROTOCOL_VERSION,
         ch: 'state',
@@ -710,16 +905,40 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
         role,
         seq,
         rev: opts.rev,
+        /*
+         * Stamped at REQUEST time, with the register table as it stands for
+         * the body being handed over. Reading it again at flush time would be
+         * wrong in the one direction that matters: the body is the state as of
+         * NOW, and annotating it with stamps taken later would claim a decision
+         * the body does not contain.
+         */
+        ...(wire === undefined || Object.keys(wire.map).length === 0 ? {} : { stamps: wire.map }),
+        ...(wire === undefined ? {} : { clock: wire.clock }),
         body,
       };
-      pendingState = { env };
-      const elapsed = Date.now() - lastStatePublishAt;
-      if (opts.immediate === true || elapsed >= PUBLISH_THROTTLE_MS) {
+      pendingState = env;
+      /*
+       * On the MONOTONIC clock, and clamped on top of that.
+       *
+       * `Date.now() - lastStatePublishAt` after a backward wall-clock step is
+       * negative: the immediate branch is skipped AND the trailing flush is
+       * scheduled `|step|` into the future, where the `stateTimer !== null`
+       * guard below then swallows every publish until it fires. Measured on a
+       * one-hour backward step: one state frame in the following ten seconds,
+       * the room split in two, no outage, no error, no status change — and the
+       * silence scaled linearly with the size of the step. A negative elapsed is
+       * now read for what it is, "the clock moved, publish now", and no
+       * arithmetic here can schedule a flush further out than one throttle
+       * period. See `src/lib/monotonic.ts`.
+       */
+      const elapsed = monotonicNow() - lastStatePublishAt;
+      if (opts.immediate === true || elapsed < 0 || elapsed >= PUBLISH_THROTTLE_MS) {
         flushState();
         return;
       }
       if (stateTimer !== null) return;
-      stateTimer = setTimeout(flushState, PUBLISH_THROTTLE_MS - elapsed);
+      const delay = Math.min(Math.max(PUBLISH_THROTTLE_MS - elapsed, 0), PUBLISH_THROTTLE_MS);
+      stateTimer = setTimeout(flushState, delay);
     },
 
     sendCmd(op, arg) {

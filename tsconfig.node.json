@@ -21,7 +21,18 @@
     "isolatedModules": true,
     "skipLibCheck": true,
 
-    "types": ["node"],
+    /*
+     * `vite/client` alongside `node`, because a test may import app source.
+     *
+     * This project covers the tooling and the test files, and a Playwright spec
+     * that imports a contract from `src/` — the sensible way to keep a spec and
+     * the code it asserts on in step — drags that module's whole import graph in
+     * with it. Some of that graph reads `import.meta.env`, which is Vite's
+     * ambient declaration and was only in the app project's `types`, so the spec
+     * typechecked against an `ImportMeta` that has no `env` and failed on a file
+     * it never touched. Purely additive: it declares things, it removes nothing.
+     */
+    "types": ["node", "vite/client"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

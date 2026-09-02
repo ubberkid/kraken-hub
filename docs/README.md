@@ -13,6 +13,9 @@ The project README is [one level up](../README.md).
 | [getting-started.md](getting-started.md) | Zero to video on the panel. The frame-rate slider, the exact CAM click path, the trailing slash, pairing a phone. |
 | [providers.md](providers.md)             | Every source, what works, what does not, and why. The honest capability matrix.                                   |
 | [local-clips.md](local-clips.md)         | Download-first ingestion, manual upload, quota and persistence, the square-crop ffmpeg one-liner.                 |
+| [effects.md](effects.md)                 | The twelve moving backgrounds: presets, your own colours, reacting to temperature, and what each one costs.       |
+| [editor.md](editor.md)                   | Layers, the halo, locking, selecting several at once, the strip, the inspector, undo and the budget meter.        |
+| [looks.md](looks.md)                     | Looks: templates, your own shelf, the gallery, the carousel, and the `.krakenlook` file.                          |
 | [remote-control.md](remote-control.md)   | Pairing, transports, failover, and the privacy and threat model of a public broker.                               |
 | [troubleshooting.md](troubleshooting.md) | Symptom → mechanism → fix, with an H-id wherever the fix rests on something unmeasured.                           |
 | [self-hosting.md](self-hosting.md)       | Forking: Pages with the Actions source, custom domains, and the exhaustive no-hardcoded-origin table.             |
@@ -22,6 +25,8 @@ The project README is [one level up](../README.md).
 | Document                                                          | What it covers                                                                                                          |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | [modules.md](modules.md)                                          | Writing a module, start to finish — the contract, the renderer, chunking, testing. Validated by building Clock from it. |
+| [modules-text-shape.md](modules-text-shape.md)                    | The two overlay-first layer kinds, and the placement/resize/font decisions particular to them.                          |
+| [modules-icon-date.md](modules-icon-date.md)                      | The icon and date overlays and the solid base — the three §10 parity kinds and what is particular to each.              |
 | [resolver-protocol.md](resolver-protocol.md)                      | The frozen v1 companion wire contract and its security posture.                                                         |
 | [`companion/resolver/README.md`](../companion/resolver/README.md) | Running the companion: install, flags, what installing it means, troubleshooting.                                       |
 | [`CONTRIBUTING.md`](../CONTRIBUTING.md)                           | Dev setup, `npm run check`, the simulator flags, the eight platform invariants and the lint rule enforcing each.        |
@@ -34,8 +39,8 @@ The parts of this project that are research rather than code.
 | Document                                                 | What it covers                                                                                                                                                                                                                 |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [why-not-extraction.md](why-not-extraction.md)           | The measurements that killed YouTube stream extraction from a static origin, with curl repros.                                                                                                                                 |
-| [hardware-checklist.md](hardware-checklist.md)           | H01–H23: what is still unmeasured on real hardware, and exactly how to measure each one.                                                                                                                                       |
-| [design/](design/)                                       | The three implementation-ready design documents, kept as authored, each with a corrections section where shipped reality diverges.                                                                                             |
+| [hardware-checklist.md](hardware-checklist.md)           | H01–H33: what is still unmeasured on real hardware, and exactly how to measure each one.                                                                                                                                       |
+| [design/](design/)                                       | The five implementation-ready design documents, kept as authored, each with a corrections section where shipped reality diverges.                                                                                              |
 | [design/research/](design/research/)                     | The source research: the NZXT platform contract, YouTube playback, providers and sync.                                                                                                                                         |
 | [design/halo-prototype.html](design/halo-prototype.html) | **“Halo” — the approved configuration/remote UI direction, 2026-08-31.** The interactive prototype is the spec: its tokens, layout, copy and interaction states are what `src/ui` and the configuration surfaces are built to. |
 

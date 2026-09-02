@@ -26,6 +26,7 @@
 import { CAM_PATH_CONFIGURE } from '../../config/camPaths';
 import { createLogger } from '../../lib/log';
 import { computeFit, toTransformCss } from '../../render/fit';
+import { BASE_LAYER_ID, type LayerId } from '../../state/look/types';
 import { setReplicaThumb } from '../replicaThumb';
 
 import { downloadImage } from './download';
@@ -101,6 +102,15 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
   let img: HTMLImageElement | null = null;
   let message: HTMLElement | null = null;
   let ctxRef: ModuleContext | null = null;
+  /**
+   * Which layer this renderer IS (§3.3).
+   *
+   * A picture is overlay-capable, so there can genuinely be two of these on the
+   * panel at once — a wallpaper base and a badge in the corner. Keying the
+   * replica seam by layer is what stops the second one from erasing the first's
+   * thumbnail, and unmounting either from blanking both.
+   */
+  let layerId: LayerId = BASE_LAYER_ID;
   let cfg: ImageModuleConfig | null = null;
 
   let source: Source | null = null;
@@ -176,7 +186,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
      * the LOCAL cases — a library image, a freshly downloaded one — that the
      * phone genuinely cannot reach, because they live in CAM's browser profile.
      */
-    setReplicaThumb(next.blob ?? null);
+    setReplicaThumb(layerId, next.blob ?? null);
   };
 
   /** Step 1 and 2 of the resolution order: anything already in the library. */
@@ -293,6 +303,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
   return {
     mount(host: HTMLElement, ctx: ModuleContext, config: ImageModuleConfig) {
       ctxRef = ctx;
+      layerId = ctx.layer?.id ?? BASE_LAYER_ID;
       cfg = config;
 
       root = document.createElement('div');
@@ -375,7 +386,7 @@ export function createRenderer(): DisplayRenderer<ImageModuleConfig> {
       releaseSource();
       // The panel is about to show something else; the replica must not keep
       // rendering a picture that is no longer on the LCD.
-      setReplicaThumb(null);
+      setReplicaThumb(layerId, null);
       if (img !== null) img.removeAttribute('src');
       root?.remove();
       root = null;

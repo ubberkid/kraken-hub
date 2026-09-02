@@ -16,6 +16,7 @@
  * that touches the DOM is behind `loadDisplay()` / `loadConfigPanel()`.
  */
 
+import { IDENTITY, MAX_LAYERS } from '../../state/look/types';
 import { defineModule } from '../defineModule';
 
 import { CLOCK_DEFAULTS, CLOCK_FACES, validateClock, type ClockConfig } from './schema';
@@ -48,6 +49,34 @@ export const clockModule: KrakenModule<ClockConfig> = defineModule<ClockConfig>(
     audio: 'none',
     remoteCommands: [],
   },
+
+  /**
+   * `resize: 'frame'` — the crispness rule (§3.2). A clock is text and SVG, so
+   * a resize gesture commits a new FRAME and the module lays itself out again
+   * at the new size; committing `t.s` instead would leave the digits as a
+   * scaled bitmap, which is exactly the artefact CAM's compressor is worst at.
+   *
+   * The default sits along the bottom, where a wide, short box lands under
+   * whatever the base is showing without covering its middle.
+   */
+  layer: {
+    roles: ['base', 'overlay'],
+    maxInstances: MAX_LAYERS,
+    resize: 'frame',
+    minFrame: 0.4,
+    overlayDefault: { frame: { w: 1, h: 0.5, shape: 'square' }, t: { ...IDENTITY, y: 0.55 } },
+    /*
+     * Once a second, and only the digits that changed: the renderer's repaint
+     * guard means the other 39 ticks a second are a string compare. `0.15`
+     * coverage is the digits against their own box; flat type on flat ground is
+     * the cheapest thing the compressor ever sees.
+     */
+    cost: () => ({ cadence: 'tick', coverage: 0.15, entropy: 'low', decoders: 0, gl: 0 }),
+  },
+
+  /** §2.3: face · 12/24 · seconds · colour · More — declared in `./editor`. */
+  editor: { loadStrip: () => import('./editor') },
+
   defaults: CLOCK_DEFAULTS,
   validate: validateClock,
 

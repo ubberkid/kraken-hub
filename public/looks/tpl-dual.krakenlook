@@ -1,0 +1,41 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "stats": 1
+  },
+  "configs": {
+    "stats": {
+      "layout": "dual",
+      "metrics": [
+        "cpuTemp",
+        "gpuTemp",
+        "liquidTemp"
+      ],
+      "showLabels": true,
+      "theme": "cyan"
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "Two readings on one ring, as mirrored half-arcs.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "stats",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      }
+    ]
+  },
+  "media": [],
+  "name": "Dual",
+  "version": 7
+}

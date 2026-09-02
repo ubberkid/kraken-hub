@@ -1,0 +1,29 @@
+/*
+ * The Text panel's one non-kit control.
+ *
+ * `src/ui/` has no colour well, and it should not grow one for a single module:
+ * a hex colour is the one setting on this surface where the native control is
+ * genuinely better than anything a segmented row could do — every colour, one
+ * press, and the platform's own picker. So the element is native and the
+ * styling is the module's, which keeps `src/ui/index.tsx`'s vocabulary intact
+ * (no `Select`, no `Toggle`, and now no half-used `ColorField` either).
+ *
+ * Config-only: this file is imported from a `.tsx` under `src/modules/`, which
+ * vite chunks into `config-ui`. It can never reach the display graph (I8).
+ */
+
+.kh-text-swatch {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  background: var(--kh-panel-2);
+  cursor: pointer;
+}
+
+.kh-text-swatch:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}

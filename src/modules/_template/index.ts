@@ -6,6 +6,7 @@
  * point, and the leading underscore keeps it out of the module id space.
  */
 
+import { IDENTITY, MAX_LAYERS } from '../../state/look/types';
 import { defineModule } from '../defineModule';
 
 import { TEMPLATE_DEFAULTS, validateTemplate, type TemplateConfig } from './schema';
@@ -28,6 +29,35 @@ export const templateModule: KrakenModule<TemplateConfig> = defineModule<Templat
     audio: 'none',
     remoteCommands: [],
   },
+
+  /**
+   * STEP 5b (docs/modules.md §7) — where your module may sit in a look.
+   *
+   * `['base', 'overlay']` is the right answer for almost everything: a renderer
+   * that lays itself out from `ctx.geometry()` — which is the only supported way
+   * to lay anything out — is already an overlay, because a layer's `geometry()`
+   * is its own box. Declare `['base']` only if you own something there can be
+   * exactly one of, the way `video` owns the decoder.
+   *
+   *  - `resize`: `'frame'` for text and SVG (re-lay out, stay crisp), `'scale'`
+   *    for pixels and canvases (one style write, no reflow). §3.2.
+   *  - `minFrame`: the smallest DIAMETER, in units, at which you are still
+   *    legible. The editor clamps to it.
+   *  - `overlayDefault`: where a fresh overlay lands, plus any config that makes
+   *    it an overlay (stats switches to its `strip` face here).
+   *  - `cost()`: pure, tiny, called on every keystroke in the editor. Declare
+   *    what you ACTUALLY do — a `'frame'` cadence you do not need makes every
+   *    look containing you look expensive and trips the governor early.
+   */
+  layer: {
+    roles: ['base', 'overlay'],
+    maxInstances: MAX_LAYERS,
+    resize: 'frame',
+    minFrame: 0.3,
+    overlayDefault: { frame: { w: 1, h: 0.5, shape: 'square' }, t: { ...IDENTITY, y: 0.55 } },
+    cost: () => ({ cadence: 'static', coverage: 1, entropy: 'low', decoders: 0, gl: 0 }),
+  },
+
   defaults: TEMPLATE_DEFAULTS,
   validate: validateTemplate,
   loadDisplay: () => import('./display'),

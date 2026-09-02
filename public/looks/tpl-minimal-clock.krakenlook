@@ -1,0 +1,38 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "clock": 1
+  },
+  "configs": {
+    "clock": {
+      "face": "digital",
+      "hourFormat": "24",
+      "showDate": false,
+      "showSeconds": false,
+      "theme": "mono"
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "The time, and nothing else.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "clock",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      }
+    ]
+  },
+  "media": [],
+  "name": "Minimal clock",
+  "version": 7
+}

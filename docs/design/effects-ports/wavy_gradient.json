@@ -1,0 +1,86 @@
+{
+  "id": "wavy_gradient",
+  "displayName": "Wavy gradient",
+  "colourSlots": [
+    "Gradient start",
+    "Gradient mid",
+    "Gradient mid 2",
+    "Gradient end"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#6700D0",
+        "#9200E0",
+        "#BE00EF",
+        "#E900FF"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#5B5B5B",
+        "#7B7B7B",
+        "#9C9C9C",
+        "#BCBCBC"
+      ]
+    },
+    {
+      "name": "Ice",
+      "colors": [
+        "#00529E",
+        "#0084BE",
+        "#00B5DF",
+        "#00E7FF"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#238800",
+        "#44A600",
+        "#66C500",
+        "#87E300"
+      ]
+    },
+    {
+      "name": "Bubblegum",
+      "colors": [
+        "#9F009A",
+        "#BB00B8",
+        "#D700D5",
+        "#F300F3"
+      ]
+    },
+    {
+      "name": "Ember",
+      "colors": [
+        "#9E0000",
+        "#B80000",
+        "#D10000",
+        "#EB0000"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#BCBCBC",
+        "#D2D2D2",
+        "#E9E9E9",
+        "#FFFFFF"
+      ]
+    },
+    {
+      "name": "Sunburst",
+      "colors": [
+        "#E96600",
+        "#F09300",
+        "#F8C100",
+        "#FFEE00"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/wavy_gradient/WavyGradient.shader"
+}

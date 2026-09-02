@@ -182,7 +182,9 @@ describe.skipIf(!LIVE)('live sync smoke', () => {
       withLocal: false,
     });
     const seen: SyncStateBody[] = [];
-    reader.onState((body) => seen.push(body));
+    reader.onState((body) => {
+      seen.push(body);
+    });
     await reader.start();
     await delay(2000);
     await reader.stop();

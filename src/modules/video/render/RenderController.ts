@@ -105,6 +105,7 @@ export function createRenderController(opts: RenderControllerOptions): RenderCon
   const mask = div('kh-video__mask');
   mask.style.position = 'absolute';
   mask.style.inset = '0';
+  // layer-order-ok: host-internal stack (stage → mask → overlays), not layer order.
   mask.style.zIndex = '2';
   mask.style.pointerEvents = 'none';
   mask.style.background = '#000';
@@ -115,6 +116,7 @@ export function createRenderController(opts: RenderControllerOptions): RenderCon
   const overlays = div('kh-video__overlays');
   overlays.style.position = 'absolute';
   overlays.style.inset = '0';
+  // layer-order-ok: same host-internal stack as the mask above.
   overlays.style.zIndex = '3';
   overlays.style.pointerEvents = 'none';
 

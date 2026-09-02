@@ -85,7 +85,44 @@ export default defineConfig(() => ({
               test: /[\\/]src[\\/](?:ui|app[\\/]config)[\\/]|[\\/]src[\\/]modules[\\/].*\.tsx$/,
               priority: 90,
             },
-            { name: 'display-shell', test: /[\\/]src[\\/]app[\\/]display[\\/]/, priority: 90 },
+            /**
+             * The display's SYNC half — `sync.ts` and the replica feed it
+             * drives — which the LCD downloads only when a room is configured.
+             *
+             * Both files live under `src/app/display/`, so the path-based
+             * `display-shell` group claimed them and `displayCriticalPath`
+             * weighed ~3 kB gzip that a display with no room never executes.
+             * `mount.tsx` reaches `sync.ts` through `await import('./sync')`
+             * and `sync.ts` reaches `replicaFeed.ts` the same way, so nothing
+             * on the first-paint path imports either one — the bytes were on
+             * the budget because of where the files sit, not because the LCD
+             * needs them to show a frame. Same doctrine as `transfer` and
+             * `diag-core`: a feature that only fires when somebody configures
+             * a room must not cost the LCD's first paint.
+             *
+             * Listed BEFORE `display-shell` and at the same priority, and
+             * `display-shell`'s test excludes the two files by name — the
+             * ordering and the lookahead say the same thing twice on purpose.
+             * It must NOT outrank `sync-core` (91): `sync.ts` statically
+             * imports `src/sync/position` and dynamically imports
+             * `src/sync/appSync`, and a group claims its matched modules AND
+             * their dependencies, so a higher rank would swallow the whole
+             * sync layer into a chunk the display fetches.
+             *
+             * The chunk still contains `src/app/display/` modules, so
+             * `check-bundle-size.mjs` treats it as display-owned and keeps
+             * following its dynamic edges for the invariant-I8 walk.
+             */
+            {
+              name: 'display-lazy',
+              test: /[\\/]src[\\/]app[\\/]display[\\/](?:sync|replicaFeed)\.ts$/,
+              priority: 90,
+            },
+            {
+              name: 'display-shell',
+              test: /[\\/]src[\\/]app[\\/]display[\\/](?!(?:sync|replicaFeed)\.ts$)/,
+              priority: 90,
+            },
             // One chunk per module's display code. Config panels are .tsx and
             // split out on their own, so the LCD never pulls a panel in.
             /**
@@ -168,6 +205,39 @@ export default defineConfig(() => ({
              * and is not counted in that budget — a display with no room
              * configured never fetches it at all.
              */
+            /**
+             * The nine kinds' STRIP declarations — `<kind>/editor.ts` — and the
+             * house ink table they share, in ONE small lazily-fetched chunk.
+             *
+             * Each declaration is a few hundred bytes of config-only data, and
+             * `[^/\\]*\.ts$` in every `module-*` group matches `editor.ts`, so
+             * without this group each kind's strip rode that kind's DISPLAY
+             * chunk. The editor is not the display: selecting a video layer for
+             * the first time would have fetched the 24 kB player to find out
+             * which five controls to draw. Nine strips in one chunk is also one
+             * round trip instead of nine, on a page where a person selects
+             * layers of several kinds in a row.
+             *
+             * Ranked ABOVE the module groups (92) so they cannot claim their
+             * own `editor.ts` back, and BELOW `lazy-shared` (94) and `core`
+             * (95) so the declarations' dependencies — `modules/types.ts`, the
+             * strip contract — stay in the chunks that own them rather than
+             * being dragged in behind a group that claims its matched modules
+             * AND their dependencies.
+             *
+             * `swatches.ts` is here rather than in `core` for the same reason
+             * `replicaThumb.ts` is in `lazy-shared`: `core` claims
+             * `src/modules/*.ts` by PATH, so the shared ink table sat on the
+             * LCD's first download to answer a question — what "Amber" is —
+             * that only an `editor.ts` ever asks. `core`'s test carries the
+             * matching negative lookahead, because a group cannot claim what a
+             * higher-priority group's test already matched.
+             */
+            {
+              name: 'module-editors',
+              test: /[\\/]src[\\/]modules[\\/](?:[^/\\\\]+[\\/]editor|swatches)\.ts$/,
+              priority: 93,
+            },
             /**
              * The diagnostics CORE — probes, report shape, and the `tele` wire
              * format for a remote report pull. `.ts` only, deliberately.
@@ -288,6 +358,46 @@ export default defineConfig(() => ({
               test: /[\\/]src[\\/]modules[\\/]stats[\\/][^/\\\\]*\.ts$/,
               priority: 92,
             },
+            {
+              name: 'module-text',
+              test: /[\\/]src[\\/]modules[\\/]text[\\/][^/\\\\]*\.ts$/,
+              priority: 92,
+            },
+            {
+              name: 'module-shape',
+              test: /[\\/]src[\\/]modules[\\/]shape[\\/][^/\\\\]*\.ts$/,
+              priority: 92,
+            },
+            {
+              name: 'module-icon',
+              test: /[\\/]src[\\/]modules[\\/]icon[\\/][^/\\\\]*\.ts$/,
+              priority: 92,
+            },
+            {
+              name: 'module-date',
+              test: /[\\/]src[\\/]modules[\\/]date[\\/][^/\\\\]*\.ts$/,
+              priority: 92,
+            },
+            /**
+             * The effect RUNNER — manifest, schema, motion, the loader in
+             * `effects.ts` — and deliberately NOT `effects/`.
+             *
+             * `[^/\\]*\.ts$` matches direct children only, so the twelve
+             * fragment sources under `src/modules/effect/effects/` are outside
+             * this group by construction. That is the point: each one is behind
+             * a dynamic import in `effects.ts`, so the bundler gives it its own
+             * chunk and a panel downloads the ~1.5 kB for the effect it is
+             * actually showing instead of ~19 kB of GLSL for twelve. Widening
+             * the test to `.*\.ts$` would fold all twelve into `module-effect`
+             * and walk it straight at the 25 kB per-module budget —
+             * `budgets.json`'s `perModuleChunk.note` says the same thing from
+             * the budget's side.
+             */
+            {
+              name: 'module-effect',
+              test: /[\\/]src[\\/]modules[\\/]effect[\\/][^/\\\\]*\.ts$/,
+              priority: 92,
+            },
             /**
              * The fit/safe-area math shared by every module that places a
              * rectangular source on the panel (video and image today).
@@ -305,12 +415,106 @@ export default defineConfig(() => ({
               test: /[\\/]src[\\/]render[\\/]/,
               priority: 94,
             },
+            /**
+             * Shared LEAVES that live in `core`'s directories but that NOTHING
+             * on the display's first-paint path imports.
+             *
+             * `core` claims by PATH, not by importer, so every file under
+             * `src/platform/`, `src/lib/`, `src/config/` and `src/modules/*.ts`
+             * landed in the one chunk the LCD downloads before it can paint —
+             * including eight modules whose only importers are lazy:
+             *
+             *   platform/mediaStore.ts   IndexedDB media layer: the two module
+             *   platform/idb.ts          stores, `display/sync.ts`, config
+             *   modules/replicaThumb.ts  thumbnails for the phone's mini-halo
+             *   platform/capabilities.ts diagnostics probes only
+             *   config/knownHosts.ts     video adapters + config views
+             *   config/vocabulary.ts     config views + `.tsx` module panels
+             *   lib/curation.ts          `display/sync.ts` (dynamic) only
+             *   lib/chunkedTele.ts       diag/wire, replicaFeed, config sync
+             *   lib/libraryPacket.ts     config `useSync`, `display/sync.ts`
+             *
+             * `vocabulary.ts` is the sentence bank the configuration UI speaks
+             * in; the display shows none of it. It stayed on the LCD's first
+             * download only because video's manifest wanted two words from it —
+             * and those two now live in the dependency-free `config/words.ts`,
+             * which STAYS in `core` because the display genuinely reads it.
+             *
+             * `libraryPacket.ts` earns its place twice over: it is lazy-only
+             * itself, and it STATICALLY imports `mediaStore` and `chunkedTele`.
+             * Leaving it in `core` left those two in `core` as well — a group
+             * claims its matched modules and their dependencies, and `core`
+             * outranks this one, so excluding a leaf without excluding its
+             * static importer moves nothing. Measured, not feared: that is what
+             * the first version of this group did.
+             *
+             * A static-import walk from `src/app/display/mount.tsx` reaches
+             * none of them; they were ~4.8 kB gzip of `displayCriticalPath`
+             * bought by directory layout. Here they are one leaf chunk fetched
+             * alongside whichever lazy chunk actually wants them.
+             *
+             * Ranked BELOW `core` (95) so their own dependencies —
+             * `src/lib/log`, `src/state/look/types` — stay where they belong,
+             * and ABOVE the module groups (92) so neither `module-video` nor
+             * `module-image` claims the media store and drags the other
+             * module's chunk in behind it. The `core` test carries the matching
+             * negative lookahead: a group cannot claim what a higher-priority
+             * group's test already matched.
+             *
+             * This is NOT re-labelling. Every file here is behind a dynamic
+             * import from the display's side; if one ever becomes a static
+             * import of `mount.tsx` or `DisplayApp.tsx`, it must come back to
+             * `core` rather than stay hidden in this chunk.
+             */
+            {
+              name: 'lazy-shared',
+              test: /[\\/]src[\\/](?:platform[\\/](?:mediaStore|idb|capabilities)|lib[\\/](?:curation|chunkedTele|libraryPacket)|config[\\/](?:knownHosts|vocabulary)|modules[\\/]replicaThumb)\.ts$/,
+              priority: 94,
+            },
+            /**
+             * The Look FILE — the `.krakenlook` reader/writer and the ten
+             * shipped Looks. Two files, one chunk, and neither is on the LCD's
+             * path.
+             *
+             * `templates.ts` is ~9 kB of designed arrangements and `file.ts` is
+             * the importer/exporter; both live under `src/state/`, so `core`
+             * claimed them by path and put them on the LCD's first download —
+             * where they pay for a menu the panel cannot open and a file picker
+             * it has no file manager for. MEASURED, not feared: wiring the Looks
+             * sheet up took `displayCriticalPath` from 88.4 kB to 90.6 kB
+             * against a 90 kB gate, and this group took it back to 88.6 kB.
+             *
+             * A dynamic edge alone does not move a module out of a chunk group
+             * that claims it — the group has to stop matching. So this is the
+             * `lazy-shared` shape exactly: a group ranked BELOW `core` (95) with
+             * a matching negative lookahead in `core`'s own test, which is what
+             * actually frees the files.
+             *
+             * Ranked below `core` so the dependencies stay put — `look/types.ts`,
+             * `look/validate.ts`, `state/schema.ts`, `state/migrations.ts` are
+             * all things the DISPLAY genuinely reads. A higher rank would drag
+             * the document's whole state layer into a lazily-fetched chunk,
+             * which is the trap every group above this one documents.
+             *
+             * Nothing under `src/app/display` or `src/render` imports either
+             * file, and the `displayGraph` (I8) walk fails the build if that
+             * changes.
+             */
+            {
+              name: 'looks',
+              test: /[\\/]src[\\/]state[\\/]look[\\/](?:templates|file)\.ts$/,
+              priority: 94,
+            },
             // Shared foundation both pages need; counted in the display budget.
             {
               name: 'core',
               // src/modules/*.ts (registry, types, defineModule) but NOT the
               // per-module directories: a module's React panel must stay out.
-              test: /[\\/]src[\\/](?:(?:platform|state|lib|boot|config)[\\/]|modules[\\/][^/\\\\]*\.ts$)/,
+              // The leading lookahead hands the eight lazy-only leaves to
+              // `lazy-shared`, the two Look files to `looks` and the shared ink
+              // table to `module-editors` — see those groups for why they are
+              // not `core`.
+              test: /[\\/]src[\\/](?!platform[\\/](?:mediaStore|idb|capabilities)\.ts$|lib[\\/](?:curation|chunkedTele|libraryPacket)\.ts$|config[\\/](?:knownHosts|vocabulary)\.ts$|modules[\\/](?:replicaThumb|swatches)\.ts$|state[\\/]look[\\/](?:templates|file)\.ts$)(?:(?:platform|state|lib|boot|config)[\\/]|modules[\\/][^/\\\\]*\.ts$)/,
               priority: 95,
             },
           ],

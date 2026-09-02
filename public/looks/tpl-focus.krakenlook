@@ -1,0 +1,92 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "effect": 1
+  },
+  "configs": {
+    "effect": {
+      "colors": [
+        "#5B5B5B",
+        "#7B7B7B",
+        "#9C9C9C",
+        "#BCBCBC"
+      ],
+      "effect": "wavy-gradient",
+      "preset": "graphite",
+      "speed": 0.5
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "One word inside a ring, on a gradient that barely moves.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "effect",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "cfg": {
+          "fill": "none",
+          "shape": "ring",
+          "stroke": "#f2f4f8",
+          "strokeWidth": 0.012
+        },
+        "frame": {
+          "h": 1.5,
+          "shape": "circle",
+          "w": 1.5
+        },
+        "id": "lring",
+        "kind": "shape",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        },
+        "v": 1
+      },
+      {
+        "cfg": {
+          "color": "#f2f4f8",
+          "font": "condensed",
+          "size": 0.16,
+          "text": "FOCUS",
+          "uppercase": true,
+          "weight": 600
+        },
+        "frame": {
+          "h": 0.4,
+          "shape": "square",
+          "w": 1.1
+        },
+        "id": "ltext",
+        "kind": "text",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        },
+        "v": 1
+      }
+    ]
+  },
+  "media": [],
+  "name": "Focus",
+  "version": 7
+}

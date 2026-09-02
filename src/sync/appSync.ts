@@ -6,20 +6,52 @@
  * sync layer free of app imports (invariant 6's `sync ↛ app` zone) and keeps
  * `precedence.ts` free of any idea that a network exists.
  *
- * The rule it enforces is the one from the plan: **inbound state is applied as
- * the `remote` layer**, never written straight over the store. So a URL
- * parameter still wins over a phone, a phone still wins over what CAM saved,
- * and a reload drops the remote layer — recovered a second later from the
- * retained snapshot, or immediately from localStorage when `persistRemote` is
- * on.
+ * ## What it holds
+ *
+ * One thing: the REGISTER TABLE — every leaf anybody in the room has written,
+ * with the hybrid-logical-clock stamp of the write that put it there. Inbound
+ * frames merge into it (`src/sync/merge.ts`), local commits write into it, and
+ * `resolveState` sees it as the `remote` precedence layer. It is the whole of
+ * the sync layer's memory.
+ *
+ * There used to be two layers here — `remote` for what peers said and `local`
+ * for what this page had said that no peer had acknowledged yet — plus a stamp
+ * table, an acknowledgement map, a provenance map, a liveness timer and a rev
+ * floor, all arbitrating between them. Every one of those is gone. The reason
+ * they existed was that arrival order is not causal order, and the reason they
+ * could not be made to work is that CAUSAL order is not a total order either:
+ * two people touching the same setting at the same moment have seen nothing of
+ * each other, so a rule made only of causality has nothing to say about them,
+ * and every patch for that produced a deadlock (two chatty peers defending the
+ * same leaf forever), a laundered acknowledgement, or a room that split in two.
+ * A hybrid logical clock is a total order that AGREES with causality wherever
+ * causality has an opinion, so one comparison answers both questions and there
+ * is nothing left for two peers to negotiate.
+ *
+ * ## The precedence layers, after
+ *
+ * `defaults < persisted < remote < local < url` still holds, and `remote` and
+ * `local` have collapsed into one: the merged register table IS both, because a
+ * local write is simply the write with the latest stamp. `url` still sits on
+ * top, and the store's API (`commit` / `replace` / `subscribe`) is unchanged —
+ * no app file moved for this.
  */
 
+import { isPlainObject } from '../lib/clamp';
 import { createLogger } from '../lib/log';
+import { monotonicNow } from '../lib/monotonic';
+import { readRaw, writeRaw } from '../platform/storage';
+import { baseLook } from '../state/look/types';
 import { resolveState } from '../state/precedence';
 import { noteSeenRev } from '../state/storage';
 
+import { EPOCH, compareStamps, decodeStamp, encodeStamp, maxStamp, tick, type Stamp } from './hlc';
+import { BASE_KIND_LEAF, deepEqual, enumerateLeaves, leavesToPatch, withBaseKind } from './leaves';
+import { mergeInto, type Register, type Registers } from './merge';
 import { createSyncService, type SyncService, type SyncServiceOptions } from './SyncService';
+import { MAX_SLOT_BYTES, MAX_SLOT_REGISTERS } from './types';
 
+import type { StampTuple } from './hlc';
 import type { CmdBody, RecvMeta, Role, SyncStateBody, SyncStatus, TeleBody } from './types';
 import type { AppState, DeepPartial } from '../state/schema';
 import type { Store } from '../state/store';
@@ -29,10 +61,21 @@ const log = createLogger('sync/app');
 /** Remote state is committed to localStorage no more often than this. */
 export const PERSIST_REMOTE_THROTTLE_MS = 2000;
 
-/** The four state fields that travel. Blobs and settings deliberately do not. */
+/**
+ * What travels. Blobs and settings deliberately do not — and neither do `sync`,
+ * `platform` or `diagnostics`: a remote peer must not be able to change which
+ * broker a display talks to, whether its watchdog may reload it, or whether
+ * audio is opted in. Those are local trust decisions and they stay local.
+ *
+ * `activeModuleId` and `look.layers[0].kind` are the same fact, and this is
+ * where they are forced to agree on the way out (§6.1: written both ways for
+ * one release, removed at schema 8). `src/sync/leaves.ts` treats them as one
+ * merge unit, so they cannot come apart on the way back in either.
+ */
 export function stateToSyncBody(s: AppState): SyncStateBody {
   return {
     activeModuleId: s.activeModuleId,
+    look: withBaseKind(s.look, s.activeModuleId),
     modules: s.modules,
     playback: s.playback,
     render: s.render,
@@ -42,72 +85,245 @@ export function stateToSyncBody(s: AppState): SyncStateBody {
 /**
  * The inverse, as a precedence PATCH rather than a whole state.
  *
- * `sync`, `platform` and `diagnostics` are missing on purpose: a remote peer
- * must not be able to change which broker a display talks to, whether its
- * watchdog may reload it, or whether audio is opted in. Those are local trust
- * decisions and they stay local.
+ * A body with no `look` is a body from a build that predates §6; `baseLook` is
+ * the same projection the 6 → 7 migration uses, so an old phone's snapshot
+ * lands losslessly as a one-layer arrangement.
  */
 export function syncBodyToPatch(b: SyncStateBody): DeepPartial<AppState> {
   return {
     activeModuleId: b.activeModuleId,
+    look: withBaseKind(b.look ?? baseLook(b.activeModuleId), b.activeModuleId),
     modules: b.modules,
     playback: b.playback,
     render: b.render,
   };
 }
 
+// ---------------------------------------------------------------------------
+// The persisted clock
+// ---------------------------------------------------------------------------
+
 /**
- * ── The DEV-only layer trace ─────────────────────────────────────────────────
+ * Where a page's REGISTER TABLE survives a reload.
  *
- * "Which layer won this key, and when did that change?" is the one question
- * this whole class of bug turns on, and until now the only way to answer it was
- * to read four files and guess. Two reports of "it flips back to Video" were
- * diagnosed that way; the first fix was wrong because the guess was wrong.
+ * ## Why the slot carries values now (v2)
  *
- * It ships dark. Every call site is inside `if (import.meta.env.DEV)`, which
- * Vite replaces with `false` in a production build, so the constant folder
- * removes the branch and the tree shaker removes everything only it referenced.
- * `npm run size` is what keeps that honest.
+ * It used to carry stamps only, on the reasoning that the values were already
+ * persisted — they are the state document. They are, but they are written by a
+ * DIFFERENT act: stamps go into this slot on every local commit and on
+ * `stop()`, while values go into the document only through `persistNow()`,
+ * which is throttled to two seconds and which `sync.persistRemote: false`
+ * switches off entirely. Any page that closed inside that gap left a slot whose
+ * stamps described values its document did not contain, and the restore loop
+ * paired them anyway: the room's newest stamp against a value it never
+ * described. That page then out-ranked the true value everywhere, permanently,
+ * because the two registers tied on stamp and the tie went to whichever value
+ * sorted larger as JSON. Measured on a display-only room: a tap lost forever;
+ * measured on a three-peer room: the author's own edit reverted room-wide.
  *
- * Logged ONLY on change: the state channel is chatty and a line per frame is
- * noise nobody reads. A line appears when the winning layer for a contested key
- * actually moves, which is exactly the moment worth seeing.
+ * So the slot is now SELF-CONTAINED — `{ stamp, value }` per leaf — and the
+ * document is not consulted at all. It was, for one thing: whether the leaf
+ * still existed. That gate turned out to unpair the two halves of a look, since
+ * `look.order` is in every document and the layer it names may not be yet; see
+ * the restore in `startAppSync`. A stamp is a fact about a value, and the two
+ * are written together or not at all. `stop()` still flushes them in the only
+ * safe order: values first (the document), stamps second (this slot).
+ *
+ * `persistRemote` governs whether REMOTE state is authoritative on a cold boot,
+ * not whether this page is allowed to remember what it decided — so the slot is
+ * written either way. See `docs/settings.md` / the sync settings note.
+ *
+ * ## What it buys
+ *
+ *  - the first write after a reload is ordered after everything the page had
+ *    seen before it, even on a device whose wall clock is behind the room's;
+ *  - a leaf this page authored is still defended by the stamp it was authored
+ *    with, rather than reverting to "unstamped" and losing to any older frame
+ *    that happens to mention it;
+ *  - the ROOM-CLOCK OFFSET (below) survives, so a device that reloads during an
+ *    outage still stamps in room time when it comes back.
+ *
+ * A missing slot is not an error — it is every page that has ever run, and
+ * every leaf it names simply migrates in at `EPOCH`. A v1 slot is discarded
+ * outright rather than mis-paired: `readStoredClock` returns `null` on a
+ * version mismatch, and a discarded slot is the pre-existing safe default.
  */
-const TRACE_LAYERS = ['url', 'local', 'remote', 'persisted'] as const;
+export interface ClockSlot {
+  read(): string | null;
+  write(raw: string): void;
+}
 
-function leafPaths(patch: unknown, prefix: string, out: Set<string>): void {
-  if (patch === undefined) return;
-  if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) {
-    if (prefix.length > 0) out.add(prefix);
-    return;
-  }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) continue;
-    leafPaths(value, prefix.length > 0 ? `${prefix}.${key}` : key, out);
+const CLOCK_SLOT_VERSION = 2;
+
+/** One persisted register: the stamp, and the value that stamp describes. */
+interface StoredRegister {
+  s: StampTuple;
+  v: unknown;
+}
+
+interface StoredClock {
+  v: number;
+  clock: StampTuple;
+  /** The room-clock offset in ms. Missing reads as 0. */
+  offset: number;
+  /**
+   * The monotone stamping base — the highest `Date.now() + offset` this page has
+   * ever stamped against. Missing reads as 0, which is exactly right: the HLC
+   * floor in `tick` already covers everything the clock itself knows about, and
+   * the base only ever adds to that.
+   */
+  base: number;
+  /**
+   * Whether the previous session ever folded an inbound frame.
+   *
+   * Deliberately NOT the same question as "is there a persisted HLC". A page
+   * whose only company was a display — which publishes telemetry and never
+   * publishes state — could end a session having heard the room's clock and
+   * still hold a stamp of its own; and a page could hold a stamp having heard
+   * nothing at all. It is the second case that matters, because that page knows
+   * nothing about room time and its first write after a reload must be held as
+   * an intent rather than stamped against a clock it has no reason to trust.
+   *
+   * The key is read as FALSE when it is missing, which is the conservative
+   * direction and is why the slot version did not have to move: a v2 slot from a
+   * build that predates this field arms the intent layer for one write, and the
+   * intent layer's only effect is to re-stamp that write once a frame arrives.
+   * Bumping the version instead would have discarded every existing slot — its
+   * registers, its offset and its clock — to learn one boolean.
+   */
+  heard: boolean;
+  stamps: Record<string, StoredRegister>;
+}
+
+/**
+ * The default slot: one localStorage key PER ROLE.
+ *
+ * Per role rather than per page, because CAM's configuration browser and the
+ * Kraken display browser share an origin and would otherwise share a clock —
+ * two pages incrementing one counter, each clobbering the other's writes of it.
+ * Per role rather than per client id, because a `clientId()` is fresh on every
+ * page load and a slot keyed by one could never be read back, which is the
+ * entire point of persisting it.
+ */
+function localStorageClockSlot(role: Role): ClockSlot {
+  const suffix = `sync-clock:${role}`;
+  return {
+    read: () => readRaw(suffix),
+    // A full or blocked quota costs ordering after a reload and nothing more,
+    // so the boolean `writeRaw` returns is deliberately not acted on.
+    write: (raw) => void writeRaw(suffix, raw),
+  };
+}
+
+/**
+ * ── The room clock ─────────────────────────────────────────────────────────
+ *
+ * The HLC's wall-clock floor (`t = max(now, seen.t)`) keeps a slow device from
+ * writing UNDER something it has actually received. It says nothing about
+ * writes it never heard — and a phone that was in a lift, or had its screen
+ * locked, has heard nothing for the length of the outage. Measured: a phone 10
+ * s behind, deaf for 6.5 s while CAM changed a module, then tapped the instant
+ * it came back — the tap stamped 10 s in the past, lost on arrival, and the
+ * screen reverted 276 ms later. At 90 s behind, the same. The threshold is
+ * exactly "skew longer than the outage", which is not an exotic device.
+ *
+ * So the page keeps an OFFSET beside the clock — its best reading of what time
+ * the room thinks it is — and stamps with `Date.now() + offset`.
+ *
+ * **The estimator is `max`, monotonically, over inbound clock readings** — the
+ * sender's `ts` (its raw `Date.now()`) and its HLC `clock.t`. Not a
+ * median or an EWMA, and the reason is that this number has exactly one job:
+ * make sure a write is not stamped BEFORE writes it never heard. Under-shooting
+ * loses the tap; over-shooting only makes this page win a genuine tie it might
+ * otherwise have lost, which is the same exposure the HLC already documents for
+ * skew. `max` is also what the HLC itself does with `seen.t`, so the two agree.
+ *
+ * ## `MAX_ROOM_OFFSET_MS` is a BOUND, not a cliff
+ *
+ * It used to IGNORE a sample further than 24 h from now, on the reasoning that
+ * such a reading is a broken clock rather than skew and that clamping "would
+ * still hand a liar 24 h". Ignoring it is strictly worse. It does not remove the
+ * peer from the room — its own stamps still ride on every frame it sends — it
+ * only stops everybody ELSE from tracking it, which is exactly the state in
+ * which a peer that has been offline for a while cannot out-write it.
+ *
+ * So the sample is CLAMPED instead: everything over 24 h counts as 24 h. The
+ * trade-off is stated rather than hidden — one badly-wrong peer can now drag the
+ * whole room's stamps up to a day into the future, where before it dragged them
+ * nowhere. That is the better failure: a room a day fast still converges and
+ * still responds to the next tap, because every peer moves together.
+ *
+ * ## What this does NOT do, said plainly
+ *
+ * It does not stop a peer with a wildly wrong clock from winning contested
+ * leaves. A CONNECTED peer is already covered without any of this, by the HLC
+ * floor: once you have received a stamp three days out, `tick`'s `max(now,
+ * seen.t)` puts your own next write after it, so the room converges on whoever
+ * tapped last regardless of whose clock is broken. Measured — the far-future
+ * case is green with and without a room offset, which is why there is no
+ * receive-side stamp cap here: it would have bought nothing measurable and cost
+ * the merge its "one write, one stamp, everywhere" property, since any cap
+ * computed from the receiver's own clock gives two receivers two different
+ * stamps for one write.
+ *
+ * What is left exposed is the peer that has heard nothing recently, and the
+ * bound is what shrinks that: with the cliff it stamped at its own time, with
+ * the bound it stamps up to a day ahead. `docs/remote-control.md` states the
+ * residue: a device whose clock is wrong by more than a day wins ties against
+ * peers that have been away, until its clock is corrected.
+ *
+ * The offset never goes negative, so nobody can drag this page's writes into
+ * the past. And a room where a peer can lie about the clock is a room where that
+ * peer can also just write the value it wants, so this is not the boundary worth
+ * spending a Kalman filter on.
+ */
+export const MAX_ROOM_OFFSET_MS = 24 * 60 * 60 * 1000;
+
+/** A usable offset, clamped to the bound. Never negative. */
+function clampRoomOffset(ms: number): number {
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.round(Math.min(ms, MAX_ROOM_OFFSET_MS));
+}
+
+function readStoredClock(slot: ClockSlot): StoredClock | null {
+  const raw = slot.read();
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isPlainObject(parsed) || parsed['v'] !== CLOCK_SLOT_VERSION) return null;
+    const clock = decodeStamp(parsed['clock'], 64);
+    if (clock === null) return null;
+    const rawOffset = parsed['offset'];
+    const offset =
+      typeof rawOffset === 'number' && Number.isFinite(rawOffset)
+        ? clampRoomOffset(rawOffset)
+        : /* a slot written before offsets existed */ 0;
+    const rawBase = parsed['base'];
+    const base =
+      typeof rawBase === 'number' && Number.isFinite(rawBase) && rawBase > 0 ? rawBase : 0;
+    // Missing reads as FALSE — see `StoredClock.heard`.
+    const heard = parsed['heard'] === true;
+    const stamps: Record<string, StoredRegister> = {};
+    const rawStamps = parsed['stamps'];
+    if (isPlainObject(rawStamps)) {
+      for (const [path, entry] of Object.entries(rawStamps)) {
+        if (!isPlainObject(entry)) continue;
+        // A register with no `v` key is half a register — `undefined` is not a
+        // value any leaf holds, and JSON drops the key rather than storing it.
+        if (!('v' in entry)) continue;
+        const stamp = decodeStamp(entry['s'], 64);
+        if (stamp !== null) stamps[path] = { s: encodeStamp(stamp), v: entry['v'] };
+      }
+    }
+    return { v: CLOCK_SLOT_VERSION, clock: encodeStamp(clock), offset, base, heard, stamps };
+  } catch {
+    return null;
   }
 }
 
-function leafAt(patch: unknown, path: string): unknown {
-  let cursor: unknown = patch;
-  for (const part of path.split('.')) {
-    if (typeof cursor !== 'object' || cursor === null) return undefined;
-    cursor = (cursor as Record<string, unknown>)[part];
-  }
-  return cursor;
-}
-
-/** `activeModuleId←local` for every key more than one layer has an opinion about. */
-function describeLayers(layers: Record<(typeof TRACE_LAYERS)[number], unknown>): string {
-  const paths = new Set<string>();
-  for (const name of TRACE_LAYERS) leafPaths(layers[name], '', paths);
-  const contested: string[] = [];
-  for (const path of [...paths].sort()) {
-    const holders = TRACE_LAYERS.filter((name) => leafAt(layers[name], path) !== undefined);
-    if (holders.length < 2) continue;
-    contested.push(`${path}←${holders[0] ?? '?'}`);
-  }
-  return contested.join(' ');
-}
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
 
 export interface AppSyncOptions {
   role: Role;
@@ -119,16 +335,14 @@ export interface AppSyncOptions {
    * A function, not a value, and that is the whole point. `resolveState` runs
    * again on every inbound state frame, and a layer frozen at start-up means
    * every local change made since then is invisible to it — so the first remote
-   * frame after an edit silently rolls that edit back. That bug was fixed once
-   * for `sync.*` (the phone unpaired itself a second after connecting, because
-   * the room it had just joined was not in the boot-time document) and it was
-   * fixed by re-reading at the call site, which left the same trap armed for
-   * every other key. Re-reading here disarms it for all of them.
+   * frame after an edit silently rolls that edit back.
    */
   persisted: () => DeepPartial<AppState>;
   /** The URL layer, which still outranks anything a remote peer sends. */
   url: DeepPartial<AppState>;
   settings: AppState['sync'];
+  /** Where the clock survives a reload. Defaults to one localStorage key per role. */
+  clockSlot?: ClockSlot;
   factories?: SyncServiceOptions['factories'];
   onRemoteState?: (state: AppState, meta: RecvMeta) => void;
   onCmd?: (body: CmdBody, meta: RecvMeta) => void;
@@ -138,10 +352,10 @@ export interface AppSyncOptions {
 
 export interface AppSync {
   service: SyncService;
-  /** The accumulated remote layer, for diagnostics. */
+  /** The merged register table as a precedence patch, for diagnostics. */
   remoteLayer(): DeepPartial<AppState>;
-  /** Local edits no remote frame has superseded yet, for diagnostics. */
-  localLayer(): DeepPartial<AppState>;
+  /** Every leaf this page holds a stamp for, newest first. Diagnostics only. */
+  stampedLeaves(): { path: string; stamp: Stamp }[];
   stop(): Promise<void>;
 }
 
@@ -150,17 +364,301 @@ export interface AppSync {
  * sync layer fails to start must keep playing from its persisted state.
  */
 export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
+  const slot = o.clockSlot ?? localStorageClockSlot(o.role);
+
+  /** Every leaf anybody has written, and when. See `src/sync/merge.ts`. */
+  const registers: Registers = new Map();
+
+  /** The greatest stamp this page has seen from anybody, including itself. */
+  let clock: Stamp = EPOCH;
+
+  /** How far ahead of this device's wall clock the room reads. See above. */
+  let roomOffset = 0;
+
+  /**
+   * ── The stamping base: room time, projected on a MONOTONIC clock ──────────
+   *
+   * `Date.now() + roomOffset` is the number `tick` is asked to stamp against,
+   * and `roomOffset` being monotone does NOT make it monotone: a device clock
+   * that steps backwards takes the whole sum with it, and the page starts
+   * writing into its own past.
+   *
+   * Freezing the base at its highest value is not enough either, and the
+   * measured script says why: a phone that was CORRECT at start-up has an
+   * offset of zero, steps its clock back ten seconds, then locks its screen for
+   * six and a half while CAM changes a module. A frozen base still reads the
+   * moment of the step, which is BEFORE CAM's write, so the tap on unlock loses
+   * exactly as it did with no base at all — and there is nothing inbound during
+   * an outage to relearn from.
+   *
+   * So the base is an ANCHOR plus a projection: the highest room-time reading
+   * this page has ever taken, plus however long a monotonic clock says has
+   * elapsed since it took it. Time passing is information, and it is the only
+   * information a deaf page has. The wall clock is still consulted every time
+   * and still wins whenever it reads later — it is the source of truth for
+   * anything longer than one page's lifetime — so a device that is genuinely
+   * correct is unaffected by any of this.
+   */
+  let anchorRoomTime = 0;
+  let anchorMono = monotonicNow();
+
+  /** This page's best reading of what time the room thinks it is. Never falls. */
+  function roomNow(): number {
+    const projected = anchorRoomTime + (monotonicNow() - anchorMono);
+    const direct = Date.now() + roomOffset;
+    if (direct >= projected) {
+      anchorRoomTime = direct;
+      anchorMono = monotonicNow();
+      return direct;
+    }
+    return projected;
+  }
+
+  /*
+   * ── Restoring the register table ───────────────────────────────────────────
+   *
+   * BOTH halves come from the slot: the stamp and the value it describes.
+   *
+   * And ONLY from the slot. There used to be a gate here that dropped a
+   * restored register unless the persisted DOCUMENT still named the leaf, on
+   * the reasoning that a stamp is a fact about a value and a value that no
+   * longer exists has nothing to defend. The reasoning is fine and the gate was
+   * not, because the two halves of a look are written at different times: a
+   * document that has learned `look.order` but not yet the layer that order
+   * names — a throttled write, a `persistRemote: false` page, a quota-refused
+   * write — restored the ORDER of a two-layer look without the layer. The page
+   * then published a one-layer body under the two-layer order's stamp, every
+   * receiver saw the same stamp against a different value, and the merge's
+   * "prefer incoming" rule deleted the layer room-wide. Measured: an overlay
+   * blinking on and off forever, with no clock skew, no blip and no reorder.
+   *
+   * Since slot v2 the register is self-contained, so the document has nothing
+   * left to contribute and consulting it is backwards — the slot is the fresher
+   * of the two by construction. A leaf the room genuinely deleted is carried by
+   * `look.order` and by the body, not by leaf absence, and the restored register
+   * simply loses to the newer order write.
+   */
+  const restored = readStoredClock(slot);
+  if (restored !== null) {
+    clock = { t: restored.clock[0], c: restored.clock[1], s: restored.clock[2] };
+    roomOffset = restored.offset;
+    anchorRoomTime = restored.base;
+    anchorMono = monotonicNow();
+    for (const [path, entry] of Object.entries(restored.stamps)) {
+      registers.set(path, {
+        value: entry.v,
+        stamp: { t: entry.s[0], c: entry.s[1], s: entry.s[2] },
+      });
+    }
+  }
+
+  /*
+   * ── The intent layer ───────────────────────────────────────────────────────
+   *
+   * A page that has received NO frame yet — a phone unlocked and tapped before
+   * its first inbound state frame lands — has a clock of `EPOCH` and no idea
+   * what the room's clock reads. On a device whose wall clock is BEHIND the
+   * room's, its write would be stamped earlier than values already in play and
+   * would lose on arrival: the tap would go green and come back, which is the
+   * original bug report verbatim.
+   *
+   * So a write made before the first frame is held as an INTENT: it takes
+   * effect locally at once (the user sees their tap), and the moment a frame
+   * arrives it is RE-STAMPED against the clock that frame carried, which by
+   * construction is after everything the sender had accounted for. The intent
+   * drains at that instant; it is not a layer with a lifetime.
+   *
+   * ## What "has heard the room" is, and what it is not
+   *
+   * This used to be `compareStamps(clock, EPOCH) > 0` — "I have a persisted
+   * HLC" — justified by "a page with a persisted clock needs none of this, its
+   * clock is already at least as late as everything it had seen before the
+   * reload". That is true of the HLC floor and FALSE of room time, and the gap
+   * between them is a shipped room: a phone alone with a display hears no state
+   * frames at all, because a display never publishes state and a peer never
+   * applies its own echo. Such a session ends with a stamp of its own and an
+   * offset of zero, and on reload the old test called it "heard", disarmed the
+   * intent layer, and stamped the first tap in the phone's own skewed past —
+   * where it lost to a correct-clock peer and never came back. Measured on a
+   * phone 90 s behind: the tap was gone for good.
+   *
+   * So it is a fact that is REMEMBERED rather than inferred: `heard` in the
+   * clock slot, set the first time any frame — state, cmd or telemetry — is
+   * folded, and read as false when the key is missing.
+   */
+  const intents = new Set<string>();
+  let heardFromRoom = restored?.heard ?? false;
+
+  /** Set whenever the slot's contents have moved on from what is written. */
+  let clockDirty = false;
+
+  /** Stamped in ROOM time, not device time. See `MAX_ROOM_OFFSET_MS`. */
+  function nextStamp(): Stamp {
+    clock = tick(clock, roomNow(), o.clientId);
+    return clock;
+  }
+
+  /** Fold one peer's clock reading into the offset. Monotone, clamped, never negative. */
+  function noteRoomTime(t: number): void {
+    const sample = clampRoomOffset(t - Date.now());
+    if (sample <= roomOffset) return;
+    roomOffset = sample;
+    clockDirty = true;
+  }
+
+  /**
+   * What EVERY inbound envelope teaches, on every channel.
+   *
+   * Room time is a property of the room, not of the state channel, and the
+   * display-only room is the proof: the display publishes telemetry every two
+   * seconds and state never, so folding only in `onState` left the one peer that
+   * needed room time most with no source for it at all. `tele` and `cmd` carry
+   * `meta.ts` exactly as `state` does.
+   *
+   * Draining the intent layer belongs here for the same reason: the question the
+   * intent layer asks is "do I know what time the room thinks it is yet?", and a
+   * telemetry packet answers it.
+   */
+  function foldRoomFrame(meta: RecvMeta): void {
+    noteRoomTime(meta.ts);
+    if (meta.clock !== null) noteRoomTime(meta.clock.t);
+    if (heardFromRoom) return;
+    heardFromRoom = true;
+    clockDirty = true;
+    for (const path of intents) {
+      const held = registers.get(path);
+      if (held === undefined) continue;
+      registers.set(path, { value: held.value, stamp: nextStamp() });
+    }
+    intents.clear();
+  }
+
+  /**
+   * The slot write, coalesced onto the same trailing edge as the document.
+   *
+   * Registers are written newest-first until either cap bites — a count, so the
+   * slot cannot grow without bound, and a BYTE budget, because the slot now
+   * carries values and one module's config leaf can be a URL. A register that
+   * does not fit is simply absent after a reload, which costs that leaf its
+   * ordering defence and nothing else; what is never written is half a register.
+   */
+  function saveClock(): void {
+    if (!clockDirty) return;
+    clockDirty = false;
+    const stamps: Record<string, StoredRegister> = {};
+    let bytes = 0;
+    for (const [path, register] of stampedNewestFirst()) {
+      if (Object.keys(stamps).length >= MAX_SLOT_REGISTERS) break;
+      const entry: StoredRegister = { s: encodeStamp(register.stamp), v: register.value };
+      let size: number;
+      try {
+        size = JSON.stringify({ [path]: entry }).length;
+      } catch {
+        // A value that will not serialize is a value the slot cannot keep.
+        continue;
+      }
+      if (bytes + size > MAX_SLOT_BYTES) break;
+      bytes += size;
+      stamps[path] = entry;
+    }
+    try {
+      slot.write(
+        JSON.stringify({
+          v: CLOCK_SLOT_VERSION,
+          clock: encodeStamp(clock),
+          offset: roomOffset,
+          base: anchorRoomTime,
+          heard: heardFromRoom,
+          stamps,
+        }),
+      );
+    } catch (err) {
+      log.warn('could not persist the sync clock', err);
+    }
+  }
+
+  /**
+   * Stamped leaves, newest first — the order the slot drops from, so what is
+   * lost is always the annotation the room settled longest ago.
+   *
+   * Nothing on the WIRE drops from here any more: see `wireStamps`.
+   */
+  function stampedNewestFirst(): [string, Register][] {
+    const out: [string, Register][] = [];
+    for (const entry of registers) {
+      if (compareStamps(entry[1].stamp, EPOCH) === 0) continue;
+      out.push(entry);
+    }
+    out.sort((a, b) => compareStamps(b[1].stamp, a[1].stamp));
+    return out;
+  }
+
   const service = createSyncService({
     role: o.role,
     clientId: o.clientId,
     settings: o.settings,
+    /*
+     * EVERY stamp this page holds for a leaf the OUTGOING BODY agrees with,
+     * uncapped, newest first.
+     *
+     * There used to be a fixed cap of 32 here and it was a hole, not a budget.
+     * A frame is a full snapshot: dropping a leaf's stamp while shipping its
+     * value does not send less, it sends `EPOCH` — a positive claim that
+     * nobody has ever written that leaf. Any peer that was not listening when
+     * the stamp was fresh then loses it forever, because a leaf buried under 33
+     * newer edits can never climb back into the newest 32. Trimming is now
+     * `fitStateEnvelope`'s job alone, measured against the real 8 kB budget.
+     *
+     * ## The two halves of the rule, and why the second one lives here
+     *
+     *  - "a value never travels without its stamp" — the ladder's business, and
+     *    the reason its only stamp-dropping rung rotates;
+     *  - "a stamp never travels without the value it describes" — this
+     *    function's business, and it is the converse that had no owner. The
+     *    body comes from the STORE and the stamps come from the REGISTER TABLE,
+     *    and any seam that can make those two disagree — a restore that
+     *    unpaired one from the other, a `url` layer overriding a leaf on the way
+     *    out — puts a stamp on the wire describing a value the frame does not
+     *    contain. Every receiver then reads the same stamp against a different
+     *    value, which is precisely the corrupt-register case `merge.ts` handles
+     *    by preferring the incoming one, so the two sides swap forever.
+     *
+     * This is the one place both halves are visible at once, so it is the only
+     * place the check can be local. A mismatch drops the STAMP, never the value:
+     * an unstamped value can be out-ranked, which is recoverable, while a
+     * mispaired stamp is a lie that out-ranks the truth.
+     */
+    wireStamps: (body) => {
+      const map: Record<string, StampTuple> = {};
+      const leaves = enumerateLeaves(body);
+      let mismatched = 0;
+      for (const [path, register] of stampedNewestFirst()) {
+        if (!leaves.has(path)) continue;
+        if (!deepEqual(leaves.get(path), register.value)) {
+          mismatched += 1;
+          continue;
+        }
+        map[path] = encodeStamp(register.stamp);
+      }
+      if (mismatched > 0)
+        log.warn(
+          `dropped ${String(mismatched)} stamp(s) whose value the outgoing body does not carry`,
+        );
+      return { map, clock: encodeStamp(clock) };
+    },
     ...(o.factories === undefined ? {} : { factories: o.factories }),
   });
 
-  let remote: DeepPartial<AppState> = {};
-  let lastPersistAt = 0;
+  /** On the MONOTONIC clock, and `-Infinity` so the first write is never held. */
+  let lastPersistAt = -Infinity;
   /** The last layer summary printed, so DEV logs only the transitions. */
   let lastTrace: string | null = null;
+
+  function patch(): DeepPartial<AppState> {
+    const leaves = new Map<string, unknown>();
+    for (const [path, register] of registers) leaves.set(path, register.value);
+    return leavesToPatch(leaves);
+  }
 
   /*
    * ── Persisting remote state: throttled with a TRAILING edge ────────────────
@@ -173,216 +671,202 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * reloading inside that window cold-booted into a state nobody had asked for.
    */
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingPersist: AppState | null = null;
+  let persistPending = false;
 
-  function persistNow(next: AppState): void {
-    lastPersistAt = Date.now();
+  function persistNow(): void {
+    lastPersistAt = monotonicNow();
     try {
       /*
        * The RESOLVED state, never the raw remote body.
        *
-       * This was the bug. `commit()` overwrites the snapshot outright, so
-       * writing `{...s, ...syncBodyToPatch(body)}` here threw away the answer
-       * `resolveState` had produced three lines above and put the peer's value
-       * straight back on screen — defeating `local` and `url` both, about two
-       * seconds after every click. Persisting what we actually resolved is the
-       * SAME write in the cold-boot case (a page with nothing local resolves to
-       * exactly the remote body) and the correct one in every other.
+       * `commit()` overwrites the snapshot outright, so writing the peer's body
+       * here would throw away the answer `resolveState` produced — defeating
+       * `url`, and putting a value back on screen that this page had already
+       * merged past. Persisting what we actually resolved is the SAME write in
+       * the cold-boot case and the correct one in every other.
        *
-       * `origin: 'sync'` keeps it out of the `local` layer: this is the page
-       * writing down what a peer said, not the page deciding anything.
+       * RE-RESOLVED at the moment of the write rather than captured when it was
+       * scheduled: a trailing write carrying a state resolved two seconds ago
+       * overwrote every local edit made inside the throttle window.
        *
-       * Writes only to localStorage. It reaches the CAM Configuration Browser
-       * through the shared origin, so no peer ever echoes state back onto the
-       * network — which is what stops a feedback loop between three surfaces.
+       * `origin: 'sync'` keeps it out of the register table: this is the page
+       * writing down what it holds, not the page deciding anything.
        */
+      const next = resolveState({ persisted: o.persisted(), remote: patch(), url: o.url }).state;
       o.store.commit((s) => ({ ...s, ...stateToSyncBody(next) }), { origin: 'sync' });
     } catch (err) {
       log.warn('could not persist remote state', err);
     }
+    saveClock();
   }
 
-  function schedulePersist(next: AppState): void {
-    const elapsed = Date.now() - lastPersistAt;
-    if (elapsed >= PERSIST_REMOTE_THROTTLE_MS) {
-      persistNow(next);
+  /*
+   * Measured on a MONOTONIC clock, and defensively clamped on top of that.
+   *
+   * `Date.now() - lastPersistAt` after a backward wall-clock step is negative,
+   * which both fails the "enough time has passed" test and schedules the
+   * trailing write `|step|` into the future — an hour, for an hour-long step —
+   * behind a `if (timer !== null) return` guard that then swallows every write
+   * until it fires. See `src/lib/monotonic.ts`; the publish throttle in
+   * `SyncService.ts` had the identical arithmetic and the identical repair.
+   */
+  function schedulePersist(): void {
+    const elapsed = monotonicNow() - lastPersistAt;
+    if (elapsed < 0 || elapsed >= PERSIST_REMOTE_THROTTLE_MS) {
+      persistNow();
       return;
     }
-    pendingPersist = next;
+    persistPending = true;
     if (persistTimer !== null) return;
+    const delay = Math.min(
+      Math.max(PERSIST_REMOTE_THROTTLE_MS - elapsed, 0),
+      PERSIST_REMOTE_THROTTLE_MS,
+    );
     persistTimer = setTimeout(() => {
       persistTimer = null;
-      const value = pendingPersist;
-      pendingPersist = null;
-      if (value !== null) persistNow(value);
-    }, PERSIST_REMOTE_THROTTLE_MS - elapsed);
+      if (!persistPending) return;
+      persistPending = false;
+      persistNow();
+    }, delay);
   }
-
-  /**
-   * Edits this page made that no LIVE remote frame has superseded yet.
-   *
-   * The remote layer is STICKY: once a peer has said "the active module is
-   * video", that entry outranks everything this page saves until the page is
-   * reloaded. So a user switching to Clock in CAM wrote `clock` to storage,
-   * watched it appear — and watched it revert the next time any state frame
-   * arrived and `resolveState` ran again against a remote layer that still said
-   * `video`.
-   *
-   * The frame that does this is almost always a **retained** one: a broker
-   * replaying its last-value on a reconnect, a 5-minute keepalive republish, a
-   * fresh subscriber's bootstrap. That is why the bug looks intermittent — it
-   * needs a reconnect, not a user action.
-   *
-   * And that is also the discriminator, because it is a real semantic
-   * difference rather than a heuristic:
-   *
-   *   a **retained** frame is a REPLAY of something a peer said once;
-   *   a **live** frame is a peer saying something NOW.
-   *
-   * A replay exists to bootstrap a peer that has just arrived and knows
-   * nothing. It has no business correcting a page that has been running, and
-   * has just been told by a human to do something else. A live frame does: a
-   * phone changing the module while you are watching is genuinely newer than
-   * your last click, and last-writer-wins is the right answer there — so a live
-   * frame clears this layer wholesale and the remote keeps working exactly as
-   * it did.
-   *
-   * Deliberately NOT done with the Lamport `rev`: it only orders writers that
-   * observe each other's counters, and the display and the phone keep separate
-   * storage, so their revs can diverge arbitrarily. Comparing them would make
-   * a phone's genuine change unapplyable on a display whose local counter had
-   * run ahead — trading an intermittent revert for a silent dead remote.
-   */
-  let local: DeepPartial<AppState> = {};
-
-  /**
-   * The `rev` of the newest DELIBERATE local commit this page has made.
-   *
-   * Arrival provenance for the remote layer, and the reason a retained replay
-   * can be recognised as stale rather than merely out-ranked. `0` means "this
-   * page has decided nothing yet", which is the cold-boot case: a display that
-   * has never been touched must still take its whole world from the retained
-   * snapshot, so the guard below is inert until a human has acted.
-   */
-  let lastLocalRev = 0;
 
   /*
    * A document arriving from storage is re-resolved through the layers.
    *
    * The other CAM browser writes to this document, and so does the display
    * every time `persistRemote` fires. Without this the store simply adopted
-   * whatever it read, which threw away `remote`, `local` and `url` — and on the
-   * config page the very next `store.subscribe` republished that raw document
-   * as this page's own desire. See `Store.setResolve`.
+   * whatever it read, which threw away the merged registers and `url` — and on
+   * the config page the very next `store.subscribe` republished that raw
+   * document as this page's own desire. See `Store.setResolve`.
    */
   o.store.setResolve(
-    (persistedDoc) => resolveState({ persisted: persistedDoc, remote, local, url: o.url }).state,
+    (persistedDoc) => resolveState({ persisted: persistedDoc, remote: patch(), url: o.url }).state,
   );
 
-  const stopFolding = o.store.onCommit((next, origin) => {
-    // A `'sync'` commit is this page WRITING DOWN what a peer said (the
-    // `persistRemote` path below). Folding it in here would put the remote
-    // value into the layer that exists to defend the user's own edit from it —
-    // which is precisely how the revert became permanent instead of momentary.
+  const stopFolding = o.store.onCommit((next, origin, before) => {
+    /*
+     * A `'sync'` commit is this page WRITING DOWN what it already holds (the
+     * `persistRemote` path above). Stamping it would re-date every leaf in the
+     * document to now, twice a second, and hand this page the whole room.
+     */
     if (origin !== 'local') return;
-    lastLocalRev = Math.max(lastLocalRev, next.rev);
-    local = {
-      ...local,
-      ...syncBodyToPatch(next),
-      modules: { ...local.modules, ...next.modules },
-    };
+    const was = enumerateLeaves(stateToSyncBody(before));
+    const now = enumerateLeaves(stateToSyncBody(next));
+    let wrote = false;
+    for (const [path, value] of now) {
+      if (deepEqual(was.get(path), value)) continue;
+      registers.set(path, { value, stamp: nextStamp() });
+      if (!heardFromRoom) intents.add(path);
+      wrote = true;
+    }
+    if (!wrote) return;
+    clockDirty = true;
+    saveClock();
   });
 
   service.onState((body, meta) => {
-    const persisted = o.persisted();
-
     /*
-     * The Lamport counter, finally closed.
+     * The Lamport counter, kept fed.
      *
-     * `rev` is only an ordering if a writer's next number exceeds everything it
-     * has OBSERVED, and nothing in the app was feeding observations back into
-     * the counter — `noteSeenRev` shipped exported and unreferenced. Without
-     * this line two peers' counters drift apart on their own storage and the
-     * comparison below is meaningless; with it, "newer" is a fact rather than a
-     * coincidence, and the phone's genuine change still outranks the display.
+     * `AppState.rev` no longer orders anything in this layer — the stamps do —
+     * but it is still what `src/state/storage.ts` uses to arbitrate two writers
+     * of ONE localStorage document, and a counter that never observes anything
+     * is not a counter. This is the observation.
      */
     if (meta.rev !== null) noteSeenRev(meta.rev);
 
     /*
-     * A replay older than what we already know is DISCARDED, not merely
-     * out-ranked.
+     * ── Step 1: the ROOM CLOCK, which is a different question from the HLC ──
      *
-     * A retained frame is a broker reading back something a peer said once. It
-     * exists to bootstrap somebody who knows nothing — and it is the whole
-     * truth for exactly that reader. For anybody else it is a message from the
-     * past, and the remote layer it lands in is sticky and in-memory, so once
-     * `local` is next cleared by a genuine live frame the stale value wins for
-     * the life of the page. That is the second half of the revert: the user's
-     * `clock` sits in localStorage at a higher `rev` than the `video` the
-     * broker is replaying, and `video` beat it anyway because the layer order
-     * puts remote above persisted unconditionally.
+     * The HLC says "later than everything I have HEARD"; the offset says "what
+     * time is it where the room is" — which is what a peer needs after an
+     * outage longer than its own skew, because every write it slept through is
+     * one it has not heard and `seen.t` therefore cannot floor it high enough.
      *
-     * Ordering is the counter both sides now share (above), and the floor is
-     * the higher of what this page has decided and what it has saved. A LIVE
-     * frame is exempt: a peer speaking now is newer by definition, which is
-     * what keeps the phone remote working.
+     * TWO samples, and both are needed. `meta.clock.t` is the sender's HLC,
+     * which is a room-wide high-water mark but only reflects clocks that have
+     * actually WRITTEN something; in a room where the only writer so far is the
+     * slow device, it reads back the slow device's own time and teaches nothing.
+     * `meta.ts` is the sender's raw `Date.now()`, so a peer with a correct clock
+     * advertises the correct time by existing, whether or not it has ever
+     * touched a setting. That is the sample that closes the hole.
      *
-     * `floor > 0` keeps a genuinely cold page untouched: with nothing decided
-     * and nothing saved, the retained snapshot is all there is.
+     * `ts` still orders nothing — see `Envelope.ts`. It is read here only as a
+     * clock reading, folded by `max`, clamped, and never allowed to go negative.
+     *
+     * It also drains the intent layer — a tap made before this page had heard
+     * anything is re-stamped now, so it lands after everything the room had
+     * decided and the merge below cannot overturn it.
      */
-    const persistedRev = typeof persisted.rev === 'number' ? persisted.rev : 0;
-    const floor = Math.max(lastLocalRev, persistedRev);
-    if (meta.retained && meta.rev !== null && floor > 0 && meta.rev <= floor) {
-      if (import.meta.env.DEV) {
-        log.debug(
-          `dropped a retained replay at rev ${String(meta.rev)}; this page is at ${String(floor)}`,
-        );
-      }
-      return;
-    }
+    foldRoomFrame(meta);
 
     /*
-     * A LIVE frame is deliberately NOT rev-guarded, and that was measured.
+     * ── Step 2: absorb the frame's clock ───────────────────────────────────
      *
-     * The obvious next move is to drop any frame older than this page's own
-     * last commit, live or not. It is wrong, and the e2e caught it: two peers
-     * on ONE origin write to ONE document, so a display that commits anything
-     * of its own between a remote's publish and its delivery ends up holding a
-     * higher `rev` than the frame in flight — and drops it. That turned "a seek
-     * on the remote moves the display" red, which is the whole product.
+     * Before anything is merged, because the next stamp this page issues must
+     * be later than everything this frame knows about — including writes whose
+     * stamps were trimmed off it and writes by peers this page has never heard
+     * from. This is the whole of what remains of causality tracking, and it is
+     * two lines.
      *
-     * A live frame is a peer speaking NOW. Last-writer-wins is the right answer
-     * for it, and the `local` layer above already stops it from silently
-     * undoing an edit this page has not yet published. Only replays need the
-     * ordering guard, because only a replay claims to be news while being old.
+     * It is also, on its own, what keeps a peer with a wildly wrong clock from
+     * owning the room: having absorbed its stamp, this page's next write is
+     * ordered after it. See `MAX_ROOM_OFFSET_MS`.
      */
+    for (const stamp of meta.stamps.values()) clock = maxStamp(clock, stamp);
+    if (meta.clock !== null) clock = maxStamp(clock, meta.clock);
 
-    // Merge rather than replace: a `partial` snapshot carries only the active
-    // module, and the modules it omitted must keep the values we already have.
-    remote = {
-      ...remote,
-      ...syncBodyToPatch(body),
-      modules: { ...remote.modules, ...body.modules },
-    };
-    // A peer speaking now supersedes what this page last chose. A replay does
-    // not — see above.
-    if (!meta.retained) local = {};
-    const resolved = resolveState({ persisted, remote, local, url: o.url });
+    /*
+     * ── Step 3: merge ──────────────────────────────────────────────────────
+     *
+     * No retained branch, no rev floor, no acknowledgement: a replay is a frame
+     * whose stamps are old, and old loses. A leaf the body does not mention —
+     * the modules a `partial` snapshot dropped — is a leaf this page keeps.
+     */
+    const look = body.look === undefined ? undefined : withBaseKind(body.look, body.activeModuleId);
+    const incoming = new Map<string, Register>();
+    for (const [path, value] of enumerateLeaves(look === undefined ? body : { ...body, look })) {
+      incoming.set(path, { value, stamp: meta.stamps.get(path) ?? EPOCH });
+    }
+    const changed = mergeInto(registers, incoming);
+    if (changed) clockDirty = true;
+
+    const resolved = resolveState({ persisted: o.persisted(), remote: patch(), url: o.url });
     if (import.meta.env.DEV) {
-      const trace = describeLayers({ url: o.url, local, remote, persisted });
+      const trace = `${resolved.state.activeModuleId} ${String(registers.size)} leaves, ${String(
+        stampedNewestFirst().length,
+      )} stamped`;
       if (trace !== lastTrace) {
         lastTrace = trace;
-        log.debug(`layers: ${trace.length === 0 ? '(uncontested)' : trace}`);
+        log.debug(`merged: ${trace}`);
       }
     }
     o.store.replace(resolved.state);
     o.onRemoteState?.(resolved.state, meta);
 
-    if (o.settings.persistRemote) schedulePersist(resolved.state);
+    if (o.settings.persistRemote) schedulePersist();
+    else saveClock();
   });
 
-  if (o.onCmd !== undefined) service.onCmd(o.onCmd);
-  if (o.onTele !== undefined) service.onTele(o.onTele);
+  /*
+   * `cmd` and `tele` carry no state and are folded for their CLOCK alone.
+   *
+   * A display never publishes state, so in the shipped display-only room the
+   * telemetry it emits every two seconds is the only evidence of room time a
+   * phone will ever receive. Folding it here is what keeps that phone from
+   * stamping in its own skewed past for the whole life of the session — and
+   * from persisting `heard: false` and doing it again after every reload.
+   */
+  service.onCmd((body, meta) => {
+    foldRoomFrame(meta);
+    saveClock();
+    o.onCmd?.(body, meta);
+  });
+  service.onTele((body, meta) => {
+    foldRoomFrame(meta);
+    saveClock();
+    o.onTele?.(body, meta);
+  });
   if (o.onStatus !== undefined) service.onStatus(o.onStatus);
 
   try {
@@ -392,27 +876,51 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   }
 
   /**
-   * `stop()` is now reachable from two directions — React effect cleanup and
-   * the `pagehide` flush listener — and both can fire for the same page load
-   * (a tab close, then unmount). `SyncService.stop()` aborts a shared
-   * `AbortController` and awaits every transport's `disconnect()`, so calling
-   * it twice would race a second `end(false, …)` against the first one's flush
-   * window. One promise, memoised, is the whole guard.
+   * `stop()` is reachable from two directions — React effect cleanup and the
+   * `pagehide` flush listener — and both can fire for the same page load.
+   * `SyncService.stop()` aborts a shared `AbortController` and awaits every
+   * transport's `disconnect()`, so calling it twice would race a second
+   * `end(false, …)` against the first one's flush window. One promise,
+   * memoised, is the whole guard.
    */
   let stopping: Promise<void> | null = null;
 
   return {
     service,
-    remoteLayer: () => remote,
-    localLayer: () => local,
+    remoteLayer: () => patch(),
+    stampedLeaves: () => stampedNewestFirst().map(([path, r]) => ({ path, stamp: r.stamp })),
     stop: () =>
       (stopping ??= (async () => {
         stopFolding();
+        /*
+         * ── The shutdown flush, in the only safe order ────────────────────────
+         *
+         * VALUES first, STAMPS second. `stop()` used to clear the pending
+         * document write and save the clock anyway, which left a slot whose
+         * stamps described values the document did not contain — the seam that
+         * laundered a superseded value across a whole room (see `ClockSlot`).
+         * The slot is self-contained now, so this is no longer load-bearing for
+         * correctness; it still matters, because the document is what a cold
+         * boot reads before any peer says anything, and throwing away the last
+         * write of a session means booting into a state nobody asked for.
+         *
+         * A `pagehide` handler gets one synchronous localStorage write or two.
+         * These are they.
+         */
         if (persistTimer !== null) clearTimeout(persistTimer);
         persistTimer = null;
-        pendingPersist = null;
+        const flushDocument = persistPending && o.settings.persistRemote;
+        persistPending = false;
+        clockDirty = true;
+        // `persistNow` commits the document and then calls `saveClock` itself.
+        if (flushDocument) persistNow();
+        else saveClock();
         o.store.setResolve(null);
         await service.stop();
       })()),
   };
 }
+
+/** Exported for `appSync.test.ts`: the leaf enumeration is the whole contract. */
+export { enumerateLeaves, leavesToPatch, deepEqual } from './leaves';
+export { BASE_KIND_LEAF };

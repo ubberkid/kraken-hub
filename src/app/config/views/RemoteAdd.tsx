@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SAME_NETWORK_NOTE } from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
 import { Button, Meter, Notice } from '../../../ui';
+import { withBaseKind } from '../../state/switchBase';
 import { RECEIPT_LINGER_MS } from '../homeState';
 import { linkReceipt } from '../panelClaims';
 import { pasteAction } from '../pasteLink';
@@ -292,7 +293,7 @@ export function RemoteAdd({
                 className="kh-quiet"
                 data-testid="remote-add-switch"
                 onClick={() => {
-                  runtime.store.commit((s) => ({ ...s, activeModuleId: 'video' }));
+                  runtime.store.commit((s) => withBaseKind(s, 'video'));
                 }}
               >
                 Play something

@@ -1,8 +1,9 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 
 /**
- * The M3 module suite: clock, image and stats, on every panel preset, plus the
- * chunk-isolation assertion that catches an accidental cross-module import.
+ * The module suite: clock, image and stats from M3, plus text, shape and effect
+ * from W7, on every panel preset — and the chunk-isolation assertion that
+ * catches an accidental cross-module import.
  *
  * A new module is one row in `MODULES`, run against every row in `PRESETS` —
  * that is the deal `docs/modules.md` §11 makes with a contributor. The row
@@ -206,6 +207,103 @@ const MODULES: readonly ModuleCase[] = [
       },
     ],
   },
+  /*
+   * The three W7 LAYER kinds. They are booted through `?module=` like every
+   * other row — that still sets the base kind — so the matrix exercises them at
+   * every panel preset without knowing anything about looks.
+   *
+   * `text` declares `roles: ['overlay']`, so as a base `normalizeLook` draws it
+   * over the stage background rather than dropping it (the `base-not-base-capable`
+   * path). That is deliberate here: it is the one row that proves the fallback
+   * paints something instead of a black panel.
+   */
+  {
+    id: 'text',
+    chunk: 'module-text',
+    sourceParam: '',
+    panelCases: [
+      {
+        name: 'renders a line of type',
+        assert: async (page) => {
+          await expect(page.locator('.kh-text__line')).toBeVisible();
+          await assertInsidePanel(page, '.kh-text__line');
+        },
+      },
+    ],
+  },
+  {
+    id: 'shape',
+    chunk: 'module-shape',
+    sourceParam: '',
+    panelCases: [
+      {
+        name: 'renders a full-panel ground',
+        assert: async (page) => {
+          await expect(page.locator('.kh-shape')).toBeVisible();
+          await assertInsidePanel(page, '.kh-shape');
+        },
+      },
+    ],
+  },
+  {
+    id: 'effect',
+    chunk: 'module-effect',
+    // One of the twelve, by id — the module's only URL parameter. There is no
+    // `?preset=`: a preset is a palette, and the palette table is lazy.
+    sourceParam: '&effect=voronoi',
+    panelCases: [
+      {
+        name: 'paints a canvas for the selected effect',
+        // Attached, not visible-with-pixels: whether the fragment program
+        // actually compiles depends on the runner's GL, and the module's
+        // documented fallback is the CSS gradient on `.kh-effect` underneath.
+        assert: async (page) => {
+          await expect(page.locator('.kh-effect')).toBeVisible();
+          await expect(page.locator('.kh-effect__canvas')).toBeAttached();
+          await assertInsidePanel(page, '.kh-effect');
+        },
+      },
+    ],
+  },
+  /*
+   * The two §10 parity kinds. Both declare `roles: ['overlay']`, so as a base
+   * they take the same `base-not-base-capable` path `text` does above: the look
+   * normaliser draws them over the stage background rather than dropping them,
+   * which is why booting them through `?module=` still paints something on
+   * every preset.
+   */
+  {
+    id: 'icon',
+    chunk: 'module-icon',
+    sourceParam: '',
+    panelCases: [
+      {
+        name: 'draws one glyph on the 24 grid',
+        assert: async (page) => {
+          const svg = page.locator('.kh-icon__svg');
+          await expect(svg).toBeVisible();
+          await expect(svg).toHaveAttribute('viewBox', '0 0 24 24');
+          await assertInsidePanel(page, '.kh-icon__svg');
+        },
+      },
+    ],
+  },
+  {
+    id: 'date',
+    chunk: 'module-date',
+    sourceParam: '',
+    panelCases: [
+      {
+        name: "renders today's date as one line",
+        assert: async (page) => {
+          const line = page.locator('.kh-date__line');
+          await expect(line).toBeVisible();
+          await expect(line).not.toBeEmpty();
+          await assertInsidePanel(page, '.kh-date__line');
+        },
+      },
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -245,7 +343,10 @@ test('stats shows placeholders — never NaN — when CAM drops fields', async (
   // `?monitor=missing` rotates fields in and out of `undefined`, so at least one
   // tile is always dashed and none may ever read NaN.
   await expect
-    .poll(async () => page.locator('.kh-stats__value', { hasText: '--' }).count(), {
+    // The placeholder is an em dash (`src/modules/stats/format.ts`): two hyphens
+    // read as a minus sign next to a temperature, which is the one misreading a
+    // cooler's dial cannot afford.
+    .poll(async () => page.locator('.kh-stats__value', { hasText: '—' }).count(), {
       timeout: 10_000,
     })
     .toBeGreaterThan(0);
@@ -261,6 +362,81 @@ test('stats says it is waiting when no monitoring sample ever arrives', async ({
   await expect(page.locator('.kh-stats__waiting')).toBeVisible({ timeout: 10_000 });
   await expect(page.locator('.kh-stats__waiting')).toHaveText(/Waiting for CAM data/);
   await expect(page.locator('.kh-stats__grid')).toBeHidden();
+});
+
+/**
+ * The no-source stand-in is a CARD, not a paragraph (audit 11, M-d).
+ *
+ * It used to print *"Demo clip — paste a video link in CAM → Lighting → your
+ * Kraken → your kraken-hub card → Configure"* as one sentence, which is three
+ * full-width lines of body type on a 640 Elite — a menu route read out to
+ * somebody standing a metre from a screen they cannot touch. The shape is what
+ * this pins, because the shape is the fix: a short headline, one line of advice,
+ * and the CAM route demoted to the small footer every other card puts it in.
+ *
+ * Line counts, not character counts: the wall of text was a rendering, and only
+ * a rendering can say whether it came back. Three lines at 640 is the budget for
+ * a glance; the footer is dropped entirely on the small panels, where 62
+ * characters could only be set at a size nobody can read.
+ */
+test('the no-source stand-in is an instruction card, not a paragraph', async ({ page }) => {
+  await page.goto('/?kraken=1&sim=elite');
+  const card = page.locator('.kh-video__hint');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+
+  await expect(card.locator('.kh-video__card-title')).toHaveText('Nothing chosen yet');
+  await expect(card.locator('.kh-video__card-body')).toHaveText('Pick a video in CAM');
+  // The route is present, and it is ONLY in the footer.
+  await expect(card.locator('.kh-video__hint-footer')).toContainText('Configure');
+  await expect(card.locator('.kh-video__card-title')).not.toContainText('→');
+  await expect(card.locator('.kh-video__card-body')).not.toContainText('→');
+
+  const shape = await page.evaluate(() => {
+    const inner = document.querySelector('.kh-video__hint-inner');
+    if (inner === null) return null;
+    const walker = document.createTreeWalker(inner, NodeFilter.SHOW_TEXT);
+    let lines = 0;
+    let node = walker.nextNode();
+    while (node !== null) {
+      if ((node.textContent ?? '').trim() !== '') {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        lines += [...range.getClientRects()].filter((r) => r.width >= 1 && r.height >= 1).length;
+      }
+      node = walker.nextNode();
+    }
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
+    const safeR = (Math.min(window.innerWidth, window.innerHeight) / 2) * 0.88;
+    const b = inner.getBoundingClientRect();
+    const corners: [number, number][] = [
+      [b.left, b.top],
+      [b.right, b.top],
+      [b.left, b.bottom],
+      [b.right, b.bottom],
+    ];
+    return {
+      lines,
+      // Every line of it is inside the safe circle, not merely inside the box.
+      worstRadius: Math.max(...corners.map(([x, y]) => Math.hypot(x - cx, y - cy))),
+      safeR,
+    };
+  });
+  expect(shape).not.toBeNull();
+  expect(shape?.lines).toBeLessThanOrEqual(3);
+  expect(shape?.worstRadius ?? Infinity).toBeLessThanOrEqual((shape?.safeR ?? 0) + 1);
+});
+
+test('the stand-in drops the CAM route rather than shrink it off a small panel', async ({
+  page,
+}) => {
+  await page.goto('/?kraken=1&sim=kraken2023');
+  const card = page.locator('.kh-video__hint');
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await expect(card.locator('.kh-video__card-title')).toHaveText('Nothing chosen yet');
+  await expect(card.locator('.kh-video__hint-footer')).toHaveCount(0);
+  // Still names where the fix lives, which is the part that has to survive.
+  await expect(card).toContainText('CAM');
 });
 
 test('image explains itself rather than going black when nothing is configured', async ({
@@ -363,6 +539,111 @@ test('the image slideshow advances on its interval', async ({ page }) => {
   await page.clock.fastForward(11_000);
   await expect.poll(async () => img.getAttribute('alt'), { timeout: 10_000 }).toBe('beta.png');
 });
+
+// ---------------------------------------------------------------------------
+// The two things a browser has to prove, because a jsdom test cannot (audit 10)
+// ---------------------------------------------------------------------------
+
+/**
+ * F6 — the text-first face has a meter, and it has a SIZE.
+ *
+ * `--kh-stats-dial` computed to `0px` on this face, so all six `<svg>`s were
+ * 0 × 0 while the renderer went on writing a fresh `stroke-dasharray` into
+ * them. Nothing in a unit test could see that: jsdom has no layout, so an
+ * element with no box measures the same as one with a box. Only a real engine
+ * can be asked how big the mark actually is.
+ */
+test('stats grid draws six meters with a size, and paints the accent on them', async ({ page }) => {
+  await page.goto('/?kraken=1&sim=elite&module=stats&layout=grid&monitor=load');
+
+  const dials = page.locator('.kh-stats__dial');
+  await expect(dials).toHaveCount(6);
+  // The face is hidden behind "waiting for CAM data" until the simulator's 1 Hz
+  // feed delivers its first sample, and a hidden grid measures 0 for the same
+  // reason the bug did. Wait for the face itself, not for a fixed delay.
+  await expect(page.locator('.kh-stats__grid')).toBeVisible({ timeout: 10_000 });
+  await expect
+    .poll(async () => dials.first().evaluate((n) => n.getBoundingClientRect().width), {
+      timeout: 10_000,
+    })
+    .toBeGreaterThan(0);
+
+  const boxes = await dials.evaluateAll((nodes) =>
+    nodes.map((n) => {
+      const b = n.getBoundingClientRect();
+      const arc = n.querySelector('.kh-stats__arc');
+      return {
+        w: b.width,
+        h: b.height,
+        stroke: arc === null ? '' : getComputedStyle(arc).stroke,
+        dash: arc?.getAttribute('stroke-dasharray') ?? '',
+      };
+    }),
+  );
+  for (const dial of boxes) {
+    expect(dial.w).toBeGreaterThan(0);
+    expect(dial.h).toBeGreaterThan(0);
+    // The series colour is on the arc — not `none`, and not the ink the digits
+    // wear. A face whose thresholds can change a colour must have a mark.
+    expect(dial.stroke).toMatch(/^rgb/);
+    expect(dial.stroke).not.toBe('rgb(0, 0, 0)');
+    // And the arc is DASHED to a reading rather than sitting at the default.
+    expect(dial.dash).not.toBe('0 100');
+  }
+  // The numbers are still the point of this face.
+  await expect(page.locator('.kh-stats__value').first()).not.toBeEmpty();
+});
+
+/**
+ * F7 — the date fits the panel at its longest, on the panels that are circles.
+ *
+ * The old corrective pass compared the line's SCROLL width, padding included,
+ * against the host's width, and could not converge: "Wed, Sep 2" came out
+ * 673.9 px wide inside a 640 px panel and 337.2 px inside a 320 px one. The
+ * shortest preset failed, so the longest is what this asserts — the longest
+ * weekday and the longest month en-US has, at the largest size the schema
+ * allows, in the heaviest weight, uppercased.
+ */
+const LONGEST_DATES = [
+  // "September 30" — the longest month name, on a Wednesday in 2026.
+  { name: 'the longest month', format: 'month-day' },
+  // "Wednesday" — the longest weekday.
+  { name: 'the longest weekday', format: 'weekday' },
+  // The preset that spells both out shortest is still the one with the most
+  // pieces; it must fit at max size too.
+  { name: 'a weekday and a date', format: 'weekday-day-month' },
+] as const;
+
+for (const preset of PRESETS) {
+  test.describe(`${preset.sim} (${String(preset.width)} ${preset.shape})`, () => {
+    test.use({ viewport: { width: preset.width, height: preset.height } });
+
+    for (const one of LONGEST_DATES) {
+      test(`date fits the panel with ${one.name}`, async ({ page }) => {
+        const errors = collectErrors(page);
+        // Wednesday 30 September 2026, midday, so the format is not a function
+        // of the day the suite happens to run.
+        await page.clock.install({ time: new Date('2026-09-30T12:00:00') });
+        await seed(page, 'date', {
+          format: one.format,
+          locale: 'en-us',
+          // `SIZE_MAX`, `800` and uppercase: every dial in the panel turned up.
+          size: 0.6,
+          color: '#f2f4f8',
+          weight: 800,
+          uppercase: true,
+        });
+        await page.goto(`/?kraken=1&sim=${preset.sim}&module=date`);
+
+        const line = page.locator('.kh-date__line');
+        await expect(line).toBeVisible();
+        await expect(line).not.toBeEmpty();
+        await assertInsidePanel(page, '.kh-date__line');
+        expect(errors).toEqual([]);
+      });
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Chunk isolation

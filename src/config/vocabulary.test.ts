@@ -41,8 +41,16 @@ import {
 
 const SRC = new URL('..', import.meta.url).pathname;
 
-/** Files that are allowed to hold the literals: the definition, and this test. */
-const ALLOWED = new Set(['config/vocabulary.ts', 'config/vocabulary.test.ts']);
+/**
+ * Files that are allowed to hold the literals: the definition, and this test.
+ *
+ * `config/words.ts` is part of the definition. It holds the two owner-only
+ * terms an EAGER, display-path file has to say (`modules/video/index.ts`'s
+ * summary), split out so that `core` does not carry the whole config-only
+ * dictionary; `vocabulary.ts` re-exports both, so the app still has one
+ * spelling of each and every surface still imports it from the dictionary.
+ */
+const ALLOWED = new Set(['config/vocabulary.ts', 'config/words.ts', 'config/vocabulary.test.ts']);
 
 /**
  * The file with its commentary removed.

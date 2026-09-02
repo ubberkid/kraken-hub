@@ -1,0 +1,41 @@
+{
+  "id": "twisted_nebula",
+  "displayName": "Twisted nebula",
+  "colourSlots": [
+    "Nebula",
+    "Highlight",
+    "Background",
+    "Background 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#00BCFF",
+        "#E1FFFF",
+        "#000089",
+        "#00003E"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#00FF21",
+        "#FFFF00",
+        "#008900",
+        "#003E00"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#7E7E7E",
+        "#FFFFFF",
+        "#A5A5A5",
+        "#4A4A4A"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/twisted_nebula/twisted_nebula_shader.shader"
+}

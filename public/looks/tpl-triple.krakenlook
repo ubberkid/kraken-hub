@@ -1,0 +1,41 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "stats": 1
+  },
+  "configs": {
+    "stats": {
+      "layout": "triple",
+      "metrics": [
+        "cpuTemp",
+        "gpuTemp",
+        "liquidTemp"
+      ],
+      "primary": "liquidTemp",
+      "theme": "amber"
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "Three concentric rings around a small centre reading.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "stats",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      }
+    ]
+  },
+  "media": [],
+  "name": "Triple",
+  "version": 7
+}

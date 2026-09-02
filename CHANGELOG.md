@@ -24,10 +24,590 @@ existed. Promoting it is a rename — `## [1.0.0] - <date>` — after which
 `.github/workflows/release.yml` extracts exactly this text as the release body.
 
 The one thing standing between this section and that rename is hardware:
-[`docs/hardware-checklist.md`](docs/hardware-checklist.md) H01–H23, and the list
+[`docs/hardware-checklist.md`](docs/hardware-checklist.md) H01–H33, and the list
 in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
+
+- **The editor's chrome painted over itself, hid what it was for, and lied
+  about what could be a background.** Fourteen measured findings from the
+  eleventh closing audit's config half, all of them cases of a surface having
+  been laid out correctly for a state it is no longer in.
+
+  Two of them were one CSS rule. `CamSetupCard` has two variants with two class
+  names — `.kh-setup` under About and `.kh-band` on first run — and only the
+  first was given a grid area in the editor's layout, so on a cold profile the
+  first-run band was auto-placed into the row belonging to the floating
+  selection strip. A grid row holding an 85 px band is an 85 px containing block,
+  so the strip stopped floating over the canvas and painted **544 × 40 px** over
+  the band's last line and the top half of both its controls, cutting "Frame"
+  in half; measured at 866 × 537 and again at 1280 × 800. Overlap is 0 at both
+  now, with neither control covered at any corner.
+
+  The rail was a **porthole onto the stack it exists to show**: with seven
+  overlays on the panel at 866 × 537 its row list measured 47 px of clientHeight
+  — one row of seven — because the base block below it (nine module chips
+  wrapping four rows deep in a 268 px column, the paste field, the nav and the
+  status line) laid out first and took 286 px. At CAM's height the chip row is
+  now one line that scrolls sideways, as the selection strip already was: the
+  list is **200 px and four whole rows**, and 225 px and five at 1280 × 800.
+
+  The selection strip's **More** — the door to everything the strip left out —
+  was the last control inside the row's own scroller, so on the two kinds with
+  the longest declarations it was simply off the window: measured, the strip's
+  box is 542 px, Stats' content was 975 px and Text's 958, putting `ops-more`
+  at x = 957 and x = 940, with the row cut mid-control on seven of the eight
+  overlay kinds and no affordance saying it went further. `More` is pinned
+  outside the scroller now, on screen for all nine strips, the scroller fades at
+  whichever end it is cutting off, a mouse wheel drives it sideways, and the
+  controls' own footprints came down enough to take Stats to 784 px and Text to
+  815 in a 471 px box.
+
+  Five of the ten template cards **were a two-stop gradient and nothing else**.
+  The preview policy refuses to run an effect in a card — one graphics context
+  each, and a grid of them would evict the editor's own — but it applied the
+  refusal to the CARD rather than to the layer, so Overlay, Lava lamp + temps,
+  Nebula clock, Sunset loop + clock and Focus each rendered as a single `div`
+  with a `background` on it, losing the clock, the stats strip, the ring or the
+  text that is the whole difference between them. The effect layer is switched
+  off and its own still frame painted behind the stage now; every other layer
+  composites over it through the same `LayerHost` the live cards use, under the
+  same six-slot budget.
+
+  A pairing link carrying an impossible code **said so where nobody could see
+  it**: `#/remote?room=UUUUUUUU` rendered its Notice inside the collapsed "Type
+  a code instead" disclosure, and `?phone=1&room=UUUUUUUU` — the same code in
+  the ordinary query string — was rejected in complete silence, because only the
+  fragment was ever read. Both forms are read now and the refusal is above the
+  disclosure, in view on arrival.
+
+  Opening the **inspector** from the strip's Effect or Preset showed **0 of the
+  12 effect tiles**: the sheet opens at the top, which is Layout, and its body
+  is 365 px over 1,651 px of content. A door that names its destination scrolls
+  to it — six tiles in view on open, measured, while `More` still opens at the
+  top because `More` asks for the sheet rather than for anything in it.
+
+  Two base pickers disagreed in both directions. The rail's chip row was the
+  whole registry — nine chips including Text, Icon and Date, which declare
+  `roles: ['overlay']` and cannot be a background — while the add sheet's
+  Background row was already derived from `roles` and carried a Solid colour the
+  rail did not. One derivation now (`editor/basePicker.ts`), read by both, with
+  a unit test and an e2e assertion that names no kind.
+
+  **"Save as…" had an ellipsis and no question behind it**: it saved silently
+  under whatever the header said, which on an unnamed Look is the empty string,
+  so two presses produced two shelf entries both reading "Untitled look". It
+  opens a field in the sheet's own footer now — not `window.prompt` — pre-filled
+  with the current name, and refuses an empty one.
+
+  `#/library` on an unpaired, non-owning window **rendered the Remote screen**
+  under the breadcrumb "Your Kraken / Remote", replaced the address that had
+  been asked for, and overflowed CAM's window by 234 px. The route answers for
+  itself now: the shelf's own page, saying where the shelf is and offering the
+  pairing that would reach it, at `#/library`, page-fit 0.
+
+  Placement **piled under pressure**. The free-slot search asked whether a
+  candidate's CENTRE was inside the safe circle, which on a disc is the wrong
+  question — the room at a given height is the chord, not the diameter — so an
+  auto-placed Date landed with both ends over the bezel reading "…ed, Se…", and
+  when the ring walk ran out the layer was dropped on top of whatever was there.
+  Candidates contain their own box now, and a layer that will not fit at its own
+  size is retried at 85 %, then 72 %, down to the model's floor before it
+  stacks. A property test adds one of each kind in twenty random orders and
+  asserts no two overlays overlap and nothing but the first is off the glass.
+
+  Also: the first-run screen **offers three Looks to press** (§4 asked for the
+  cards and they had never been built — a cold profile had no template card in
+  the DOM at all), standing in the canvas column's left gutter rather than in a
+  row under the setup card, because that row cost the halo one pixel for each
+  of its own and took it from **320 px down to 199** on a cold profile at
+  866 × 537 — the gutter is width a square halo leaves over in a column that is
+  not square, so the cards are free and the halo is 320 px again, with a compact
+  82 px row as the fallback on windows too narrow or too tall to have a gutter; the add sheet's tile summaries get the **two lines** the
+  242 px card has room for instead of one clipped line losing a third to a half
+  of every sentence; the drag HUD and the strip's numeric readouts print a real
+  **U+2212** rather than a hyphen among their tabular figures; and
+  `budget.ts`'s header claimed a full look "runs past 90 %" when the measured
+  reading is **69 %** — a comment naming a number the app cannot produce is
+  worse than one naming none, because the next person tunes the marks to it.
+
+- **The LCD read a menu path aloud, the frame counter was unreadable on the
+  diagnostic it exists for, and a fresh effect overlay was a lid.** Three
+  measured findings from the eleventh closing audit, all of them cases of a
+  surface saying or drawing more than it should.
+
+  With no source configured the display played the demo clip and printed
+  _"Demo clip — paste a video link in CAM → Lighting → your Kraken → your
+  kraken-hub card → Configure"_ as one sentence in a band across the bottom of
+  the disc — **three full-width lines of body type** at 640, a five-step menu
+  route read out to somebody standing a metre from a screen they cannot touch.
+  It is the house instruction card now: **Nothing chosen yet**, _Pick a video in
+  CAM_, and the route demoted to the small footer every other card puts it in.
+  `CAM_PATH_CONFIGURE` is still the one spelling of that route. Measured at
+  device scale 1: **3 text lines at 640** (footer 341 px on one line inside a
+  367 px plate), **2 at 320 and 2 at 240**, every line inside the safe circle
+  (worst corner radius **178 px** against a 282 px safe radius at 640). Below an
+  inscribed square of 300 px the footer is dropped rather than set at the ~4 px
+  it would need — an instruction nobody can read is not a smaller instruction.
+
+  The `?pattern=stack` diagnostic draws a large rAF counter so a maintainer can
+  film the panel and count distinct values, which is the only way capture-side
+  FPS can be measured at all. Over stacks (c), (d) and (e) it drew white type
+  with a 6 px shadow straight onto a full-panel plasma: sampled over the effect's
+  bright lobe, stroke against ground was **2.4:1** — and about 1:1 on the
+  brightest frames. It now carries the same flat, fully opaque black plate the
+  stats module's readouts wear, corner-anchored as before, and measures
+  **21.0:1** (7.7:1 against the 90th-percentile ground pixel). No shadow, no
+  gradient, no stacking literal.
+
+  A fresh **effect overlay** landed as a `1.2 × 1.2` opaque disc in the centre.
+  An effect fills every pixel of its box, so that default was a lid over whatever
+  look it was added to; it is a `0.6 × 0.6` badge at `(0.45, −0.45)` and 85 %
+  opacity now, the same corner and idiom the image module uses. The **base**
+  role is unchanged and still wears the whole panel. In the same pass `date`'s
+  default moved from `{w:1.2,h:0.28}` @ `y 0.78` — whose bottom edge at `0.92` is
+  outside the 0.88 safe ring, on a chord of about 1.25 — to `{w:1.1,h:0.28}` @
+  `y 0.66`. `registry.test.ts` checks every registered kind's `overlayDefault`
+  against the panel's chord and the safe ring, so the next one cannot ship off
+  the glass.
+
+- **Every Look preview card was blank, the rail pushed the page past CAM's fold
+  from the fifth layer, and the carousel could not be switched on at all.** The
+  tenth closing audit measured the editor's four surfaces and found three
+  mechanisms that were built, wired and inert.
+
+  `LookPreview` shrinks a 640 px stage into a thumbnail with
+  `transform: scale(calc(var(--kh-lookprev-size) / 640))`, and the token carried
+  a unit — `120px`. `scale()` takes a number, `120px / 640` is a length, so the
+  whole declaration was invalid and dropped: every card in the Looks sheet
+  rendered the top-left **4.6 %** of a running compositor at 1:1, which reads as
+  a blank square. The token is unitless now and the unit is applied where a
+  length is wanted; the measured visible fraction is **1.0**.
+
+  The layer rail had no scroller of its own, so each row past the fourth made the
+  page taller: page overflow at 866×537 went **0, 0, 0, 0, 8, 48, 88, 128 px** as
+  layers one to eight went on, and at eight the BASE row — which is also the
+  module chip row, the app's oldest gesture — had its bottom edge at y = 569 in a
+  537 px window. The row list takes the `kh-sheet__body` treatment the editor's
+  sheets already had, and overflow is **0 at every layer count** with the base
+  row, the add button and the paste field all on screen.
+
+  The carousel's picks lived only in `state.carousel`, and `state.carousel` is
+  `undefined` for anything under two Looks — so the first press computed `[a]`,
+  wrote `undefined`, and the second press read an empty list. It could not be
+  switched on at any number of presses. The partial pick is component state now,
+  only _enabling_ the rotation is gated on two, and the status line reads
+  **"1 picked — pick one more"** in between.
+
+- **The budget meter read 100 % on one video background and called it calm.**
+  The bar was `min(1, cost.total)` and `lookCost` is normalised so one video base
+  is exactly 1.0 — so the commonest Look in the product pinned the meter, eight
+  layers on top of it pinned it identically, and a clock read 0 %. It reads
+  against the frame governor's own headroom marks now (`DEMOTE_RATIO`,
+  `PROMOTE_RATIO`), and the verdict colours the bar: a video base **60 %**, an
+  effect base **36 %**, a clock base **0 %**, and a Look past the busy limit in
+  red. The label was truncating too — it wanted 275 px in the 182 the header can
+  spare, so every sentence ended in an ellipsis where the honesty was — so the
+  meter says _Estimate_ / _Keeping up_ / _Falling behind_, out of the claims
+  registry, with the full sentence in its tooltip.
+
+- **The layer cap is visible before it is reached.** It was a disabled button and
+  a native `title`, which is the exact ESC failure `research-esc-ux.md` §127
+  names: invisible until you hit it, then announced by a tooltip a touch screen
+  never shows. The rail counts — **"7 of 8 layers"** — and at the cap says
+  _"This look is full — eight layers is the most that fits on the wire."_
+
+- **The editor stopped passing off the simulator's numbers as readings.** With no
+  telemetry the halo runs the real stats renderer against
+  `platform/simulator.ts` — the right call, because an empty gauge teaches nobody
+  anything about the face they are arranging — and it read _41 °C · CPU · 16 %
+  load_ with nothing anywhere saying so. One claim, through the presence spine:
+  **"Sample readings — until CAM sends real ones"**, on the halo and under the
+  Looks grid, with the affected cards marked.
+
+- **The Looks sheet moved off the halo.** It was `position: fixed; left: 12px`
+  and 560 px wide over a halo running x = 84…499, so browsing Looks covered the
+  one thing on the screen that shows what a Look looks like — while the editor's
+  other two sheets stood politely over the rail. It takes the rail's column now,
+  with the sheet body scrolling and a two-column card grid, and the page grows by
+  nothing in either direction.
+
+- **Readable numbers, an honest taxonomy, and four smaller things.** The drag
+  HUD printed `0.04, −0.68` — the model's diameter units — and now reads
+  **x 26 · y −435 · 100 % · 0°**, with the inspector's Layout fields converting
+  at the same edge (px from the centre, %, °) while the document keeps its own
+  units. The add sheet's Background row is derived from `layer.roles` rather than
+  a hand table, so Video, Effect, Picture, Clock, Stats and Shape are all
+  reachable as backgrounds and Text, Icon and Date — overlay-only in their own
+  manifests — cannot appear there. A locked layer stays selectable from the rail
+  (refusing it put the layer's own inspector behind its own lock) and the strip
+  says why its controls are grey. A room code arriving in a link with an `I`,
+  `L`, `O` or `U` in it is now spoken — _"That code has a letter Crockford codes
+  never use"_ — through the same refusal path a typed one uses, instead of
+  silently showing the pairing card. Rail rows are 40 px, and a sheet's close
+  button is 44×44 on a touch screen rather than 26×26.
+
+- **The editor's overlay follows your finger, several layers can be moved at
+  once, and every layer can be locked.** The editor audit measured a set of
+  controls that were drawn but not wired: the selection box and its five handles
+  did not move during a drag (the cursor travelled −90, −90 and every handle
+  centre travelled 0, 0 until release), ⌘A and a marquee marked rail rows while
+  the canvas showed zero selection boxes and offered no group operations, Escape
+  did not deselect, the budget meter's bar was 0 px wide and read `—`, and
+  `document.getAnimations()` was empty after adding a layer, removing one and
+  switching the background.
+
+  The overlay now follows the layer with **one attribute write on one `<g>` per
+  frame** — `M(now) · M(start)⁻¹`, the affine that takes the box from where it
+  was to where the finger is — so the box, the handles and the HUD travel with
+  the layer while the one-commit-at-release contract and invariant I4 stay
+  exactly as they were. Guides only re-render when the guide set actually
+  changes, which takes a drag from a React render per frame to none.
+
+  A selection of two or more draws a box per layer and one around the group,
+  with the same corner handles and lollipop; a group move, scale or rotate is one
+  `transformMany` and therefore **one undo step**, and the strip becomes the
+  group's: six alignments, a reference (the canvas or the selection's own box)
+  and distribute. `Layer.locked` is a new optional field — the schema stays at 7
+  because it is optional, `validateLook` is its only gate and repairs anything
+  that is not a boolean to absent — and a locked layer is not hit-testable, not
+  draggable, not in a marquee, and refuses every transform op with a typed
+  `'locked'` reason.
+
+  Alongside them: Escape deselects (standing down while something is open or the
+  caret is in a field); the arrow keys nudge **one panel pixel**, ten with Shift,
+  rather than a unit-hundredth that meant 3.2 px on an Elite and 1.2 on a square;
+  `data-testid="ops-more"` is on the button only rather than on the button and
+  its wrapper, which was a strict-mode violation in the repo's own e2e; the
+  budget meter's track has a definite width and prints the estimate as a
+  percentage rather than an em-dash; the rail's z-order arrows are 24 × 24 rather
+  than 24 × 18; a strip's long choice scrolls sideways instead of wrapping to
+  four rows (Stats was 131 px tall and Text 108, over a halo the strip now floats
+  on); and `--kh-surface`, used five times in `ui.css` and declared nowhere, is
+  declared.
+
+  **`More` opens an inspector**, in the rail's column, rather than the home
+  screen's module options panel: Layout as typed numbers through the same ops a
+  drag uses, the kind's own panel, Visibility and Advanced, closed with Escape.
+  The halo does not shrink for it. The floor-yielding panel is unchanged on the
+  phone's single-column home, where there is no rail to open a sheet in — and
+  when it does open at editor widths it now takes the canvas column, because as
+  a full-width row underneath it left the rail overflowing into it and the module
+  chips unclickable.
+
+  §7's motion is real: a layer fades and scales in on arrival, fades out before
+  it unmounts, and a base switch reuses the Look switch's existing 350 ms
+  cross-fade rather than growing a second mechanism. All three honour reduced
+  motion by not running, and all three are WAAPI, so `settle()` can see them.
+
+  The add sheet gains **Sticker** — the image kind with the two settings a
+  transparent PNG needs already answered — and a **Solid colour** background
+  entry that uses the shape module's own `SOLID_BASE_CFG` rather than a second
+  opinion about what "solid" means.
+
+- **The display's download is counted honestly, and the vocabulary stopped
+  riding along on it.** `rolldown-runtime` — the bundler's own module-registry
+  shim, a _static_ import of the display entry, which `displayGraph` (I8) has
+  always reported as reached — was not in `displayCriticalPath.chunks`, so
+  0.19 kB the Kraken Browser downloads before the LCD paints was not weighed.
+  It is now: the gate reads 90.4 kB rather than 90.2, and the number moved
+  because the measurement got more honest, not because the app got bigger.
+
+  Alongside it, `src/config/words.ts`: the app's dictionary
+  (`config/vocabulary.ts`) is config-only prose, and exactly one eager,
+  display-path file said a word from it — `modules/video/index.ts`, whose
+  one-line summary reads "kept on this PC". The two terms it needs now live in
+  their own dependency-free file that `vocabulary.ts` re-exports, so there is
+  still one spelling of each word and `vocabulary.test.ts`'s single-source rule
+  still holds, and the display no longer _imports_ the dictionary. The bytes do
+  not leave `core` yet: that group claims `src/config/` by PATH rather than by
+  importer, so vocabulary rides along regardless of who imports it — the same
+  shape `lazy-shared` was invented for, and a one-line chunk-group change worth
+  a measured 0.6 kB (90.4 → 89.8 kB) — since made: `config/vocabulary.ts` and
+  `config/knownHosts.ts` moved into `lazy-shared` (`core` 24.75 → 24.22 kB,
+  `lazy-shared` 4.79 → 5.43 kB), taking the display's critical path to **89.8 kB**
+  under the 90 kB gate with `displayGraph` (I8) still clean, while `words.ts`
+  stays in `core` because the display genuinely reads it.
+
+  And the same shape once more, for the same reason: **the selection strips left
+  the LCD.** Nine manifests declared `editor.strip` inline — five control
+  declarations each, plus the swatch tables, font lists and segment labels only
+  the strip reads — and the manifests are eager, because the registry validates
+  stored config before anything renders. So the Kraken Browser downloaded the
+  editor's entire control vocabulary before it could show a frame, on a page
+  that has no editor: 3.2 kB raw of config-only data on the critical path.
+
+  `KrakenModule.editor` is now `{ loadStrip: () => import('./editor') }` and each
+  kind's declaration lives in `src/modules/<kind>/editor.ts`, which the existing
+  `module-<kind>` chunk group claims with no build-config change. The contract
+  did not get weaker: `defineModule()`'s DEV assertion and the registry
+  conformance suite both **await** the loader, and the suite iterates the whole
+  registry — every kind still has to prove ≤ 5 controls with `More` last, unique
+  ids, a `'layer'` control that addresses only `t.*`, and a path that resolves
+  against its own defaults — with one test added to prove that all nine loaders
+  resolve to nine distinct strips, so laziness cannot hide a kind. The config
+  page loads a kind's strip when a layer of that kind is first selected and
+  caches it per kind; the row reserves the 26 px its controls occupy meanwhile,
+  so the strip measures 40 px before, during and after the load and neither it
+  nor the halo moves. Measured on a preview build: 42–82 ms from click to
+  controls on the first selection of a kind (the strip's own chunk is a few
+  hundred bytes; most of that is the module chunk carrying it), 19–36 ms once
+  warm.
+
+  Alongside it, `src/modules/swatches.ts`: `text`, `date` and `icon` each
+  declared the same five `#rrggbb` literals and `shape` declared four that agreed
+  with three of them. There is one list now, and shape composes its `none`/white/
+  black/amber/cyan row from the same named inks — a consistency fix rather than a
+  size one, and the reason "the same five, everywhere" is a test instead of a
+  sentence in four doc comments.
+
+  Net: `core` 69.46 → 66.13 kB raw, 24.46 → 23.63 kB gzip, and the display's
+  critical path **89.8 → 89.0 kB gzip** with `displayGraph` (I8) clean and the
+  reached-chunk set unchanged — and then the nine declarations left the display
+  chunks too: a `module-editors` group (priority 93, above the module groups)
+  claims every `src/modules/*/editor.ts` plus the shared `swatches.ts` into one
+  1.35 kB gzip chunk, so the first selection of a video layer fetches that
+  instead of the 24 kB player, nine kinds cost one round trip rather than nine,
+  the ink table leaves `core` (23.54 → 23.38 kB gzip) and the critical path
+  settles at **88.9 kB gzip**; the loaded strip is cached in a map inside
+  `src/app/config/editor/strip.ts` rather than on `EditorContract`, so the
+  manifest type the display compiles against is the loader and nothing else.
+
+- **The stats faces stopped chunking, went hue-led, and grew three more.** A UX
+  audit sampled the arc's `stroke-dasharray` every animation frame on
+  `?module=stats&layout=single` and found it changed **13 times in 8 s** — one
+  step per second, on a face whose whole point is that it glides. It changed
+  86–115 times in the same window when a diagnostic stack put another animated
+  layer beside it, which was the clue.
+
+  - **F4 — the module's own timer was killing its own tween.** `stats` keeps a
+    1 Hz `setInterval` so a host that never calls `frame()` still paints and so a
+    feed going away is noticed. That interval called `step(1000 ms)`, and a `dt`
+    of a whole second settles every glide in one step by design. It was started
+    at mount, a beat after the simulator's own 1 Hz feed timer, so on the
+    display the two fired in the same millisecond in that order: the sample
+    re-targeted every tween, and the module's own timer snapped all of them to
+    the target before a frame could run. The 420 ms tween only ever ran when
+    something else shifted the timer's phase. It now settles from the interval
+    only when **no frame has arrived in the last 250 ms**, so whichever clock is
+    actually driving the module owns the glide. Measured on a preview build at
+    640, distinct arc values in 8 s: **single 13 → 46, grid 86 → 472**, and the
+    hero's distinct readings on the grid face 25 → 27. Two tests pin it — one
+    asserts at least eight distinct arc values inside a single `TWEEN_MS`, the
+    other fakes the timers while leaving `performance` real so the interval
+    fires mid-glide and has to leave it alone.
+
+  - **M7 — the faces were monochrome; the prototype was never.** The default
+    theme was `mono`, so every face read as a grey dial on a grey panel. The
+    resting hue is now **teal** — the same `#4fd8d2` as `--kh-accent` in
+    `src/ui/ui.css`, carried in `STATS_PALETTES` because `ui.css` rides the
+    config chunk and the display page never loads it — with the track a lighter
+    step of that hue, exactly as `docs/design/layers-prototype.html` draws it.
+    The digits stay ink at every state: text wears text colours. `mono` is still
+    on the list. The one-hero faces gained the prototype's sub-line —
+    `48% load · 4.8 GHz` — built only from fields CAM actually publishes
+    (`cpu.load`, `cpu.freqMhz`, `gpu.*`, `ram.usedMiB`/`totalMiB`), with an em
+    dash in place of any the feed does not carry. Because that line no longer
+    repeats the component's name, the hero is labelled again: the single face
+    used to hide its own `CPU`.
+
+  - **M8 — the triple face collided with itself.** The two outer readings sat at
+    `left: 33%`/`67%`, which on a full panel is exactly where the innermost arc
+    passes at the height they were on: the ring struck through both labels, and
+    the whole group sat ~30 px above centre. Measured on a 640 panel before:
+    the arc crossed the outer labels' band; after, the furthest corner of any
+    glyph is 111 px from centre against an inner radius of 141 px, the group
+    spans 236–398 px for a midpoint of 317 against the panel's 320, and the
+    face has four distinct baselines instead of two. A unit test now pins that
+    every slot's label is the metric that slot displays, on every face, with a
+    metric set deliberately unlike the defaults — and that a metric is labelled
+    twice only when it was configured twice.
+
+  - **Three more faces, for parity with CAM's own modes.** `bar` (three linear
+    gauges stacked), `vertical` (the same three stood on end) and `chart` (the
+    sparkline promoted from a garnish to a face: sixty seconds per slot, the
+    endpoint emphasised, no axis chrome). All three read the SAME three metric
+    slots the ring faces read, so switching face never changes which sensors are
+    on the panel, and all three obey the module's dataviz rules — thin marks
+    with rounded ends, tabular numerals, one accent hue, a threshold that never
+    travels without its word, tweened values. They are three more segments in
+    the face chooser that already existed: the editor strip still carries
+    exactly five controls.
+
+    The linear gauges are two boxes rather than an `<svg>` line, and that is a
+    correctness point rather than a preference: a gauge has to stretch to its
+    row, which means `preserveAspectRatio="none"`, which distorts a round cap —
+    and `vector-effect="non-scaling-stroke"`, the usual answer, moves the DASH
+    into viewport units too, so `stroke-dasharray="100 100"` repeats every
+    hundred pixels and paints a row of ticks. That is what the face rendered
+    before it was replaced.
+
+- **A text layer's visual centre is its anchor.** `.kh-text` is a flex box that
+  centres both axes — the cross axis always, the main axis from `align` — rather
+  than centring one and leaving the other to `text-align`, which positions
+  glyphs inside a line box that still spans the whole layer. The rendered line
+  now hugs its words, so anything measuring it (the editor's outline, a test, a
+  person with a ruler) measures the words. Measured on a preview build, glyph
+  centre against host centre: **−1 px vertical, 0 px horizontal** on a 384 × 96
+  layer at 640, unchanged by the edit — the audit's reported ~32 px offset did
+  not reproduce in this module, and the shots it came from show a selection
+  outline left behind by a drag rather than type sitting high in its box. The
+  rule is now structural and asserted against the shipped stylesheet, so it
+  holds for a line that wrapped and for a box far taller than one line of type.
+
+- **Two parity kinds, and the solid base.** The editor spec's §10 checklist names
+  a set of kinds that must exist; an audit of it against the registry found three
+  missing. Two are now modules and one turned out to be a config.
+
+  - **`icon`** — one glyph from a curated set of **forty-eight**, drawn in this
+    repository on one 24×24 grid, in five drawers (hardware, ambient, symbols,
+    arrows, shapes). No icon font and no third-party set: a font is a network
+    request on the display path and there is no network in CAM, and a borrowed
+    set is a licence file somebody has to keep true. A glyph is either drawn
+    (one stroke, whose width is the config's weight) or solid (filled, and the
+    weight does nothing) — a heart with a hole in it is not a lighter heart, it
+    is a different symbol. Overlay only, `resize: 'frame'`, `static`. The
+    strip's first control is an `action` rather than a row of segments, because
+    forty-eight options is not a strip control at any width: it opens the
+    module's own panel, where the grid has a search field and five category
+    drawers. Every glyph renders exactly one `<svg viewBox="0 0 24 24">` with
+    exactly one `<path>`, asserted over the whole table, so a `d` drawn on
+    somebody else's grid fails in CI rather than on a panel.
+  - **`date`** — today, in one line, in six locale-aware presets plus `iso`.
+    Five of them are the browser's own idea of how the reader's locale writes a
+    date; `iso` is `YYYY-MM-DD` by definition, assembled from the date's LOCAL
+    fields, because `toISOString()` is UTC and would print yesterday all evening
+    west of Greenwich. An unknown language tag falls back to this machine's
+    locale rather than blanking the layer. The tick budget is the point: one
+    integer compare per frame, one `Intl` format per minute against a cached
+    formatter, one DOM write per day — which is what lets `cadence: 'tick'` and
+    `motionLevel: 'static'` both be true. Overlay only: the clock already offers
+    a date line on a base that also tells the time, so a date base would be a
+    worse clock with a setting missing.
+  - **The solid base was already there and could not be reached.** The shape
+    kind is base-capable and a full-panel `rect` IS §10's solid base; what was
+    missing was the config that makes it one, because the module's defaults are
+    a translucent rounded scrim — the right default for a band under a caption
+    and emphatically not a flat ground. `SOLID_BASE_CFG` (opaque,
+    square-cornered, unstroked, edge to edge) now lives next to those defaults,
+    so the add sheet and the templates share one idea of "solid" instead of each
+    writing down their own.
+
+  Both kinds have their own chunk group and both pass the registry conformance
+  suite, the strip enumeration and the two-instances suite with no test written
+  for them — which is the deal `docs/modules.md` §11 makes with a contributor.
+  Documented in [`docs/modules-icon-date.md`](docs/modules-icon-date.md).
+
+  **Not built, deliberately:** Sticker (an image overlay tile) and the Bar,
+  Vertical and Chart gauges (stats faces) — both are other kinds' work, not new
+  modules. **Unverified:** the two rows added to `tests/e2e/modules.spec.ts` were
+  NOT run; another agent held the ports the Playwright config pins.
+
+- **Looks arrived on the screen.** The format, the ten designed templates and the
+  gallery data landed in the previous wave and had nowhere to be seen; the Looks
+  menu was a dropdown of one base-only Look per module kind, derived from the
+  registry, with a comment saying so. It is now a sheet with four groups —
+  **Templates**, **Your Looks**, the **Gallery** and the **Carousel** — and a
+  file row underneath it.
+
+  - **Every card is the Look running.** A real `LayerHost` per visible card, at
+    the panel's own pixel size and scaled down by CSS, through the same preview
+    registry the editor's canvas uses — so a card is a true likeness rather than
+    a screenshot that can quietly stop matching its file. Two caps keep a grid of
+    those honest about its cost: **six live at once**, claimed as cards scroll
+    into view and released as they leave, and **an effect is never live in a
+    card** (one WebGL context each, and a browser's per-page limit is small
+    enough that a grid would evict the editor's own canvas — so an effect card
+    paints the still frame the effect module itself falls back to, which is the
+    user's own palette).
+  - **Applying is one operation and one undo step.** A Look is an arrangement
+    AND the settings its base wears, and those live in two places in the
+    document; writing them in two commits would be two synced snapshots, with a
+    peer seeing the new arrangement in the old settings. `useEditor.applyLook`
+    writes both in one `commit` and pushes one history entry, so undo crosses a
+    Look switch in a single press. The canvas cross-fades for 350 ms, driven by
+    the Web Animations API rather than by React (I4).
+  - **Undo across a base-KIND change was silently reverted, and is not any
+    more.** `validateAppState` rewrites `look.layers[0].kind` from
+    `activeModuleId` for this release, so an undo that restored a look with a
+    different base wrote the look and left the flat field behind — and the
+    validator put the base back on the way to storage. Pressing undo did
+    nothing, twice. The history's `setLook` now goes through `withBaseKind`,
+    which is the one place in `src/app` allowed to write that field. Found by
+    the new test, not by a report.
+  - **Files.** Export writes a `<name>.krakenlook` — on CAM's configuration
+    window only; the display has no file manager to find it with. Import takes a
+    file picker, a drop on the sheet, or a paste of the JSON itself, and all
+    three end at the same total parser. Its five refusals each get a card that
+    says what the file is and what to do about it; a person is never handed
+    `wrong-format`. Media the receiving machine does not have becomes a card
+    naming the missing file, with the move that surface can actually make.
+  - **Your Looks.** Kept in this browser profile
+    (`kraken-hub:v1:looks`), not in the document — fifty complete arrangements
+    would be a hundred kilobytes on an 8 kB sync envelope describing panels
+    nobody is looking at. Rename, duplicate, favourite, drag to reorder, export,
+    delete-with-a-confirm, capped at fifty with a card that names the way out
+    (export one; a file has no limit). One corrupt row costs one Look, not the
+    shelf. The live Look's NAME moved in here too, out of the single-purpose key
+    W5 parked it in, and the old key is adopted once and retired.
+  - **The Gallery** reads `looks/index.json` with an ordinary `fetch` for a file
+    next to the page, so a fork reads its own. A deployment that ships the app
+    without the folder gets a card saying exactly that and pointing at the
+    repository, rather than an empty group that looks like a bug. The folder now
+    lives at `public/looks/`, the one directory the build copies next to the
+    page, so a built site serves the catalogue and its ten files at
+    `<base>/looks/…` and the sheet shows the grid rather than that card.
+  - **The carousel** rotates a chosen set of two or more saved Looks on an
+    interval from 30 seconds to an hour. It runs **only in the window that owns
+    the saved-Looks store**, and the UI and the docs say so: the ids name rows in
+    one browser's storage, so no other window — the display least of all — can
+    turn "the next id" into a Look. The panel renders whatever `look` it was last
+    given. Putting the look BODIES in the document so the display could rotate
+    them itself was considered and rejected on the wire budget. A rotation is not
+    an edit and does not enter the undo stack. **And it reads the media library
+    only when a rotation is actually on** — at mount if it already is, on the
+    switch-on, or on a tick that has to resolve media — because reading it at
+    mount opened the library database on CAM's boot path, listing every clip and
+    picture and running the legacy→merged picture migration, for a feature that
+    is off by default; booting the home screen with `?cam=1` now opens **no**
+    database (was one), and `looks.spec.ts` counts `indexedDB.open` to keep it
+    that way.
+  - **`carousel` is the first additive field not to move the state schema**, and
+    `src/state/schema.ts` and `src/state/migrations.ts` both carry the argument
+    rather than leaving it to be re-derived: every past bump protected a value an
+    older reader would have destroyed, and this one is a pointer into a store an
+    older build never reads or writes. It is optional, the validator repairs it,
+    and a set that shrinks below two turns itself off instead of rotating between
+    one Look and itself.
+  - **The LCD pays nothing for any of it.** `src/state/look/templates.ts` (the
+    ten designed Looks) and `src/state/look/file.ts` (the reader/writer) live
+    under `src/state/`, so vite's `core` group claimed them by path and wiring
+    the sheet up took the display's first download from 88.4 kB to **90.6 kB
+    against a 90 kB gate**. They are now a `looks` chunk — the `lazy-shared`
+    shape exactly, ranked below `core` with the matching lookahead in `core`'s
+    own test, because a dynamic import alone does not move a module out of a
+    group that claims it. Measured after: **88.6 kB**, with `config-ui` at
+    57.3 kB against 140. A grep test keeps `src/app` from ever importing the
+    template table statically.
+
+- **The LCD's first download stopped paying for code it never runs.** Counting
+  the compositor (`render-shared`) in the display critical path — correctly, it
+  is statically imported by `LayerHost` — pushed the measured total to 93.76 kB
+  against a 90 kB gate. The gate was not loosened and no function was removed.
+  Both chunks the LCD downloads before it can paint claim their contents by file
+  PATH rather than by importer, and a static-import walk from
+  `src/app/display/mount.tsx` showed what that had quietly bought: the display's
+  sync half (`display/sync.ts`, `replicaFeed.ts` — behind `await import('./sync')`
+  and only when a room is configured) and nine shared leaves whose every importer
+  is a lazy chunk (the IndexedDB media store and its wrapper, replica thumbnails,
+  the diagnostics capability probe, the known-host table, curation, chunked
+  telemetry, the library packet). They are now two new groups, `display-lazy` and
+  `lazy-shared`, fetched alongside whichever lazy chunk actually wants them.
+  `core` 25.67 → 21.91 kB, `display-shell` 5.82 → 2.98 kB, path **93.76 → 87.2 kB**
+  — inside the design's ≤ 88.5 kB target with 2.8 kB of headroom against the gate.
+  This is a split, not a re-label: nothing moved that the boot path imports
+  statically, and the `displayGraph` (I8) walk and the per-module chunk-isolation
+  e2e both still fail on a real leak.
 
 - **Round 9 — four parked product decisions, made, plus the phone bug they
   surfaced.** Every item here had been deferred for the same reason: the code
@@ -93,7 +673,476 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
     a machine that can install CAM), and CAM is never gated at any width.
     `?phone=1|0` overrides the measurement, the same simulator seam `?cam=` is.
 
+- **W0 — the layers spike: measure first, design second.** Before the layers
+  architecture commits to stacking up to eight absolutely-positioned hosts on
+  the LCD, the cost of doing that is now a number rather than an estimate.
+  `?kraken=1&diag=1&pattern=stack&stack=a|b|c|d|e` composes five stacks of
+  increasing cost out of the modules that already exist — video + stats strip,
+  video + stats + clock + text, a procedural gradient base + stats, that base
+  plus four translucent overlays, and eight layers — each drawing the H09 rAF
+  counter on top so the panel can be filmed and counted. Measured on the
+  simulator at `targetFps` 40 over a 12 s window: eight layers cost **0.022 ms
+  of JS per tick in total**, `achievedFps` does not move from the shallowest
+  stack to the deepest (40.03 → 39.97), and `longFrames` is **0** everywhere.
+  Layers that do not animate implement no `frame()` and are never called at all.
+  Numbers and method: [`docs/design/w0-measurements.md`](docs/design/w0-measurements.md).
+
+  Two things came out of it beyond the numbers. The debug overlay grows **one
+  line per layer** — `p95` and EMA of that layer's `frame()`, accumulated in
+  closure state and read once a second, so nothing per-frame ever touches React.
+  And the DOM question the whole reorder design rests on is settled in Chromium:
+  a `<canvas>` moved with `insertBefore` keeps its WebGL context, its
+  `isContextLost()` stays false and its pixels survive; an `<iframe>` moved the
+  same way has its window and document **replaced** and re-navigates. That is
+  the reason the base layer never moves in the DOM — a YouTube base would reload
+  — and it is carried as a unit test, not a comment.
+
+  What the spike deliberately cannot answer is what CAM's compressor does to any
+  of this: nothing inside the page can see the capture pipeline.
+  `docs/hardware-checklist.md` gains rows **H24–H28** for the same five stacks on
+  real hardware, ending in the explicit question _"does compressor load reduce
+  page `achievedFps`?"_ with a space for the answer — because that answer decides
+  whether a layer governor can see overload coming at all, or whether declared
+  layer costs stay estimates forever.
+
+  The spike is **throwaway** and says so in every file header
+  (`src/render/compositor.spike.ts`, `src/diag/patterns/stack.ts`, the
+  `&stack=` flag, the `?pattern=stack` branch): it is reached only through
+  dynamic imports behind the diagnostics flag, the build manifest confirms
+  `display-shell` never statically imports it, and it is deleted when the real
+  compositor lands.
+
+- **The editor is a model, not a mouse.** Every edit a look can undergo now
+  exists as a pure function in `src/app/config/editor/` — `ops`, `gesture`,
+  `snap`, `bounds`, `history` — with no DOM, no React and no registry import.
+  The halo handles, the phone ring and the chip row (W5/W6) may call these and
+  nothing else, which is what will make a drag on a phone and a drag on a
+  desktop provably the same edit rather than two implementations that agree
+  until they don't.
+
+  - **A limit is a refusal with a reason, never a silent drop.** `addLayer`,
+    `duplicateLayer` and `setConfig` return `{ ok:false, reason }` for the five
+    cases that can actually happen: a ninth layer, a second video, a third
+    effect, a kind this build has never heard of, and a look that would cross
+    3 kB. The byte cap has to be refused _here_, at op time, because the wire
+    refuses to truncate `layers` — so if an op quietly dropped an overlay the
+    user would lose work with nothing on screen to explain it. Every op leaves
+    through `validateLook`, so no op has to remember that the base carries no
+    config and none of them can write a document the display would repair.
+
+  - **Snapping is stated in units, so two Krakens agree.** There is not a pixel
+    anywhere in `snap.ts`: the centre crosslines, the twelve clock angles, the
+    rings at `0 / 0.5 / safeRadiusPct`, the tangent that puts a layer's farthest
+    corner exactly on the safe circle, the other layers' centres and edges, and
+    a square panel's edges and thirds — all against `1.0 = radiusPx`, all with
+    one 0.03 u threshold. A 640 round Elite and a 240 square Kraken 2023 snap
+    identically because the only thing the function learns about the panel is
+    its shape. The centre crosslines deliberately snap centres only: let a box
+    put its _edge_ on `x = 0` and "drag it to the middle and it lands at 0,0" —
+    the first snap anyone tries — stops being true for every layer wider than
+    the threshold.
+
+  - **A drag is one edit.** `beginGesture` captures the layer as it was,
+    `applyGesture` answers "where would it be now" without committing anything
+    (the caller feeds that to the live preview — one style write, never a React
+    render), and `endGesture` produces the single look that lands in the store
+    and the single entry that lands in the undo ring. Undoing a drag returns to
+    where the finger went down, not to the penultimate frame. `endGesture` is
+    also where the resize split lives: a clock commits its _box_ and leaves
+    `t.s` at 1 (re-layout, crisp text), an image commits `t.s` (no re-layout, no
+    decode).
+
+  - **Undo takes somebody else's edit as an entry.** 50 look snapshots per
+    editing window, never synced and never persisted; a change arriving from
+    the phone or the other CAM browser is pushed like any local edit and clears
+    redo. The alternative is a merge, and this document is last-writer-wins by
+    design — so undoing after a remote edit walks back through what actually
+    happened to the panel rather than through a story about it.
+
+  - **One geometry, three surfaces.** `src/render/layerBox.ts` is the only place
+    a layer becomes pixels: `hostBox`, `layerGeometry` (each layer's own
+    `--kh-safe`), `hostStyle` (exactly the compositor's declaration block, `{}`
+    for the base so the one-layer DOM stays byte-identical), `layerMatrix`,
+    `layerBounds` and a rotation-aware `hitTest` that never returns the base.
+    The compositor, the phone replica and the editor share it, so the editor's
+    handles cannot land somewhere the display did not put the layer.
+
+  - **The registry arrives through a port.** `registryPort.ts` states the three
+    facts the editor needs — `roles`, `maxInstances`, `resize`/`minFrame` — as a
+    structural subset of the real `LayerPlacement`, injected. The editor never
+    imports the eager module registry, and its tests state the placement they
+    are testing against, so "a third effect is refused" is a fact about the op
+    rather than about the effect module.
+
+- **A module now says where it may sit, and what it costs to put it there.**
+  `KrakenModule` gains one optional block, `layer` — `roles`, `maxInstances`,
+  `resize`, `minFrame`, `overlayDefault` and a pure `cost()` — and the four
+  shipped modules declare it. Nothing else about them changed: a build with one
+  module in its look renders exactly the bytes it rendered before, and a fork's
+  module with no `layer` at all keeps working, because `placementOf()` derives
+  the conservative legacy answer (base only, one instance) for it.
+
+  - **The rules run in exactly one place.** `src/modules/stack.ts` is the only
+    file in the codebase that knows a video cannot be an overlay.
+    `normalizeLook()` turns a stored look into a render plan and a list of notes,
+    and it **never edits the document**: an unknown kind is skipped at render and
+    kept verbatim, so a look made by a newer build survives a round trip through
+    an older one; a base-only kind found at index 2 is planned off with a note
+    somebody can be shown; instances past `maxInstances` — and past `Σ decoders ≤
+1`, `Σ gl ≤ 2`, which are hardware limits rather than per-kind ones — are
+    planned off in array order, so the layer you added first is the one that
+    survives. When nothing is wrong it returns the ORIGINAL array by reference,
+    which is what lets the compositor and the home screen memoise on it.
+
+  - **A look has a price, and it is honest about being an estimate.**
+    `lookCost()` implements the design's formula — cadence × painted area ×
+    entropy, plus a charge for the compositor surface a translucent layer forces
+    — normalised so one video base is exactly 1.0. It is a DECLARED cost, not a
+    measured one, because the expensive half of this machine is CAM's capture and
+    compressor and nothing on the page can see it. The word "estimate" travels
+    with the number.
+
+  - **`ctx.layer` and the end of "the" instance.** A renderer is told which layer
+    it is, and the replica thumbnail seam is keyed by layer id instead of being a
+    single slot — the slot was exactly right while a look could hold one module
+    and exactly wrong the moment it could hold two pictures, where the second
+    mount would have overwritten the first and unmounting either would have
+    blanked both. The old single-slot API is still there, still meaning the base,
+    because that is what today's replica feed publishes.
+
+  - **The two-instance test.** Every overlay-capable module is now mounted TWICE,
+    into two hosts with two different layer ids, driven on one, and asserted
+    unmoved on the other — including through an unmount. It runs off the
+    registry, so a new module gets the guarantee, and the failure, for free.
+    Alongside it the conformance suite asserts every registered module declares a
+    valid placement, that `cost()` is pure, small and in range, and that
+    `motionLevel` and `cost().cadence` tell the same story.
+
+  - **Stats grew the face the overlay was for.** `layout: 'strip'` is a scrim
+    along the bottom of its own box with three compact ring meters on it — CPU,
+    GPU, liquid — flat fills, tabular numerals, no gradient. It is the config a
+    stats overlay starts with, and the opacity is not a compromise: over a video
+    an opaque scrim _reduces_ the area CAM has to compress, because the pixels
+    underneath it stop moving.
+
 ### Fixed
+
+- **Five things the closing audit measured, all of which were invisible to the
+  test suite because they were about pixels, contrast or the passage of time.**
+
+  - **The text-first stats face had no meter at all.** `--kh-stats-dial`
+    computed to `0px` on `layout: 'grid'`, so its six `<svg>`s were 0 × 0 — and
+    the renderer went on writing a fresh `stroke-dasharray` into every one of
+    them, forty-two times a minute, to elements with no box. Six numbers with no
+    mark is a table, and the module's whole threshold contract needs a mark for
+    a colour to live on. The face's dial is sized against a TILE rather than
+    against the layout box (98 px on a 640 Elite, 49 px on a 240 Kraken 2023,
+    was 0 px on both), and the reading now sits inside a thin accent arc with
+    the label under it and the state chip in the arc's own bottom gap. **And the
+    strip face's reading is genuinely centred on its ring now:** the stylesheet
+    claimed an absolutely-positioned grid child lays out inside its grid area,
+    Chromium resolved the readout's containing block as the whole tile
+    (`top: 49.05px` + `bottom: 49.06px`, summing to the tile's height) and the
+    number sat 12.16 px low on every panel — so the ring and its reading are one
+    `position: relative` box, and the offset measures 0.00 px at 640, 320 and
+    240 with no magic constant to keep in step.
+  - **The date layer overflowed both round panels.** Its shrink-to-fit compared
+    the line's scroll width — glyphs PLUS the layer's safe inset as padding —
+    against the host's width, which cannot converge, because the padding does
+    not shrink when the type does: `Wed, Sep 2` came out 673.9 px wide inside a
+    640 px panel and 337.2 px inside a 320 px one. Both measurements are taken
+    inside the inset now (639.2 px and 317.3 px), which is also what puts the
+    glyphs inside a circle's chord rather than inside the corners of a bounding
+    box a circle does not have. The e2e suite asserts it at every preset with
+    the longest weekday and the longest month en-US has, at the schema's largest
+    size, in the heaviest weight, uppercased.
+  - **The effect picker showed two of twelve effects.** Inside the inspector
+    rail the card strip is 203 px of client width against 1192 px of scroll
+    width, with no scrollbar drawn and nothing to say the other ten existed — at
+    a 1280 px window as much as at 866 px, because the rail's width does not come
+    from the viewport. The cards are a two-column grid now, all twelve in the
+    sheet's own vertical scroll; the horizontal scroller survives behind a
+    CONTAINER query for a control that is genuinely 560 px wide. Roving focus and
+    the arrow keys are unchanged.
+  - **The simulator could not reach a single one of the stats module's
+    thresholds.** Its load walk asymptoted at about 71 °C against a default warm
+    point of 80 °C, and the GPU's curve topped out at 78 °C, so every threshold,
+    every state chip and the whole colour-never-travels-alone contract was dead
+    code on the only data anybody develops against — including the editor's
+    sample halo, which shares the generator. A machine does not random-walk: it
+    idles, something runs, it gets hot, it cools. Every 40–90 s the load ramps to
+    a burst peak for 15–25 s (84–88 °C CPU, 82–86 °C GPU) and comes back, and a
+    seed makes the whole walk reproducible so "crosses 80 °C within 180 s and
+    returns" is a test rather than a hope.
+  - **The diagnostics' frame counter was printed over the reading it was there
+    to time.** `pattern=stack` puts a stats overlay at `y = 0.6` and the counter
+    at the bottom CENTRE, so on a 640 Elite its box (251.8–388.2 × 413.3–519.0)
+    landed on the hero at ~(320, 490). It sits in the bottom-left corner band
+    now, derived from the same safe inset every layer is, where the panel's
+    centre is unreachable by construction. In the same stacks the overlay's
+    near-white readings measured **1.1:1** against the plasma base underneath
+    them: the scrim used to belong to the `strip` face, and it belongs to the
+    type — the readout, label, sub-line and chip each sit on a flat opaque plate
+    that is invisible over the black stage and measures **18.9:1** for the hero
+    and **5.0:1** for the smallest type over the brightest pixel a base can
+    produce.
+
+- **A setting changed on the phone went green and came back half a second
+  later — the settings-revert class, ended by replacing the merge rather than
+  patching it again.**
+
+  Three designs were tried. Ordering by ARRIVAL lost every edit a stale snapshot
+  landed on top of: each peer publishes a full snapshot through a 200 ms
+  throttle, and in a three-window room there is nearly always one in flight that
+  was taken before whatever you are about to tap. Ordering by the Lamport `rev`
+  in the storage document compared two counters that had never met — CAM shares
+  a document with a display persisting twice a second, so its counter ran far
+  ahead of a phone's for reasons that had nothing to do with who decided what.
+  Ordering by an ACKNOWLEDGEMENT map — "may this frame overrule my edit? only if
+  it has seen my edit" — was correct about causality, and that turned out to be
+  the problem: **causal order is not a total order.** Two people touching the
+  same setting at the same moment have seen nothing of each other by definition,
+  so the rule had nothing to say about them, and each patch for that reopened
+  something else. Four independent reproductions, each deterministic:
+
+  - a frame this page overruled still contributed the sender's `seen` map
+    wholesale, so a peer back from a blip advertised a value its own body
+    contradicted and a third window dropped a fresh commit (5/5 runs);
+  - two live peers writing one leaf **deadlocked permanently** — `acknowledgesUs`
+    was measured against this page's latest publish, which moves on every store
+    notification, so between two peers that both republish on every change it
+    could never become true. `SPLIT phone=clock CAM=stats display=clock`, stable
+    at +15 s and +30 s, ~240 frames exchanged, both maps frozen;
+  - the same deadlock at tap gaps of 0, 60, 150 and 300 ms, 4/4 red on three
+    independent runs, and in the physical lock/unlock script;
+  - in the room the product ships in most — one display, one phone, CAM's window
+    NOT open — a refusal was **terminal**: the display never publishes state, so
+    a refused frame generated no answer, no second chance and no recovery. A
+    reloaded phone's first tap was lost for good, not for a timeout.
+
+  **What ships is per-leaf last-writer-wins ordered by a hybrid logical clock**
+  (Kulkarni et al., 2014), which is a total order that AGREES with causality
+  wherever causality has an opinion.
+
+  - A **leaf** is a merge unit, and there is now exactly ONE function that says
+    what one is (`src/sync/leaves.ts`, pinned by a test): every top-level key,
+    `render` per key, `modules.<kind>.cfg` per key, `playback` whole (a position
+    and its timestamp are only meaningful together), one leaf per LAYER of the
+    look and one for the z-order, and `activeModuleId` and `look.layers[0].kind`
+    as the SAME leaf, so the field mirrored for schema-8 compatibility can never
+    disagree with the layer it mirrors.
+  - A **stamp** is `{t: physical ms, c: counter, s: writer}`. A local write takes
+    `t = max(now, the latest stamp this page has seen)`; a receive folds the
+    frame's stamps and the sender's clock into it. Merging keeps the greater
+    stamp per leaf.
+  - That merge is **commutative, associative and idempotent**, so convergence is
+    a theorem rather than a hope, and it is one every special case can be deleted
+    against: a retained replay, a keepalive republish, a failover redelivery and
+    an out-of-order frame are all no-ops on their own merits. The proof sketch is
+    in `src/sync/merge.ts` and the three laws are asserted over 40 random
+    register sets in `mergeLaws.test.ts`.
+  - The page's clock and its **whole register table** are persisted in one slot
+    (`kraken-hub:v1:sync-clock:<role>`, slot version **2**, missing = epoch), so
+    a reload keeps its ordering and its authored leaves keep their stamps.
+  - A page that has heard NOTHING yet holds its writes as **intents** and
+    re-stamps them against the first inbound frame's clock — the newcomer whose
+    device clock is behind the room's would otherwise write into the past.
+
+  **Deleted, not deprecated:** `Envelope.seen`, `Envelope.orig`, `StateReceipt`
+  and the three-way applied/overruled/refused protocol, `dominates()`,
+  `acknowledgesUs`, `retireSettled`, `pruneConverged`, `applyCausally`,
+  `inheritSeen`, `STAMP_TTL_MS` and its liveness scan, and the per-peer `rev`
+  floor that dropped the retained bootstrap on **every** reload. The `local`
+  precedence layer is gone too: it existed to defend an unacknowledged edit, and
+  a stamped write needs no defending — `defaults < persisted < merged < url`.
+  The store's API is untouched and no app file moved.
+
+  **Protocol `v` moved to 2.** A `v: 1` peer sends no stamps, so its writes would
+  read as older than time and be silently dropped; a mixed-build room refuses
+  outright instead, which is a fault somebody investigates rather than a setting
+  that quietly stops taking.
+
+  **The look now travels** (§6.1): `SyncStateBody` carries `look` plus the
+  derived `activeModuleId`, an older body projects through `baseLook`, and the
+  trim ladder (§6.2) is the module bank down to the base kind (`partial: true`,
+  taking the stamps of the leaves it dropped with it) → a rotating slice of the
+  remaining stamps → refuse and log. **`look.layers` is never
+  truncated or stripped** — a look with a layer missing is not a smaller look, it
+  is a different arrangement. `lookWireBudget.test.ts` builds the worst legal
+  document (8 layers with full configs, a four-kind bank, a full stamp map) and
+  asserts it fits one 8 kB envelope with every layer intact.
+
+  **Clock skew, stated honestly** in `docs/remote-control.md`: sequential edits
+  always win regardless of skew, because a page stamps in ROOM time — the latest
+  wall-clock reading it has heard from anybody, folded by `max`, clamped to a
+  day, never negative, and kept across a reload — on top of the wall-clock floor
+  `t = max(now, seen)`. Only edits concurrent _within the residual skew_ of two
+  devices that have heard nothing of each other are decided by whichever clock
+  reads later, and they are decided identically on every screen, so nothing is
+  ever left split.
+
+  **Then four skeptics attacked it, and the core held: no split-brain, no clock
+  runaway, 16/16 concurrent-write schedules converged, stamps survived every
+  reload. Every refutation was at the EDGES. Three seams were sealed in the
+  first round and four more in a second, each with the skeptic's own schedule as
+  a permanent test — 254 tests in `src/sync` now, from 211.**
+
+  - **A stamp and the value it described were written by two different acts.**
+    Stamps went into the clock slot on every commit and on `stop()`; values went
+    into the state document only through the 2 s-throttled `persistNow()`, which
+    `sync.persistRemote: false` switches off entirely. A page that closed inside
+    that gap restored the ROOM'S NEWEST STAMP against a SUPERSEDED VALUE — and
+    because the two then tied on stamp, the tie-break written for two leaves
+    NOBODY has stamped settled a real argument by JSON string order. Half the
+    time the stale value won, on every peer, forever: measured as a display
+    showing 90° while the phone showed 270° for as long as anyone watched, and
+    as a three-peer room reverting the author's own edit through a THIRD peer's
+    reload. **The slot is now a self-contained register table** — `{stamp,
+value}` per leaf, slot version 2, a v1 slot discarded rather than mis-paired
+    — the document is consulted only for whether the leaf still exists,
+    `stop()` flushes values before stamps, and the slot is written whether or
+    not `persistRemote` is on (that flag governs whether REMOTE state is
+    authoritative on a cold boot, never whether a page may remember what it
+    decided). **And the tie-break is guarded**: `canonical(value)` applies only
+    when BOTH stamps are `EPOCH`; a real stamp against two different values is
+    corruption evidence, so the INCOMING register wins and a mispaired page
+    relearns the room from the next frame instead of defending a lie forever.
+    Eight cases in `persistSeam.dom.test.ts`, every one in both value orders,
+    because the defect was invisible in one of them.
+  - **A value could travel without its stamp, and a stampless value is not less
+    information — it is a positive claim of `EPOCH`.** `wireStamps()` shipped the
+    newest 32 stamps and the whole body, so a leaf buried under 33 fresher edits
+    went out bare and could never climb back: a peer that was not listening when
+    the stamp was fresh never converged. Measured: a phone locked while CAM
+    picked a module and then tuned 34 settings still showed the old module after
+    thirty seconds of continuous republishing by both sides. **The fixed wire cap
+    is deleted.** `fitStateEnvelope`'s byte ladder is the only trimmer, measured
+    against the real 8 kB budget, and its new last rung ROTATES the stamp window
+    so every stamped leaf travels with its stamp within a bounded number of
+    frames (`n` for `n` stamps; in practice the rung never fires, because the
+    worst legal document plus its whole stamp map is inside the cap). A hard
+    count survives only in the localStorage slot, where a dropped register costs
+    ordering after a reload and misleads nobody. `wireStamps.dom.test.ts` and the
+    rotation bound in `lookWireBudget.test.ts`.
+  - **…and then the ladder's own first rung turned out to be the same lie.** It
+    dropped the stamps of every leaf whose value equalled the built-in default,
+    while shipping those values anyway, on the argument that "a receiver that
+    does not get one keeps what it already holds, which for a defaulted leaf is
+    the same value". The premise is false in exactly the case that matters: the
+    receiver is not holding the default, it is holding the value the ROOM agreed
+    on, and the unstamped default reads as `EPOCH` and loses to it forever.
+    Setting anything BACK to its default — `render.fit` to `cover`, "undo my
+    crop" — was unsendable the moment a frame crossed 8 kB, on every frame,
+    permanently; unlike the rotating rung, nothing repaired it. Measured: CAM
+    tunes 150 knobs and commits `contain`, the room agrees, the phone commits
+    `cover` 1.5 s later, and eleven seconds and ~700 frames on the room still
+    holds two values, stably. **The rung is deleted**, and with it `defaultish`
+    and the default-leaf enumeration that existed only to feed it. The ladder
+    now has exactly one stamp-dropping rung and it rotates.
+  - **A stamp could travel without the value it described — the converse, which
+    had no owner.** The body comes from the store and the stamps come from the
+    register table, and the restore was allowed to pull them apart: it kept a
+    slot register only when the persisted DOCUMENT still named the leaf, and
+    `look.order` is in every document while `look.layer.<id>` for a layer the
+    document has not learned yet is not. So a reload restored the ORDER of a
+    two-layer look without the layer, published a one-layer body under the
+    two-layer order's stamp, and every receiver saw the same stamp against a
+    different value — which the merge treats as corruption and resolves by
+    preferring the incoming one, so the two sides swapped the overlay on and off
+    forever. Measured with `sync.persistRemote: false`, and again on default
+    settings with a quota-refused document write: an overlay blinking on the
+    actual LCD, no clock skew, no blip, no reorder. **The document gate is
+    gone** — since slot v2 the register carries its own value, so the document
+    has nothing to contribute — **and `wireStamps()` states the converse
+    invariant directly**: a stamp travels only for a leaf whose value in the
+    outgoing body is the value that stamp describes, and `fitStateEnvelope`'s
+    bank trim drops the stamps of the leaves it drops. Either fix alone closes
+    the trace; both are in, because the invariant is the one that closes the
+    class. `layerSeam.dom.test.ts`, plus the eight damaged-slot cases from the
+    same skeptic kept as pins.
+  - **Room time was folded only from `state` frames, in a room where nobody
+    publishes state.** A display applies state and never publishes it, and a peer
+    never applies its own echo — so a phone alone with a display receives no
+    state frame in its entire session, and ended it having learned nothing about
+    the room's clock. Worse, "has heard the room" was inferred from "has a
+    persisted HLC", which are different questions and come apart in exactly that
+    room: the reload then disarmed the intent layer for a page that genuinely
+    knew nothing, and its first tap was stamped 90 s in its own past and lost for
+    good. **Every inbound envelope now folds room time** — `tele` and `cmd` as
+    well as `state`, so a display's telemetry teaches the room's clock without
+    making the display a state publisher — **and `heard` is a persisted fact**
+    in the clock slot, read as false when absent (the conservative direction,
+    which is why the slot version did not have to move and discard every
+    existing register). Same seam, third clause: **`SyncService.stop()` now
+    flushes a snapshot held in the publish throttle** before the transports
+    close, because a tap and then a lock is how a phone is used and in a
+    display-only room there is nobody to ask for it afterwards. Measured at
+    `display=90` after the user left the room on 180. `displayOnlyClock.dom.test.ts`.
+  - **A backward clock step wedged the publisher for the length of the step.**
+    Both throttles computed `elapsed = Date.now() - lastRunAt`; after a step back
+    that is negative, so the immediate branch was skipped AND the trailing flush
+    was scheduled `|step|` into the future, behind a guard that swallowed every
+    request until it fired. An NTP correction, a fixed timezone or a Kraken with
+    no RTC reaching a time server was enough. Measured: one state frame in the
+    ten seconds after a one-hour step, thirty seconds of two values held with no
+    outage, no error and no status change — the room split in two in silence, and
+    the silence scaled linearly with the size of the step. **Both throttles are
+    on a monotonic clock now** (`src/lib/monotonic.ts`), with a negative elapsed
+    read as "the clock moved, publish now" and the timer delay clamped to one
+    throttle period. **And room time is projected on the same monotonic clock**:
+    the stamping base is the highest room-time reading this page has taken plus
+    the monotonic time since it took it, so a device that steps back does not
+    write into its own past — freezing the base is NOT enough, because a phone
+    that steps back and then locks its screen for six seconds needs the six
+    seconds counted. `clockSkew.dom.test.ts` counts frames on the wire after
+    steps of 1 s / 10 s / 1 h and pins the sequential and contended scripts.
+  - **`MAX_ROOM_OFFSET_MS` was a cliff, and is a bound.** A reading more than a
+    day out used to be discarded whole, which does not remove the peer from the
+    room — its own stamps still ride on every frame — it only stops everybody
+    else tracking it. It is clamped to a day instead. The honest limits are now
+    written down in `docs/remote-control.md` rather than implied: a CONNECTED
+    room converges on whoever tapped last whatever any clock says (the HLC floor
+    already does that, measured with a peer three days fast, in both directions);
+    a device coming back from an outage is covered up to the clamp; past that a
+    wrong-clock peer wins those ties until its clock is corrected, and there is
+    no fix for that without a consensus round. **No receive-side stamp cap was
+    added**, deliberately: no schedule discriminated one, and any cap computed
+    from the receiver's own clock gives two receivers two different stamps for
+    one write, which is the property the merge's convergence rests on.
+  - **The wall-clock floor said nothing about writes a device never heard.** `t =
+max(now, seen.t)` is exactly right for a peer that stayed connected, and
+    every write made during an outage is one the offline device has not seen — so
+    a phone whose clock was behind by more than the length of the gap stamped its
+    first tap back in the past and lost it. The tap went green and came back,
+    which is the original bug report verbatim: measured fine at 3 s behind, lost
+    at 10 s and at 90 s, on a 6.5 s screen lock. **A page now keeps a room-clock
+    offset** beside its HLC, folded by `max` over the clock readings on inbound
+    frames (the sender's `ts` as well as its HLC `t`, because a room whose only
+    writer is the slow device advertises nothing else), clamped to a day, never
+    negative,
+    and persisted in the v2 slot. `clockSkew.dom.test.ts` gives every device its
+    own wall clock and pins the S2-contended script at 0, −10 s, −90 s and +40 s,
+    all six ordered sequential pairs, a seven-tap chain, an hour-long clock jump
+    and a reload made while 90 s behind.
+
+  The 2.5 s optimistic hold on the shelf (`RECONCILE_GRACE_MS`) is unrelated to
+  the merge and stays: curation rides `cmd`/`tele`, which carry no state at all.
+
+  Regression cover: all four reproductions are permanent tests and every one of
+  them is red on the previous build. `twoPeerDisplayOnly.dom.test.ts` is a new
+  suite for the room with no CAM in it (a reload then a tap 1.8 s later; two
+  phones, one muted, tapping concurrently and rejoining after 6.5 s; a tap held
+  against the retained bootstrap; a reloaded phone moving its own previous
+  session's key). `threePeerConvergence.dom.test.ts` gains the laundering
+  schedule, same-key contests at 0/60/150/300 ms between CAM and a phone and
+  between two phones, the lock/unlock contended case, and three seeded schedules
+  on a wire that reorders (alternating 320/40 ms), duplicates and replays. The
+  contested cases assert one value everywhere, that it is one somebody actually
+  chose, and that it is the LATER tap whenever the gap is at least 150 ms; the
+  reorder seeds settle in **3 s rather than 9**, because there is no liveness
+  timeout left to wait out. The harness the three suites share now lives in
+  `src/sync/roomHarness.ts` — every skeptic had pasted their own copy of it, and
+  each copy modelled a slightly different room.
 
 - **"I had to click things twice on my phone."** Reported against the remote's
   Library, investigated with real touch emulation, and it is two separate
@@ -1283,6 +2332,46 @@ nowPlaying(name)` would type-check perfectly and reopen the exact hole. The
 
 ### Added
 
+- **The phone edits the same Look.** (W6 — §8, principle 10.) The remote's
+  replica ring gains an **Edit this look** affordance: one tap turns it into a
+  canvas, with the ring still running the live replica underneath, and Done puts
+  the remote back. Nothing about the remote's first job moved — play, hold, skip
+  and the scrubber are where they were.
+  - **The same editor, not a phone-shaped copy.** The gesture model
+    (`gesture`/`snap`/`bounds`/`ops`/`history`, through `useEditor`) and the
+    chrome (`SelectionStrip`, `LayerRail` as a sheet, `AddSheet`) are the ones
+    CAM uses. The layer above the mirror was extracted from `EditorCanvas` as
+    `EditorOverlay`, which both surfaces mount — the desktop with a compositor
+    beneath it, the phone with the ring — so a change to how a drag behaves
+    cannot land on one surface and miss the other.
+  - **Touch, through the same model.** Pinch scales, two fingers rotate, a
+    half-second press opens duplicate / front / back / remove, and 44 px handles
+    replace the mouse's 24. `editor/touchGesture.ts` translates a pinch into the
+    distance ratio and a twist into the angle `applyGesture` already speaks
+    rather than forking it, and commits to one interpretation per gesture so a
+    sloppy hand cannot leave a resized layer a few degrees off square.
+  - **One drag, one undo step**, committed to the same store through the same
+    `lookHistoryStore` — undo and redo are on the phone's header; the seam now
+    records the look the document SETTLED on rather than the intermediate one
+    `store.commit` publishes on its way past storage, which on a phone was the
+    room's older document and turned one undo press after add-then-drag into a
+    layer that vanished.
+  - **The layers are drawn as outlines.** A replica ring runs one module
+    renderer, not a compositor, so the phone paints wireframe ghosts positioned
+    by the display's own `hostStyle()` — where each layer sits, never a guess at
+    what is inside it.
+  - **The canvas needs a reported panel.** Edit is disabled until the display
+    has published its geometry, which is the rule the replica itself has lived
+    by since round 6's C4: no report, no canvas.
+  - **A new registered claim, `CLAIM_ARRANGEMENT`.** The sync body does not
+    carry `look` yet, so an edit made on a phone reaches the panel only where
+    two windows share storage. `views/remote/lookReach.ts` demotes the claim's
+    tense on any window that cannot deliver, so the phone says _"Kept here until
+    your Kraken is back"_ and never that the Kraken has an arrangement it cannot
+    know the Kraken has.
+  - **Still a remote.** No file input, no drop target, no library — the surface
+    gate is now asserted on the pixels as well as on the boolean.
+
 - **Options became contextual, and the ops strip became real controls.** (Design
   audit wave A — findings F1, F2, F3, F4, F5, F9, F12.) The audit's verdict was
   that the app "has no settings screen at all — it has a 2,121-pixel accordion
@@ -1336,6 +2425,45 @@ nowPlaying(name)` would type-check perfectly and reopen the exact hole. The
     (`src/ui/index.tsx`), and fit/zoom/pan/rotate became one shared component
     (`src/ui/Framing.tsx`) instead of two near-identical copies in different
     words.
+
+- **The look model: what is on the panel, in what order.** (Layers wave W1a —
+  `docs/design/design-layers-architecture.md` §1.1, §4.1, §4.3.) The panel has
+  shown exactly one module since M0, because the document could only name one:
+  `activeModuleId`. The model that replaces it lands first, on its own, with no
+  wiring — `src/state/look/{types,validate,selectors,history}.ts`, nothing
+  importing them yet, so the schema bump and the sync projection can follow as a
+  separate, reviewable step.
+
+  A **look** is `{ layers: Layer[] }` and the array **is** the z-order, bottom
+  first. Everything geometric is in unit-radius panel coordinates (1.0 =
+  `Geometry.radiusPx`), so a look composed on a 640 Elite lands identically on a
+  240 square: there is no pixel in the document to be wrong about.
+
+  - **`layers[0]` is the base, by position, and it carries no config.** The base
+    wears `modules[kind].cfg` — the per-kind bank that already exists — and
+    overlays carry their own. `validateLook` forces that by INDEX: index 0 gets
+    `id:'base'`, `frame:'panel'`, `t:IDENTITY` and has any `cfg`/`v` stripped;
+    an overlay claiming `frame:'panel'` gets a box instead. Which means "a
+    config has exactly one home" is a structural fact rather than a rule someone
+    has to remember, and no code path has to decide which of two configs wins.
+  - **The validator is total, module-agnostic, and never deletes your work.** It
+    never throws, coerces every leaf, clamps transforms and frames, drops
+    malformed or duplicate ids with a note, and is idempotent — the tests run it
+    twice on junk, on nine layers, on a base carrying a config, on an overlay
+    claiming the whole panel, and assert the second pass has nothing left to
+    say. An unknown `kind` is preserved verbatim, so a fork's module survives a
+    round-trip through this build. An oversized look is **noted, never
+    truncated**: the byte cap is a refusal at op time with a typed reason, and
+    silently deleting somebody's overlay because the JSON grew is data loss, not
+    recovery.
+  - **A look has one z-order, and the invariant script now enforces it.** A new
+    rule in `scripts/check-invariants.mjs` fails the build on a `zIndex` /
+    `zOrder` / `z-index` literal under `src/state/`, `src/render/` or
+    `src/modules/` — the shape where the array says one order, a hand-written
+    stacking context says another, and only the LCD can tell you. Stacking
+    inside a module's own subtree is legitimate and is marked as such
+    (`// layer-order-ok: …`), which is how the video module's mask and overlay
+    layers pass.
 
 ### Changed
 
@@ -3296,5 +4424,420 @@ w.nzxt = {}`, `(window as unknown as { nzxt }).nzxt`, and
   budget, the `src/platform/storage.ts` vs `src/state/storage.ts` split, and the
   now-real I8 enforcement). The body is left unedited: design docs are
   historical source material.
+- **The six curated text faces are real fonts now.** `fonts.ts` has always
+  injected `fonts/<id>.css` on first use, but nothing was ever there to fetch, so
+  every curated face silently resolved to its fallback stack — a feature that
+  looked shipped and was not. The latin `woff2` subsets are vendored into
+  `public/fonts/`: Anton (`display`, 18.6 kB), Playfair Display (`serif`,
+  38.4 kB), JetBrains Mono (`mono`, 31.4 kB), Quicksand (`rounded`, 28.2 kB),
+  Oswald (`condensed`, 21.5 kB) and Pacifico (`script`, 32.3 kB), each with one
+  `@font-face` — `font-display: swap`, latin `unicode-range`, a sibling
+  `url('./…')`. Four ship as a single variable file spanning the weights the
+  panel offers, which beats two statics; the two single-weight families ship one
+  static. The display still fetches nothing until a text layer is actually set to
+  a face, so invariants 4 and 8 hold with no new host: the files were taken from
+  the Google Fonts API once and committed, and `base: './'` plus Vite's verbatim
+  `public/` copy makes the document-relative href resolve at a project page, a
+  user page, a custom domain and `127.0.0.1` alike. All six are SIL OFL 1.1;
+  each family's upstream `OFL.txt` sits beside its font and the new
+  `THIRD-PARTY-NOTICES.md` carries the copyright lines. `fontAssets.test.ts`
+  holds the contract: a stylesheet per curated id, `wOF2` magic bytes on every
+  referenced file, ≤ 40 kB per face, latin only, and a licence entry per family;
+  and the 198 kB the six faces and their licences add to `dist`, together with
+  the 16 kB of gallery looks, is why `budgets.json`'s `totalDistMb` moved from
+  10.0 to 10.6 — both are lazily fetched and neither is on any critical path.
+
+- **The display composites a look, not a module.** `ModuleHost` — one renderer,
+  mounted into one div, torn down and rebuilt every time you switched what the
+  panel showed — is replaced by `src/render/LayerHost.ts`: a framework-free
+  compositor that puts one absolutely-positioned host per ON layer under
+  `.kh-stage`, in array order, and lets Chromium do the stacking. DOM order **is**
+  z-order; there is no `z-index` and the invariant script fails the build on one.
+  It reconciles by layer id rather than by position, so the cost of a change is
+  the change: a transform is one style write and zero renderer calls, a frame
+  change is one `geometry()`, a config change is `update()` and not a remount,
+  and only a _kind_ change on the same id remounts. The base host is created once
+  and never detached — re-inserting an `<iframe>` re-navigates it, so a YouTube
+  embed would reload and lose its position, which is the same fact that makes
+  video base-only. Every layer's box, and its own `--kh-w/--kh-h/--kh-r/
+--kh-safe/--kh-inscribed`, come from `src/render/layerBox.ts`, shared verbatim
+  with the editor and the phone so the halo and the LCD cannot disagree. One
+  frame-clock subscription feeds the whole stack in array order with per-layer
+  p95 kept in closure state (invariant I4), and `src/render/layerGovernor.ts`
+  moves it between `full → reduced → hz1` on ten-second/thirty-second hysteresis,
+  calling each renderer's `budget()` and **never hiding, removing or unmounting a
+  layer** — a panel that silently drops the overlay you added is a panel you
+  cannot trust. `src/render/lookOf.ts` is the seam to the document and it is
+  total: a state with no `look` field, or a corrupt one, still yields the
+  base-only look the display has always drawn, so nothing here waits on the
+  schema bump. Today's single-module display is byte-for-byte what it was — the
+  same `.kh-stage__module[data-module]` div, the same `ctx.geometry()` object by
+  identity — and `?diag=1&pattern=stack` now measures the shipping compositor
+  rather than a throwaway spike, which is what keeps the H24–H28 numbers honest.
+  One thing the old host answered by accident had to be said out loud: it
+  registered `runtime.onCommand` only once its renderer had mounted, so "there
+  is a handler" meant "there is something that can act", and the retained
+  position waited on that. The compositor's handler is installed with the stage
+  and outlives every renderer, so `command()` now RETURNS whether a live
+  renderer took it and `display/sync.ts` waits on that answer — re-anchoring the
+  position on each attempt rather than replaying the one the snapshot arrived
+  with, which is what makes a cold display resume where it left off instead of
+  starting from zero.
+
+- **Stats grew five faces, and learned to move.** `single` leads with one hero
+  number inside one thin arc; `dual` is two heroes on **one ring**, as mirrored
+  half-arcs, because that is the shape a round panel actually has; `triple`
+  nests three rings around a small centre reading; `grid` is unchanged and
+  text-first; `strip` is the overlay band, restyled into the same language with
+  its DOM contract intact. Arcs are 2–3 % of their own diameter with rounded
+  ends and a recessive track, drawn against `pathLength="100"` so no frame
+  computes a circumference. Three type sizes per face, tabular figures
+  throughout, and every size a fraction of the frame the layer was given — one
+  design at the full panel, at a 0.6 overlay and at the smallest device preset.
+  Each meter can carry a **sparkline**: the last 60 s at the feed's own 1 Hz,
+  one 2 px line with an emphasised endpoint and no axis, no gridlines, no
+  labels.
+- **Values glide; they never chunk.** Every reading now passes through one tween
+  per metric (`src/modules/stats/tween.ts`) in the value's own scale, advanced by
+  the shared frame clock — ~420 ms, monotone, incapable of overshooting, and
+  frame-rate independent, so it takes the same wall-clock time at 1 fps and at 40. The digits are re-derived from the tweened number each frame, so an integer
+  readout steps one at a time in a tabular face and never jitters its width, and
+  the arc lengthens with it. This is CHEAPER than the step it replaced: a
+  once-a-second jump moves every arc and every digit at once, which is the most
+  expensive thing a static face can hand CAM's compressor, and `frame()` returns
+  on a boolean once every tween has settled — which is most frames. The module
+  honours the governor's `budget()` (`reduced` = 10 Hz, `hz1` = snap to the
+  sample with no glide) and `prefers-reduced-motion`, and still declares
+  `cadence: 'tick'`, because the change it can produce is still capped by a 1 Hz
+  feed.
+- **A colour never travels without its word.** Per-metric warm points (CPU and
+  GPU 80/90 °C, liquid 40/45, all editable behind the panel's one Advanced door
+  and all stored in Celsius so flipping °C/°F cannot move the alarm) shift the
+  arc AND show `Warm` or `Hot` in a chip beside the number — never colour alone.
+  Load, RAM and fan speed deliberately have no warm point: a CPU at 100 % is a
+  CPU doing its job, and spending the one alarming colour there teaches the
+  reader to ignore it on the meter that matters. The digits stay in ink at every
+  state, because text wears text colours and never the series colour; one accent
+  hue carries magnitude, and the semantic pair is the same in all five palettes.
+  Nothing here invents a pump RPM — CAM has none — and a sensor that is not
+  reporting still reads `--` with its unit dropped and its arc hidden, because an
+  arc at zero is a measurement of zero.
+
+### Changed
+
+- **State schema 7: the arrangement is in the document.** The panel used to be
+  described by a single field — `activeModuleId`, one module, whole screen — and
+  every window in the app had to agree about it by agreeing about that one
+  string. The document now carries a **`look`**: an ordered list of layers,
+  bottom first, where `layers[0]` is the base (whole panel, identity transform,
+  no config of its own — it wears `modules[kind].cfg`, so switching away and back
+  never loses a setting) and everything above it is an overlay carrying its own.
+  One arrangement, one home, shared by the display, the config page and the
+  phone.
+
+  The 6 → 7 migration is the boring kind on purpose: whatever module a v6
+  document named becomes that document's base, and nothing else moves — the
+  `modules` map is left exactly as it was, because it was always the per-kind
+  bank rather than a description of the screen. It is **deterministic**, down to
+  the layer id, because both CAM browsers migrate the same retained snapshot
+  independently and a generated id would leave last-writer-wins picking one of
+  them at random. It is total: an active module that is missing, misspelt or not
+  a string at all still produces a base that renders.
+
+  Reading a look is now a repair rather than a gamble. The document validator
+  runs the look through the same total, idempotent `validateLook` the model
+  ships, so a corrupt stack degrades to base-only instead of failing the load; a
+  ninth layer is dropped from the tail with a note (eight is the cap, and the
+  editor refuses the ninth long before it can be written); an oversized look is
+  **noted and kept whole**, because silently deleting somebody's overlay for
+  being verbose is data loss rather than recovery. No cap ever truncates a layer.
+
+  `activeModuleId` is still there, and still what the home chips, the library
+  tiles, the paste flow, the phone and `?module=` write. For this release it is
+  the mirrored write path: the validator keeps it and the base kind in lockstep
+  (a module switch moves the base and leaves the overlays standing, which is
+  exactly what switching the base should do), while readers take the answer from
+  the base through `selectBaseKind`. The release that moves those writers onto
+  the editor's own operations is the release that deletes the field.
+
+- **W7 integration — the three new kinds joined up to the machinery that was
+  already there.** Text, Shape and Effects shipped as modules; this is the round
+  that connected them to the chunker, the URL table, the diagnostics and the
+  documents, and that removed the scaffolding they made redundant.
+
+  **Chunking.** `module-text`, `module-shape` and `module-effect` are now three
+  named vite groups at priority 92, mirroring `module-clock` and `module-stats`
+  exactly. The tests match a module directory's DIRECT children only
+  (`[^/\\]*\.ts$`), which is what keeps the twelve GLSL sources under
+  `src/modules/effect/effects/` OUT of `module-effect` — each stays its own lazy
+  chunk (0.5–1.1 kB gzip), so a panel downloads the ~1 kB for the effect it is
+  showing rather than ~19 kB for twelve. Measured on the emitted bundle:
+  `module-text` 0.98 kB, `module-shape` 1.10 kB, `module-effect` 4.26 kB gzip,
+  against a 25 kB per-module budget. The eager manifests stay in `core` and every
+  one of the three is reached only through `core`'s dynamic imports, exactly as
+  the other four modules are.
+
+  **`src/modules/effect/manifest.ts` → `index.ts`**, so all seven modules are
+  imported by directory. No behaviour change.
+
+  **`?effect=<id>`** joins `?face=` and `?layout=` as a module-scoped URL
+  parameter: kept raw by the table, validated by the module. There is
+  deliberately **no `?preset=`** — a preset is a palette, the palette table is
+  lazy so that twelve materials sets stay off the LCD's critical path, and a
+  parameter the eager manifest could record but never paint would be a lie. The
+  table reports it as unknown instead. Switching effect from a URL also sets
+  `preset` to `custom`, because the colours that come across are the user's, not
+  the new effect's material, and the label should not claim otherwise.
+
+  **The W0 stand-ins are gone.** `?pattern=stack`'s five diagnostic stacks were
+  built on two throwaway kinds — a 2D-canvas gradient called `plasma` and a bare
+  DOM node called `label` — because `effect` and `text` did not exist. They now
+  run on the real modules through the real registry: `effect` in its Lava lamp /
+  Classic preset for the frame-cadence GPU base, `text` on the `system` face for
+  the free static overlay. Same stack ids, same layer ids, same boxes, same
+  translucency, same surface counts, and the text is laid out at the font size
+  the stand-in used, so a run against this build is comparable with the recorded
+  W0 tables — which are marked as due a re-run, since the numbers in them were
+  taken with the stand-ins in place. `stack.dom.test.ts` now asserts that every
+  kind in every stack is a registered module and that the two stand-in ids
+  resolve to nothing.
+
+  **Documents.** `docs/README.md` and the README's document table index
+  `docs/effects.md` and `docs/modules-text-shape.md`; `docs/modules.md` points at
+  both; the README's module table is seven rows and says plainly that the three
+  new ones are layer kinds and that the visual editor for arranging them is the
+  next wave, not this one. `design-layers-architecture.md` §7.2 gains a
+  correction: the spec's worked examples "≈ 1.01" and "≈ 0.61" compute to
+  **1.0009** and **0.6009** under its own constants — a stats strip is
+  `0.05 × (0.3 × 0.2) × 0.3 = 0.0009` — so the point they make is a stronger one
+  than the rounded figures suggested, and nobody has to chase the difference.
+
+  **Known, and not fixed here:** `displayCriticalPath` measures **93.8 kB gzip**
+  against its 90 kB gate, breached when W3 added `render-shared` to the counted
+  chunks. The budget was NOT loosened. `vendor-react` is 57.5 kB of it and `core`
+  25.7 kB; `display-shell` is 5.8, `render-shared` 4.2 and `index` 0.6.
+
+- **Looks became files, and the gallery became a folder.** A Look — one saved
+  arrangement of layers — now has a written format, ten shipped Templates, and a
+  curated gallery that is a directory in this repository rather than a service
+  somebody has to run.
+
+  **The file.** `src/state/look/file.ts` defines `.krakenlook`: `format`,
+  `version`, `name`/`author`/`description`/`createdAt`, the `look` itself, the
+  base layer's `configs` — the base wears the per-kind bank, so a file carrying
+  only `look` would be a Look with its main setting missing — and `media`, which
+  is a table of **references** and never bytes. Four functions: `exportLook`
+  (document → file, lifting local `kraken-hub-clip:` / `kraken-hub-image:` refs
+  out of the settings, because an id names a row in one machine's storage),
+  `parseLookFile` (bytes → file, total), `resolveMedia` (file + this machine's
+  library → what can be shown) and `applyLookFile` (→ the document patch, so an
+  import is one commit and one undo step). `serializeLookFile` sorts keys at
+  every depth and indents by two, and export → import → export is asserted
+  byte-identical: the files are diffed in pull requests, and a re-serialisation
+  that moved a key would bury a real edit.
+
+  **Two caps, because they are two objects.** `MAX_LOOK_BYTES` (3072) is the
+  cap on the look inside a _document_, and it is a wire budget — `look` rides
+  every 8 kB sync envelope. A _file_ also carries the config bank, the media
+  table and the metadata a gallery card needs, so it gets its own number:
+  `MAX_LOOK_FILE_BYTES`, **64 kB**. One number could not have served both
+  without either refusing legal files or admitting looks the wire cannot carry.
+
+  **The importer never rejects on an optional field.** There are exactly five
+  refusals — not JSON, not an object, not this format, over the cap, and written
+  by a _newer_ build (guessing at a file from the future is how you lose
+  somebody's work). Everything else is repaired and noted. An older file is
+  stepped forward by the **document migration**, run on a minimal wrapper
+  document, rather than by a second ladder maintained in the importer: a second
+  ladder is how a v6 file ends up migrated one way by the importer and another
+  way by the store, with only one of them fixture-tested.
+
+  **Missing media is data, not an exception.** Each reference resolves three
+  ways — already in the library (the local copy wins, so it plays with the
+  network unplugged), a URL anybody can fetch (kept as the source), or neither,
+  which empties the source and records a `LookPlaceholder` naming the layer and
+  the file. The layer is kept and is not switched off: the Look somebody
+  imported is the Look they get, with a visible hole and a sentence about it.
+
+  **Layer ids are kept on import, not re-minted.** A Look replaces the whole
+  stack, so there is nothing to collide with — and keeping them makes an import
+  deterministic, which is the same argument the 6 → 7 migration makes about its
+  own base id. Two CAM browsers importing the same file must not end up with
+  stacks that differ by a generated id, because last-writer-wins would then pick
+  one at random.
+
+  **Ten Templates** (`src/state/look/templates.ts`), against the parity floor of
+  eight: _Single_, _Dual_, _Triple_, _Overlay_, _Lava lamp + temps_, _Nebula
+  clock_, _Minimal clock_, _Sunset loop + clock_, _Photo + date_, _Focus_. Their
+  configs are deliberately **partial** — a template names the settings it is
+  about and each module's `validate()` fills the rest, which is both how every
+  stored config already works and what keeps an overlay's settings from spending
+  a third of the wire budget restating `thresholds.cpu.warm = 80`. The drift
+  guard asserts that every field a template _sets_ survives its module's
+  validator **unchanged**, and that each effect palette IS the preset it names,
+  via the catalogue's own `matchPreset`. A renamed layout or a repainted
+  material fails with the template's name in the message.
+
+  Not one template references a picture or a clip. The repository ships no video
+  and no photograph, and a template pointing at somebody's server is a template
+  that breaks when the link rots — so _Sunset loop + clock_ and _Photo + date_
+  ship with an empty source and say so in their descriptions.
+
+  **The gallery is a folder.** `looks/` holds the same ten Looks as
+  `<id>.krakenlook` files plus an `index.json` catalogue, and a test asserts the
+  files equal the in-code templates byte for byte and that the index lists
+  exactly the files present — so a pull request that edits one and not the other
+  fails rather than shipping a gallery that disagrees with the app. No backend,
+  no accounts, no tracking: a submission is a pull request adding one file and
+  one row, and `looks/README.md` has the steps and the review rules (MIT, no
+  media nobody else can fetch, the product's vocabulary, the size cap). There is
+  a **Share a Look** issue template for people who would rather not open one.
+
+  **Documents.** `docs/looks.md` — what a Look is, what the file carries, what
+  import does with a picture it cannot find, and an honest list of what is not
+  built yet.
+
+  **Deliberately absent:** `carousel?: { lookIds, intervalSec }`. It is on the
+  parity checklist and it is a later wave; a field nothing writes and nothing
+  reads is a field that will be wrong by the time something does.
+
+  **Not wired yet:** the Looks menu, the template grid with live previews and
+  the import/export buttons. This wave is the format, the templates and the
+  gallery's data — all pure, all tested. The surface that puts them on screen
+  binds to `exportLook` / `parseLookFile` / `resolveMedia` / `applyLookFile`.
+
+- **The home screen is a layer editor** (W5, `docs/design/design-editor-ux.md`).
+
+  **The canvas is the halo.** At CAM's window the home screen is two columns: a
+  real `LayerHost` on the left, running the real display renderers at the
+  biggest size the window allows, and the layer rail on the right. It is the
+  same compositor, the same `render/layerBox.ts` maths and the same modules the
+  LCD runs — which is what makes "what you drag is what the panel shows" a fact
+  rather than a hope. One kind is swapped: `video` renders a poster and a live
+  position arc (`editor/videoStandIn.ts`), because a second decoder on this
+  origin is a second download on somebody's battery and a cross-origin YouTube
+  `<iframe>` cannot be sampled at all. Stats layers read the display's telemetry
+  when there is a display, and the simulator's own generator otherwise —
+  labelled _sample data_, through the claims spine, because a temperature gauge
+  showing made-up numbers without saying so is the one thing a cooler app must
+  never do.
+
+  **The strip is declared, not branched.** `KrakenModule.editor.strip` is a new
+  contract: at most five controls, `More` always last, rendered generically from
+  small typed descriptors. All seven modules declare one. The `OpsStrip` it
+  replaces was a chain of `if (activeId === 'clock')` cases that knew four
+  modules by name — so text, shape and effect, which shipped after it, had no
+  strip at all. `registry.test.ts` now enumerates the rule over every registered
+  kind, including that every declared path resolves against the module's own
+  defaults, so a kind added next year arrives with its own strip or fails CI.
+
+  **Direct manipulation.** Editing overlays are a separate SVG above the mirror
+  (never inside the display bundle, I8): a selection box, four corner handles and
+  a rotate lollipop at ≥ 24 px (44 on touch), guides only while dragging, a
+  marquee, and a HUD that reads upright whatever the layer is doing. A drag is
+  one `style.transform` write per pointer event and ONE history entry — React
+  hears about it once, on release, when the layer springs to rest on the frame
+  clock (I4). Rotation ticks moved to every 15°: the architecture spec said
+  `0/±45/±90/180` and the UX spec said `0/15/45/90`, and the tie-break the two
+  documents agree on is that the UX document wins on behaviour.
+
+  **Smart placement, undo, the budget meter.** A new layer lands in the first
+  free slot rather than in the middle of the pile (`editor/placement.ts`, and a
+  property test that adds six and asserts none overlaps). Undo is fifty steps,
+  from the buttons or the keyboard, anywhere on the page, and it survives a base
+  switch — asserted by a property test over 120 random ten-op walks, run twice:
+  once against the pure model and once through the real store, because the
+  origin mapping in the binding is where "the caller's own edit is recorded
+  twice" would live. The meter reads the display's achieved frame rate when
+  there is one and `lookCost()` otherwise, and says which — three new claims in
+  `panelClaims.ts`, so the estimate can never be printed in the present tense.
+
+  **One write path for the base kind.** `activeModuleId` and
+  `look.layers[0].kind` are two spellings of one fact and the validator mirrors
+  the first onto the second for one release; a commit that wrote only one of
+  them was either wrong now or wrong later, and there were twenty-one of them.
+  They all go through `src/app/state/switchBase.ts` now, and a grep test in the
+  shape of the vocabulary spine fails the build on a direct write anywhere in
+  `src/app/**`.
+
+  **Absorbed from the stats redesign:** the five faces are the strip's face
+  picker, including `strip` — until now the overlay face was reachable only by
+  adding a stats overlay and not touching the layout control. The missing-reading
+  placeholder is an em dash rather than `--`, which read as a minus sign next to
+  a temperature.
+
+  **The canvas is sized by the layout engine, and it was 14 px.** The halo asked
+  for `min(100%, calc(100dvh - --kh-ed-chrome))` in a start-aligned, auto-sized
+  grid row inside a shrink-to-fit flex column: the percentages had nothing to
+  resolve against and collapsed to the two 7 px bezel walls, and the constant
+  they fell back on was 130 px against 199 px of real chrome. The editor is a
+  definite-height screen now — the shell is `100dvh` for this view, the canvas is
+  the grid's one `minmax(0, 1fr)` row, and the halo's side is literally
+  `min(the column, the row)` (`cqw`/`cqh` off a size container), so no constant
+  can go stale. The selection strip floats over the canvas and the status line
+  takes the rail's slack, which is what makes a 400 px halo fit at all — and what
+  keeps a 131 px Stats strip from resizing the canvas it is a strip for. Measured
+  at 866×537: 415 px, round, handles at exactly 24, nothing clipped and nothing
+  past the fold in any state (the add sheet is now the rail's own column and
+  scrolls inside itself, rather than opening 7 px below the fold).
+
+  **Not built, deliberately:** the editor on a phone (W6 — a phone gets the
+  remote, and `data-editor="false"` is asserted at 390 px), look files and the
+  designed-template grid (W8's data landed alongside this; the Looks menu shows
+  base-only Looks derived from the registry until the two are wired), a per-layer
+  lock (the model has no field for one, and inventing one is a schema decision),
+  and align/distribute for multi-select.
+
+  **Unverified:** `tests/e2e/editor.spec.ts` is written and was NOT run — the
+  Playwright config pins its web server to port 4173 and a `dist/` build with no
+  environment override, and another agent held both. Every measured assertion in
+  this wave (the ≥ 400 px halo, the ≥ 24 px handles, page-fit across the editor
+  states) lives in that file.
+
+- **The Effects module says which GL it got, and its panel stopped wasting the
+  panel.** Two findings that share a module and nothing else.
+
+  **H29 had nothing to read.** `display.ts` picks WebGL2, falls back to WebGL1
+  with a translated program, and falls back again to a CSS still frame — and
+  until now nothing observable said which of the three a given panel had taken.
+  The diagnostics report could say what the webview _offers_
+  (`capabilities.features.webgl2`), never what this instance _got_, so the
+  hardware row was written as "there is no data attribute on the effect host".
+  Now there is: **`data-gl`** on the effect's root is `webgl2`, `webgl1` or
+  `none`, and **`data-gl-lost="true"`** is present only while a context is lost
+  and waiting to be rebuilt. It records the renderer that is RUNNING rather than
+  the one that was asked for — a granted context whose program will not link
+  reads `none`, because the still gradient is what a person is looking at — and
+  it follows the context through hide/free, restore and reinit. `DisplayRenderer`
+  has no status or telemetry hook to mirror it through, so the element is the
+  whole surface; `src/diag` reads platform probes and the log ring and no module
+  state at all, so nothing there changed. `display.dom.test.ts` covers all four
+  rungs: jsdom (no GL) is `none`, a stubbed `getContext` that answers only
+  `webgl2` is `webgl2`, only `webgl` is `webgl1`, and a dispatched
+  `webglcontextlost` / `webglcontextrestored` pair walks the attribute down and
+  back. H29's "how to measure" and its record row now name the attribute.
+
+  **The settings panel gave the width away.** Audit 9's M6 photographed four
+  colour wells stacked in a column against the right margin with ~590 px of dead
+  space beside the word "Colours", and the twelve-card effect strip cut off
+  mid-card at the panel's edge with nothing to say six more effects were behind
+  it. One cause for both: `.kh-field` is a label on the left and a control on the
+  right — correct for a switch, wrong for anything that wants the room — and both
+  of these were sized as ordinary flex items in that row. Both take
+  `flex: 1 0 100%` now and drop under their own label. The colours are a wrapping
+  row of labelled wells with the slot name captioned _under_ each swatch (four
+  across at 866, four at 560, wrapping below that), which took 168 px off the
+  panel's height at CAM's window. The strip is a real horizontal scroller: the
+  fade at its edge is a `mask-image` (background-agnostic, because this panel has
+  two backgrounds) driven by a **measured** `data-more`, so it appears at
+  whichever end genuinely has more behind it and at neither end when the row
+  fits, and `scroll-padding-inline` keeps a focused card clear of it. The roving
+  tabindex now actually roves — an arrow key moves the focus and the scroll with
+  the selection, where before the selection walked off-screen and the focus ring
+  stayed where it started. The panel's first row is still the editor's strip
+  (effect · preset · colours · reacts-to-temp) with everything else behind the one
+  Advanced door, the only native control is still the colour input, and a new
+  `ConfigPanel.test.tsx` pins all of that plus the vocabulary spine — the word is
+  **effect**, and the panel renders no technical synonym for one.
 
 [unreleased]: https://github.com/ubberkid/kraken-hub/commits/main

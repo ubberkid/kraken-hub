@@ -1,0 +1,37 @@
+/*
+ * Date layer styles. Imported from `display.ts`, so they ride in the module's
+ * own lazy chunk rather than on the display critical path.
+ *
+ * Every size that depends on the panel is written by the renderer from the box
+ * it measures; nothing here knows a pixel dimension. No webfont: the date is
+ * the platform's own face, because a date line beside a clock should look like
+ * the clock rather than like a second opinion.
+ *
+ * Flat fill, no gradients and no transitions: CAM compresses every captured
+ * frame, and anything that smears pixels across a repaint costs achieved FPS
+ * for no legibility.
+ */
+
+.kh-date {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  text-align: center;
+  font-family: var(--kh-font, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif);
+}
+
+.kh-date__line {
+  /* The layer lays out inside its OWN safe inset — `--kh-safe` is republished
+     per host by the compositor, so this resolves against this layer's box. */
+  padding: 0 var(--kh-safe, 0px);
+  line-height: 1.1;
+  white-space: nowrap;
+  /* Tabular figures: the day number changes without the line jumping. */
+  font-variant-numeric: tabular-nums;
+}
+
+.kh-date--upper .kh-date__line {
+  text-transform: uppercase;
+}

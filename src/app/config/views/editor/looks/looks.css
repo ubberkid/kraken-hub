@@ -1,0 +1,396 @@
+/*
+ * The Looks sheet's own stylesheet.
+ *
+ * Component-scoped rather than appended to `src/ui/ui.css`, the same way every
+ * module ships its own `.css` beside its renderer. It is imported from
+ * `LooksSheet.tsx`, so it arrives with the sheet rather than with the page.
+ *
+ * Two rules the whole file is arranged around:
+ *
+ *  - **The sheet costs CAM's 866×537 window nothing, and the GRID is the only
+ *    thing that scrolls.** Principle 9: no clipped sheets — a sheet that pushes
+ *    the page past the fold has failed, and a sheet whose content list scrolls
+ *    inside itself has not. `tests/e2e/home-composition.spec.ts` measures both,
+ *    and knows to exempt `.kh-looks-grid` for exactly this reason.
+ *  - **A card is a fixed square and the preview is scaled into it.** The panel
+ *    is laid out at its real pixel size and shrunk by `--kh-lookprev-size`,
+ *    which is the one number the component and this file have to agree on.
+ */
+
+/*
+ * The sheet takes the RAIL's column, exactly as the add sheet and the inspector
+ * do — round 10's M2.
+ *
+ * It used to be `position: fixed; left: 12px; width: min(560px, …)`, which was
+ * the right instinct (a sheet must not lengthen the page) applied to the wrong
+ * axis. Measured at 866×537: the sheet stood at x = 12, 560 px wide, and the
+ * halo it was covering ran from x = 84 to x = 499 — so browsing Looks hid the
+ * one thing on the screen that shows what a Look looks like, while the editor's
+ * other two sheets politely stood over the rail.
+ *
+ * `grid-area: rail` comes from `ui.css`'s `.kh-home[data-editor] .kh-sheet`
+ * rule, which also supplies the flex column, the opaque background and
+ * `max-height: 100%`. What is left here is what is particular to THIS sheet:
+ * the body is the scroller (`kh-sheet__body`), and the card grid inside it is
+ * two columns rather than an auto-fill that wants 132 px each.
+ */
+.kh-looks-sheet {
+  z-index: 30; /* layer-order-ok: a sheet over the rail, not a look's z-order */
+}
+
+.kh-looks-sheet[data-dropping='true'] {
+  border-color: var(--kh-accent, #6ea8fe);
+}
+
+.kh-looks-bar {
+  padding: 8px 0 4px;
+}
+
+/*
+ * The body is the scroller now, not the grid — round 10's M9.
+ *
+ * The grid carried `max-height: min(38dvh, 218px)`, which at 866×537 resolved
+ * to a 204 px window onto 827 px of cards: three of the ten templates were
+ * reachable without scrolling a box whose scrollbar was the only sign the other
+ * seven existed. Handing the scroll to `.kh-sheet__body` — the class every other
+ * editor sheet already uses, and the one exemption both page-fit metrics carry —
+ * gives the cards the sheet's whole height and leaves ONE thing on the surface
+ * that moves.
+ *
+ * It also keeps the grid's own commentary honest: fifty Looks is fifty cards and
+ * no window holds them; what changes is which box does the holding.
+ */
+.kh-looks-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/*
+ * Two columns, said outright.
+ *
+ * `repeat(auto-fill, minmax(132px, 1fr))` was written for a 560 px floating
+ * panel; in the rail's 268 px column it resolves to one card per row, which is
+ * a list of thumbnails rather than a gallery. Two is what the column fits, and
+ * `minmax(0, 1fr)` rather than a pixel floor so the cards shrink with the rail
+ * instead of overflowing it.
+ */
+.kh-looks-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 2px;
+}
+
+/*
+ * ## Why the sheet does NOT widen on a big window
+ *
+ * §4's note allows it — "at 1280×800 it may widen to the halo's right edge" —
+ * and the measurement says there is nowhere to widen INTO. The halo is a square
+ * sized by the canvas ROW's height, and the row grows with the window: at
+ * 866×537 it is 415 px and ends at x = 500 with the rail starting at 578, but at
+ * 1280×800 it is 615 px and ends at x = 806 with the rail starting at 848. The
+ * gap is 78 px at CAM's size and 42 px at a full-screen one — the halo grows
+ * into the room faster than the room appears.
+ *
+ * A tried version with `margin-left: -200px` above 1180 px was measured
+ * overlapping the halo by 158 px at both 1180 and 1280, which is the one thing
+ * M2 is about. So the sheet is the rail's column at every width, and the promise
+ * "never over the halo" holds without a breakpoint to remember.
+ */
+
+.kh-looks-item {
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+}
+
+.kh-looks-item__apply {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--kh-ink);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.kh-looks-item__apply b {
+  display: block;
+  font-size: 0.78rem;
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * One line of summary, in the rail's column (M9).
+ *
+ * The card is 114 px wide there and these summaries are sentences; three wrapped
+ * lines under every thumbnail is what turned 1,084 px of cards into two visible
+ * ones. The live picture and the name are the card; this is the caption, and a
+ * caption that costs two more rows of scrolling is not worth its own text.
+ */
+.kh-looks-item__apply small {
+  color: var(--kh-muted);
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-looks-item__name {
+  appearance: none;
+  background: var(--kh-surface);
+  border: 1px solid var(--kh-line);
+  border-radius: 6px;
+  color: var(--kh-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 2px 6px;
+  width: 100%;
+}
+
+.kh-looks-item__acts {
+  display: flex;
+  gap: 2px;
+  justify-content: space-between;
+}
+
+.kh-looks-item__confirm {
+  color: var(--kh-warn, #e2b341);
+  font-size: 0.66rem;
+}
+
+/* -- the preview ---------------------------------------------------------- */
+
+/*
+ * The drawn size of one card's picture, as a UNITLESS number.
+ *
+ * Read by `LookPreview` in its `scale()`, which is why it is a custom property
+ * rather than a number in two files. Changing it here changes the card and the
+ * scale factor together, by construction.
+ *
+ * ## Why it carries no unit — round 10's F1
+ *
+ * It was `120px`, and the component wrote
+ * `transform: scale(calc(var(--kh-lookprev-size) / 640))`. `scale()` takes a
+ * NUMBER; `120px / 640` is a length, so the whole declaration was invalid, the
+ * browser dropped it, and every card in the sheet showed the top-left corner of
+ * a 640×640 stage at 1:1 — 4.6 % of the picture, measured, which reads as a
+ * blank card. A token that is divided by a number has to be a number, so the
+ * unit is applied where a LENGTH is wanted (`height`, the centring margin) and
+ * nowhere else.
+ */
+.kh-lookprev {
+  /* Two of these plus their gaps and padding is the rail's 268 px column. */
+  --kh-lookprev-size: 96;
+
+  background: var(--kh-surface);
+  border-radius: 10px;
+  height: calc(var(--kh-lookprev-size) * 1px);
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.kh-lookprev[data-shape='circle'] {
+  border-radius: 50%;
+}
+
+/*
+ * The stage is laid out at PANEL pixels and scaled down — see LookPreview.
+ *
+ * The scaled picture is exactly `--kh-lookprev-size` px wide, so half of that,
+ * pulled back from the card's centre line, is what centres it: the card is
+ * `width: 100%` of a grid cell and the panel is square, so without this the
+ * shrunken Look sat against the left edge with the card's background beside it.
+ */
+.kh-lookprev__stage {
+  left: 50%;
+  margin-left: calc(var(--kh-lookprev-size) * -0.5px);
+  position: absolute;
+  top: 0;
+  transform-origin: top left;
+}
+
+.kh-lookprev__still {
+  background: var(--kh-ground);
+  height: 100%;
+  width: 100%;
+}
+
+/*
+ * The card's mark for "these dials are samples" — F8.
+ *
+ * A dot, not a sentence: the sentence is under the grid, where there is room for
+ * it (`SampleNote`). What this has to do is tie that sentence to the cards it is
+ * about, and a card is 100 px wide.
+ */
+.kh-lookprev__sample {
+  background: var(--kh-warn);
+  border-radius: 50%;
+  bottom: 5px;
+  height: 6px;
+  position: absolute;
+  right: 5px;
+  width: 6px;
+}
+
+.kh-looks-note--sample {
+  color: var(--kh-warn-ink);
+}
+
+/* -- notes, cards, the footer --------------------------------------------- */
+
+.kh-looks-note {
+  color: var(--kh-muted);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.kh-looks-card {
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+}
+
+.kh-looks-card b {
+  display: block;
+  font-size: 0.8rem;
+}
+
+.kh-looks-card small {
+  color: var(--kh-muted);
+  display: block;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+/*
+ * The three file actions, at the height the rail's column can spare (M9).
+ *
+ * At full-width buttons and a 10 px lead the footer measured 117 px of a 415 px
+ * sheet — more than half of what the card grid had left after the head and the
+ * tabs. Three short buttons on one line and the hint on the next is 56, and the
+ * grid gets the other 61.
+ */
+.kh-looks-foot {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.kh-looks-foot .kh-btn {
+  font-size: 0.72rem;
+  min-height: 30px;
+  padding: 4px 9px;
+}
+
+.kh-looks-foot__hint {
+  color: var(--kh-muted);
+  flex-basis: 100%;
+  font-size: 0.64rem;
+}
+
+/*
+ * The file input, present and unseen.
+ *
+ * `display: none` would take it out of the accessibility tree and, on some
+ * builds, stop `.click()` opening the picker at all. This is the standard clip
+ * pattern: still focusable, still clickable, zero pixels.
+ */
+.kh-looks-file {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* -- the carousel --------------------------------------------------------- */
+
+.kh-looks-carousel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kh-looks-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  max-height: min(22dvh, 130px);
+  overflow-y: auto;
+  padding: 0;
+}
+
+.kh-looks-pick__item {
+  appearance: none;
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-line);
+  border-radius: 999px;
+  color: var(--kh-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.74rem;
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+.kh-looks-pick__item[aria-pressed='true'] {
+  border-color: var(--kh-accent, #6ea8fe);
+}
+
+.kh-looks-interval {
+  padding-top: 2px;
+}
+
+/*
+ * The name field "Save as…" has always implied — round 11's M-b.
+ *
+ * One row under the footer: a label, the field and the confirm. It appears
+ * inside the sheet rather than as a browser prompt, so it scrolls with the
+ * sheet's body, is dismissed by Escape and by closing the sheet, and can be
+ * pressed by a test.
+ */
+.kh-looks-saveas {
+  align-items: center;
+  border-top: 1px solid var(--kh-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.kh-looks-saveas__lab {
+  color: var(--kh-muted);
+  flex: none;
+  font-size: 0.7rem;
+}
+
+.kh-looks-saveas .kh-looks-item__name {
+  flex: 1 1 8rem;
+  min-width: 0;
+}

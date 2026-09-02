@@ -1,0 +1,41 @@
+{
+  "id": "infinite_rings",
+  "displayName": "Infinite rings",
+  "colourSlots": [
+    "Background",
+    "Rings",
+    "Rings 2",
+    "Background 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#FFFFFF",
+        "#FF2D9B",
+        "#00D5FF",
+        "#E6E6E6"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#191919",
+        "#FFFFFF",
+        "#989898",
+        "#0F0F0F"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#229E00",
+        "#00FF00",
+        "#0FD300",
+        "#145F00"
+      ]
+    }
+  ],
+  "costClass": "high-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/infinite_rings/infinite_rings_shader.shader"
+}

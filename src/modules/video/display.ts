@@ -32,6 +32,7 @@
 import { CAM_PATH_CONFIGURE } from '../../config/camPaths';
 import { createLogger } from '../../lib/log';
 import { maxTargetFpsForPanel } from '../../platform/devicePresets';
+import { BASE_LAYER_ID, type LayerId } from '../../state/look/types';
 import { setReplicaThumb } from '../replicaThumb';
 
 import { loadAdapter } from './adapters/registry';
@@ -70,6 +71,7 @@ import { validateUrl } from './routing/validate';
 import { publish, publishStats, setTelemetryContext, urlHash } from './telemetry/videoTelemetry';
 import { createPerfPromoter, perfProfile, type ProviderId, type VideoModuleConfig } from './types';
 import {
+  FIX_FOOTER,
   isRetryableCode,
   middleEllipsize,
   renderErrorCard,
@@ -123,6 +125,15 @@ async function loadDownloads(): Promise<DownloadsModule> {
 const DEMO_PATH = 'demo/demo.mp4';
 /** Plan: the cold-boot demo carries a hint for 15 s, then gets out of the way. */
 const DEMO_HINT_MS = 15_000;
+/** M-d — the stand-in says what is true, then what to do. Two short lines. */
+const STAND_IN_TITLE = 'Nothing chosen yet';
+const STAND_IN_BODY = 'Pick a video in CAM';
+/**
+ * Below this inscribed square the CAM route is dropped from the card's footer:
+ * 62 characters across a 240 panel's ~149 px safe box is ~4 px type, and an
+ * instruction nobody can read is not a smaller instruction.
+ */
+const FOOTER_MIN_INSCRIBED = 300;
 const PCT_DECIMALS = 0;
 const MS_PER_SEC = 1000;
 const PERCENT = 100;
@@ -173,6 +184,15 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
   /** Non-null only for polled providers; carries the BUFFERING/PLAYING feeds. */
   let polled: PolledLoop | null = null;
   let ctx: ModuleContext | null = null;
+  /**
+   * Which layer this renderer IS, for the keyed replica seam.
+   *
+   * `video` is base-only and there is one of it, so this is `'base'` in every
+   * shipped look — but reading it off the context rather than assuming it is
+   * what keeps the module honest if that ever changes, and it is what the
+   * two-instance conformance test asserts for every overlay-capable kind.
+   */
+  let layerId: LayerId = BASE_LAYER_ID;
   let cfg: VideoModuleConfig | null = null;
   let abort: AbortController | null = null;
   /** Guards every async continuation against a source change or an unmount. */
@@ -299,16 +319,59 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
     host.append(wrap);
   }
 
-  function showHint(text: string): void {
+  /**
+   * The no-source stand-in (audit 11, M-d).
+   *
+   * With no URL configured the panel plays the bundled demo clip, and it used to
+   * say so in one 70-character sentence: *"Demo clip — paste a video link in CAM
+   * → Lighting → your Kraken → your kraken-hub card → Configure"*, set as a
+   * single band across the bottom of the disc. On a 640 Elite that wrapped to
+   * three full-width lines of body type, and the LCD is a non-interactive screen
+   * a metre away — the reader has to parse a five-step menu route before
+   * learning that there is nothing to fix, only something to choose.
+   *
+   * So it is the house instruction card instead, the same three-part shape
+   * `renderErrorCard` uses: a headline that says what is true, one line that
+   * says what to do, and the CAM route as the small footer where every other
+   * card already puts it. `CAM_PATH_CONFIGURE` is still the ONE spelling of that
+   * route (round 2's R6) — it is only demoted from the sentence to the footer.
+   *
+   * The footer is dropped below `FOOTER_MIN_INSCRIBED`. A 240 panel's safe box
+   * is about 149 px across; the route is 62 characters, and a 62-character line
+   * in 149 px is type at roughly 4 px, which is not a smaller instruction but an
+   * unreadable one. The headline and the line of advice still name CAM, and a
+   * user whose panel is that small reads the route on the phone or in the app.
+   */
+  function showStandIn(): void {
     const host = controller?.overlays;
     if (host === undefined) return;
-    const hint = document.createElement('div');
-    hint.className = 'kh-video__hint';
-    hint.textContent = text;
-    host.append(hint);
+    const wrap = document.createElement('div');
+    wrap.className = 'kh-video__hint';
+    const inner = document.createElement('div');
+    inner.className = 'kh-video__hint-inner';
+
+    const title = document.createElement('p');
+    title.className = 'kh-video__card-title';
+    title.textContent = STAND_IN_TITLE;
+
+    const body = document.createElement('p');
+    body.className = 'kh-video__card-body';
+    body.textContent = STAND_IN_BODY;
+
+    inner.append(title, body);
+
+    if ((ctx?.geometry().inscribedSquarePx ?? 0) >= FOOTER_MIN_INSCRIBED) {
+      const footer = document.createElement('p');
+      footer.className = 'kh-video__hint-footer';
+      footer.textContent = FIX_FOOTER;
+      inner.append(footer);
+    }
+
+    wrap.append(inner);
+    host.append(wrap);
     if (hintTimer !== null) clearTimeout(hintTimer);
     hintTimer = setTimeout(() => {
-      hint.remove();
+      wrap.remove();
       hintTimer = null;
     }, DEMO_HINT_MS);
   }
@@ -739,14 +802,14 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
    */
   async function publishReplicaThumb(url: string): Promise<void> {
     if (!url.startsWith(LOCAL_CLIP_SCHEME)) {
-      setReplicaThumb(null);
+      setReplicaThumb(layerId, null);
       return;
     }
     try {
       const clip = await getClip(url.slice(LOCAL_CLIP_SCHEME.length));
-      setReplicaThumb(clip?.thumbBlob ?? null);
+      setReplicaThumb(layerId, clip?.thumbBlob ?? null);
     } catch {
-      setReplicaThumb(null);
+      setReplicaThumb(layerId, null);
     }
   }
 
@@ -1028,7 +1091,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       startStats();
 
       if (playingDemo) {
-        showHint(`Demo clip — paste a video link in ${CAM_PATH_CONFIGURE}`);
+        showStandIn();
       }
     } catch (err) {
       if (session !== mine) return;
@@ -1097,6 +1160,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
   return {
     async mount(host: HTMLElement, context: ModuleContext, config: VideoModuleConfig) {
       ctx = context;
+      layerId = context.layer?.id ?? BASE_LAYER_ID;
       cfg = config;
       const geometry = context.geometry();
       controller = createRenderController({
@@ -1289,7 +1353,7 @@ export function createRenderer(): DisplayRenderer<VideoModuleConfig> {
       clearRetry();
       if (onPagehide !== null) window.removeEventListener('pagehide', onPagehide);
       onPagehide = null;
-      setReplicaThumb(null);
+      setReplicaThumb(layerId, null);
       unsubscribeResolverPing?.();
       unsubscribeResolverPing = null;
       void stopSession();

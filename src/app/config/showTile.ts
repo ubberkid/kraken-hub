@@ -20,6 +20,7 @@ import { videoModule } from '../../modules/video';
 import { LOCAL_CLIP_SCHEME } from '../../modules/video/routing/patterns';
 import { validateVideoConfig } from '../../modules/video/types';
 import { withModuleConfig } from '../../state/selectors';
+import { withBaseKind } from '../state/switchBase';
 
 import type { LibraryTile } from './libraryItems';
 import type { Store } from '../../state/store';
@@ -33,21 +34,21 @@ export function showTile(store: Store, tile: LibraryTile): void {
   if (id === null) return;
   store.commit((s) => {
     if (tile.kind === 'clip') {
-      return {
-        ...withModuleConfig(s, videoModule.id, videoModule.configVersion, {
+      return withBaseKind(
+        withModuleConfig(s, videoModule.id, videoModule.configVersion, {
           ...validateVideoConfig(s.modules[videoModule.id]?.cfg),
           url: `${LOCAL_CLIP_SCHEME}${id}`,
         }),
-        activeModuleId: videoModule.id,
-      };
+        videoModule.id,
+      );
     }
-    return {
-      ...withModuleConfig(s, imageModule.id, imageModule.configVersion, {
+    return withBaseKind(
+      withModuleConfig(s, imageModule.id, imageModule.configVersion, {
         ...validateImageConfig(s.modules[imageModule.id]?.cfg),
         url: localImageUrl(id),
       }),
-      activeModuleId: imageModule.id,
-    };
+      imageModule.id,
+    );
   });
 }
 

@@ -8,7 +8,21 @@
  *
  * Module-scoped keys (handed raw to the ACTIVE module's `applyUrlParams`):
  * `src` (video, image), `loop`, `mute` (video), `face` (clock), `layout`
- * (stats). Everything else in `KNOWN_KEYS` is global and patches `AppState`.
+ * (stats), `effect` (effect). Everything else in `KNOWN_KEYS` is global and
+ * patches `AppState`.
+ *
+ * `?module=` selects the BASE kind and takes any registered id, so the W7 kinds
+ * — `text`, `shape`, `effect` — need nothing here beyond their own display
+ * params. `text` and `shape` have none: every field of either is a string, a
+ * colour or a number with no short spelling worth putting in a URL, and a kind
+ * with no `applyUrlParams` is simply never asked.
+ *
+ * There is deliberately no `?preset=`. A preset is a PALETTE, and the palette
+ * table (`src/modules/effect/catalog.ts`) is lazy on purpose — the eager
+ * manifest that would have to honour the parameter cannot resolve one without
+ * putting twelve palettes on the LCD's 90 kB critical path. A key this table
+ * accepts and no module can act on is worse than one it reports as unknown, so
+ * it reports it as unknown.
  */
 
 import { isDevicePresetId, type DevicePresetId } from '../platform/devicePresets';
@@ -25,7 +39,15 @@ export interface ParamNote {
   reason: string;
 }
 
-export type DiagPattern = 'flat' | 'rings' | 'video' | 'youtube';
+export type DiagPattern = 'flat' | 'rings' | 'video' | 'youtube' | 'stack';
+
+/**
+ * `?stack=` — which W0 layer stack `&pattern=stack` composes.
+ *
+ * THROWAWAY, with the spike it drives (`src/render/compositor.spike.ts`):
+ * remove both when the real compositor lands.
+ */
+export type StackId = 'a' | 'b' | 'c' | 'd' | 'e';
 
 export interface RuntimeFlags {
   /** CAM-injected. Selects the display boot path. */
@@ -40,6 +62,8 @@ export interface RuntimeFlags {
   monitor: MonitorProfile | null;
   inject: 'late' | null;
   pattern: DiagPattern | null;
+  /** Only read by `&pattern=stack` (W0 spike). */
+  stack: StackId | null;
   page: number | null;
   /**
    * `?cam=1` / `?cam=0` — the CAM-window simulator.
@@ -86,6 +110,7 @@ const KNOWN_KEYS = new Set([
   'mute',
   'face',
   'layout',
+  'effect',
   'room',
   'transport',
   'demo',
@@ -96,6 +121,7 @@ const KNOWN_KEYS = new Set([
   'monitor',
   'inject',
   'pattern',
+  'stack',
   'page',
   'cam',
   'phone',
@@ -137,6 +163,7 @@ export function parseUrlParams(search: string): ParsedUrlParams {
     monitor: null,
     inject: null,
     pattern: null,
+    stack: null,
     page: null,
     cam: null,
     phone: null,
@@ -267,11 +294,26 @@ export function parseUrlParams(search: string): ParsedUrlParams {
       }
 
       case 'pattern': {
-        if (raw !== 'flat' && raw !== 'rings' && raw !== 'video' && raw !== 'youtube') {
-          reject(key, raw, 'expected flat|rings|video|youtube');
+        if (
+          raw !== 'flat' &&
+          raw !== 'rings' &&
+          raw !== 'video' &&
+          raw !== 'youtube' &&
+          raw !== 'stack'
+        ) {
+          reject(key, raw, 'expected flat|rings|video|youtube|stack');
           break;
         }
         flags.pattern = raw;
+        break;
+      }
+
+      case 'stack': {
+        if (raw !== 'a' && raw !== 'b' && raw !== 'c' && raw !== 'd' && raw !== 'e') {
+          reject(key, raw, 'expected a|b|c|d|e');
+          break;
+        }
+        flags.stack = raw;
         break;
       }
 
@@ -306,15 +348,16 @@ export function parseUrlParams(search: string): ParsedUrlParams {
         break;
       }
       /*
-       * `face` (clock) and `layout` (stats) are module-scoped like `src`: kept
-       * raw, because only the active module knows the legal values, and it
-       * validates them against its own schema. A value this table does not
-       * recognise is therefore not rejected HERE — the module drops it and the
-       * host re-runs `validate()`, which is the documented contract in
+       * `face` (clock), `layout` (stats) and `effect` (effect) are module-scoped
+       * like `src`: kept raw, because only the active module knows the legal
+       * values, and it validates them against its own schema. A value this table
+       * does not recognise is therefore not rejected HERE — the module drops it
+       * and the host re-runs `validate()`, which is the documented contract in
        * docs/modules.md §9.
        */
       case 'face':
-      case 'layout': {
+      case 'layout':
+      case 'effect': {
         if (raw.length === 0) {
           reject(key, raw, 'empty value');
           break;

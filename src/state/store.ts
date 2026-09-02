@@ -55,7 +55,9 @@ export interface Store {
    * The `origin` argument draws the same line one level finer: a `'sync'`
    * commit IS a write this page made, but it is not a decision this page took.
    */
-  onCommit: (listener: (next: AppState, origin: CommitOrigin) => void) => () => void;
+  onCommit: (
+    listener: (next: AppState, origin: CommitOrigin, before: AppState) => void,
+  ) => () => void;
   /**
    * How a document that arrived FROM STORAGE becomes this page's snapshot.
    *
@@ -135,7 +137,9 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
   const fromStorage = (next: AppState): AppState =>
     resolveFromStorage === null ? withOverlay(next) : resolveFromStorage(next);
   const listeners = new Set<() => void>();
-  const commitListeners = new Set<(next: AppState, origin: CommitOrigin) => void>();
+  const commitListeners = new Set<
+    (next: AppState, origin: CommitOrigin, before: AppState) => void
+  >();
 
   const notify = (): void => {
     if (import.meta.env.DEV && isInFrame()) {
@@ -168,6 +172,21 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
     },
     commit(mutate, meta) {
       const origin = meta?.origin ?? 'local';
+      /*
+       * The snapshot BEFORE this commit, captured here and handed to the
+       * listeners below — because by the time they run it is no longer readable
+       * anywhere.
+       *
+       * `commitToStorage` fires the in-memory bus SYNCHRONOUSLY, so this page's
+       * own write comes back through `watchState` and re-resolves the snapshot
+       * before the assignment below has even happened. A listener that tried to
+       * remember the previous state by watching `subscribe` therefore saw that
+       * intermediate value, and "what did this commit actually change?" answered
+       * NOTHING — which silently disarmed the `local` precedence layer for the
+       * very key the user had just changed. Measured, not feared: it is how a
+       * module switch in CAM still reverted with the causal fix in place.
+       */
+      const before = snapshot;
       snapshot = withOverlay(
         commitToStorage((stored) => mutate(commitBase === 'snapshot' ? snapshot : stored), {
           role,
@@ -178,7 +197,7 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
       // render that read a half-updated set of layers would flash the old value.
       for (const l of commitListeners) {
         try {
-          l(snapshot, origin);
+          l(snapshot, origin, before);
         } catch (err) {
           log.error('store commit listener threw', err);
         }

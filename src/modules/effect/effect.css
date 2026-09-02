@@ -1,0 +1,33 @@
+/*
+ * Effects styles. Imported from `display.ts`, so they ride in the module's own
+ * lazy chunk rather than on the display critical path.
+ *
+ * There are five declarations that matter and no decoration at all: the picture
+ * is a fragment program filling the box, and anything CSS did on top of it
+ * would be a second, uncompressible layer over a surface that already changes
+ * every pixel.
+ */
+
+.kh-effect {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /*
+   * The still frame — the user's own first and last colours — painted by the
+   * element the canvas sits on. It is what is on screen before the effect's
+   * source has been fetched, and what is left if this machine has no WebGL at
+   * all. A black panel would look like a bug; this looks like the effect,
+   * stopped.
+   */
+  background: linear-gradient(
+    160deg,
+    var(--kh-effect-a, #0b0e14) 0%,
+    var(--kh-effect-b, #0b0e14) 100%
+  );
+}
+
+.kh-effect__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

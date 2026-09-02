@@ -1,0 +1,41 @@
+{
+  "id": "wave_ripple",
+  "displayName": "Wave ripple",
+  "colourSlots": [
+    "Rings",
+    "Ring highlight",
+    "Edges",
+    "Edges 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#FFFF00",
+        "#FFFF40",
+        "#FFDAFF",
+        "#8C788C"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#7E7E7E",
+        "#9E9E9E",
+        "#BCBCBC",
+        "#676767"
+      ]
+    },
+    {
+      "name": "Ice",
+      "colors": [
+        "#00FFFF",
+        "#40FFFF",
+        "#DADBFF",
+        "#78788C"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/wave_ripple/wave_ripple_shader.shader"
+}

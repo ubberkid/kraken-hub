@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultAppState } from '../state/defaults';
 import { validateAppState } from '../state/validate';
 
-import { stateToSyncBody, syncBodyToPatch } from './appSync';
+import { enumerateLeaves, stateToSyncBody, syncBodyToPatch } from './appSync';
 import { decodeEnvelope, encodeEnvelope } from './envelope';
 import { anchorPosition } from './position';
 import { PROTOCOL_VERSION, type Envelope, type SyncStateBody } from './types';
@@ -97,5 +97,115 @@ describe('playback on the wire', () => {
     const body = roundTrip(stateToSyncBody(defaultAppState()));
     expect(body.playback).toBeNull();
     expect('playback' in body).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The look, on the wire
+// ---------------------------------------------------------------------------
+
+describe('the look on the wire (§6.1)', () => {
+  it('carries the arrangement, not just the base kind', () => {
+    const overlay = {
+      id: 'labcdefg',
+      kind: 'clock',
+      on: true,
+      frame: { w: 1, h: 1, shape: 'square' as const },
+      t: { x: 0.2, y: -0.3, s: 1, r: 0, a: 1 },
+      cfg: { face: 'analog' },
+    };
+    const state: AppState = {
+      ...defaultAppState(),
+      activeModuleId: 'video',
+      look: { layers: [{ ...defaultAppState().look.layers[0] }, overlay] } as AppState['look'],
+    };
+    const body = roundTrip(stateToSyncBody(state));
+    expect(body.look?.layers).toHaveLength(2);
+    expect(body.look?.layers[1]).toEqual(overlay);
+  });
+
+  it('writes the base kind into the base layer, so the two cannot disagree', () => {
+    const state = { ...defaultAppState(), activeModuleId: 'stats' };
+    const body = roundTrip(stateToSyncBody(state));
+    expect(body.activeModuleId).toBe('stats');
+    expect(body.look?.layers[0]?.kind).toBe('stats');
+  });
+
+  it('projects a body with no look at all through baseLook', () => {
+    const legacy: SyncStateBody = {
+      activeModuleId: 'clock',
+      modules: {},
+      playback: null,
+      render: defaultAppState().render,
+    };
+    const patch = syncBodyToPatch(legacy);
+    expect(patch.look?.layers).toHaveLength(1);
+    expect(patch.look?.layers?.[0]?.kind).toBe('clock');
+    expect(patch.look?.layers?.[0]?.frame).toBe('panel');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The leaf enumeration — the one definition of a merge unit
+// ---------------------------------------------------------------------------
+
+/**
+ * `src/sync/leaves.ts` says what a leaf is, and this pins it.
+ *
+ * It used to be answered in three places that disagreed, which is how a leaf
+ * could be claimed under one name and arbitrated under another. One function,
+ * one test.
+ */
+describe('enumerateLeaves', () => {
+  it('carves render per key and playback whole', () => {
+    const leaves = enumerateLeaves(stateToSyncBody(stateWithPlayback()));
+    expect(leaves.get('render.fit')).toBe(defaultAppState().render.fit);
+    expect(leaves.get('render.rotate')).toBe(0);
+    // Atomic: `posSec` and `posAtTs` are only meaningful together.
+    expect(leaves.get('playback')).toEqual(PLAYBACK);
+    expect(leaves.has('playback.posSec')).toBe(false);
+  });
+
+  it('reaches inside a module config rather than treating the slot as one leaf', () => {
+    const leaves = enumerateLeaves(
+      stateToSyncBody({
+        ...defaultAppState(),
+        modules: { video: { v: 1, cfg: { render: { fit: 'contain' }, url: 'x' } } },
+      }),
+    );
+    expect(leaves.get('modules.video.cfg.render.fit')).toBe('contain');
+    expect(leaves.get('modules.video.cfg.url')).toBe('x');
+    expect(leaves.get('modules.video.v')).toBe(1);
+  });
+
+  it('gives every layer its own leaf and the z-order one of its own', () => {
+    const base = defaultAppState().look.layers[0];
+    const overlay = {
+      id: 'labcdefg',
+      kind: 'clock',
+      on: true,
+      frame: { w: 1, h: 1, shape: 'square' as const },
+      t: { x: 0, y: 0, s: 1, r: 0, a: 1 },
+      cfg: {},
+    };
+    const state = {
+      ...defaultAppState(),
+      look: { layers: [base, overlay] } as AppState['look'],
+    };
+    const leaves = enumerateLeaves(stateToSyncBody(state));
+    expect(leaves.get('look.order')).toEqual(['base', 'labcdefg']);
+    expect(leaves.get('look.layer.labcdefg')).toEqual(overlay);
+    expect(leaves.has('look.layer.base')).toBe(true);
+  });
+
+  it('treats the base kind and activeModuleId as ONE leaf', () => {
+    const leaves = enumerateLeaves(
+      stateToSyncBody({ ...defaultAppState(), activeModuleId: 'clock' }),
+    );
+    expect(leaves.get('activeModuleId')).toBe('clock');
+    // The base layer leaf carries it too, but only as a mirror written from the
+    // same value — there is no second merge unit that could disagree.
+    const base = leaves.get('look.layer.base') as { kind: string };
+    expect(base.kind).toBe('clock');
   });
 });

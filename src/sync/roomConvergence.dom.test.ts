@@ -41,6 +41,7 @@ import { createStore } from '../state/store';
 
 import { startAppSync, stateToSyncBody, type AppSync } from './appSync';
 import { encodeEnvelope } from './envelope';
+import { PROTOCOL_VERSION } from './types';
 
 import type { Channel, FrameHandler, SyncTransport, TransportStatus } from './types';
 import type { AppState } from '../state/schema';
@@ -276,7 +277,7 @@ async function startDisplayPeer(broker: Broker): Promise<Peer> {
 function seedEarlierSession(broker: Broker, activeModuleId: string): void {
   broker.seedRetained(
     encodeEnvelope({
-      v: 1,
+      v: PROTOCOL_VERSION,
       ch: 'state',
       ts: Date.now() - 60_000,
       src: 'earliersess',

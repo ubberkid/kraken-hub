@@ -38,6 +38,7 @@ import { videoModule } from '../../modules/video';
 import { primaryIssue, validateUrl, type Severity } from '../../modules/video/routing/validate';
 import { validateVideoConfig } from '../../modules/video/types';
 import { withModuleConfig } from '../../state/selectors';
+import { withBaseKind } from '../state/switchBase';
 
 import type { ConfigRuntime } from './runtime';
 
@@ -73,13 +74,15 @@ function submitVideoLink(runtime: ConfigRuntime, raw: string): LinkSubmission {
   // upgraded by the time it reaches here (§7.1 `mixed-content-http`).
   const state = runtime.store.getSnapshot();
   const current = validateVideoConfig(state.modules[videoModule.id]?.cfg);
-  runtime.store.commit((s) => ({
-    ...withModuleConfig(s, videoModule.id, videoModule.configVersion, {
-      ...current,
-      url: result.url,
-    }),
-    activeModuleId: videoModule.id,
-  }));
+  runtime.store.commit((s) =>
+    withBaseKind(
+      withModuleConfig(s, videoModule.id, videoModule.configVersion, {
+        ...current,
+        url: result.url,
+      }),
+      videoModule.id,
+    ),
+  );
   return { issue, accepted: true };
 }
 
@@ -112,13 +115,15 @@ function submitImageLink(runtime: ConfigRuntime, raw: string): LinkSubmission {
 
   const state = runtime.store.getSnapshot();
   const current = validateImageConfig(state.modules[imageModule.id]?.cfg);
-  runtime.store.commit((s) => ({
-    ...withModuleConfig(s, imageModule.id, imageModule.configVersion, {
-      ...current,
-      url: result.url,
-    }),
-    activeModuleId: imageModule.id,
-  }));
+  runtime.store.commit((s) =>
+    withBaseKind(
+      withModuleConfig(s, imageModule.id, imageModule.configVersion, {
+        ...current,
+        url: result.url,
+      }),
+      imageModule.id,
+    ),
+  );
   return { issue, accepted: true };
 }
 

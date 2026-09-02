@@ -28,6 +28,7 @@ import {
   TextInput,
 } from '../../../ui';
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
+import { withBaseKind } from '../../state/switchBase';
 import { RECEIPT_LINGER_MS, sourceName } from '../homeState';
 import { linkReceipt, panelVerb, playingLine } from '../panelClaims';
 import {
@@ -46,11 +47,14 @@ import { useSync } from '../useSync';
 
 import { CamSetupCard } from './CamSetupCard';
 import { LoopScrubber, LOOP_MAX_SEC, SEEK_SLIDER_STEP_SEC } from './LoopScrubber';
+import { RemoteEditor } from './remote/RemoteEditor';
 import { RemoteAdd } from './RemoteAdd';
 import { RemoteLibrary } from './RemoteLibrary';
 import { RemoteQuality } from './RemoteQuality';
 import { RemoteRing } from './RemoteRing';
 
+import type { StripEscape } from './remote/RemoteEditor';
+import type { RemoteRingProps } from './RemoteRing';
 import type { AppState } from '../../../state/schema';
 import type { ConfigRuntime } from '../runtime';
 import type { SyncHandle } from '../useSync';
@@ -246,6 +250,48 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
    * navigation — invariant I1/I2), and the latch keeps the effect from
    * re-joining in the frame between the two.
    */
+  /**
+   * A code that arrived in the link and could not be one — round 10's M4.
+   *
+   * `#/remote?room=UUUUUUUU` produced exactly nothing: `normalizeRoomCode`
+   * returned `null`, the effect below returned, and the page rendered the
+   * ordinary pairing card as though no code had been offered. The person is
+   * looking at a link somebody sent them and a screen that does not mention it.
+   *
+   * Round 5 built the words for this on the field beside it — `badCode` and the
+   * `pair-code-error` Notice — and the URL is the same refusal by a different
+   * door, so it goes through the same one rather than growing a second. What is
+   * added is the DIAGNOSIS: a code with an `I`, `L`, `O` or `U` in it is the one
+   * failure a person can act on without counting characters, and it is the
+   * commonest, because those are the four glyphs Crockford removed precisely
+   * because people confuse them.
+   */
+  const linkCodeIssue = useMemo((): string | null => {
+    /*
+     * Both places a link can carry a code — round 11's F-6.
+     *
+     * The pairing QR encodes the code in the FRAGMENT (`#/remote?room=…`, and
+     * `router.ts` says why), so the fragment is the first place to look. It was
+     * also the only place: a link with the code in the ordinary query string —
+     * `?phone=1&room=UUUUUUUU`, which is exactly the shape a person gets when
+     * they retype a link they half remember, or when a chat app rewrites one —
+     * reached this screen and was refused in complete silence, because
+     * `hashQuery` returns nothing for it and the effect below simply returned.
+     *
+     * The fragment WINS when both carry one: it is the form the app itself
+     * mints, so a copied-around query string cannot override a freshly scanned
+     * square.
+     */
+    const raw =
+      new URLSearchParams(hashQuery(hash)).get('room') ??
+      new URLSearchParams(window.location.search).get('room');
+    if (raw === null || raw === '') return null;
+    if (normalizeRoomCode(raw) !== null) return null;
+    return /[ILOU]/i.test(raw)
+      ? 'That code has a letter Crockford codes never use — check for I, L, O or U.'
+      : ROOM_CODE_HINT;
+  }, [hash]);
+
   const joinedFrom = useRef<string | null>(null);
   useEffect(() => {
     const fromLink = new URLSearchParams(hashQuery(hash)).get('room');
@@ -759,6 +805,58 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
     pasteRef.current?.focus();
   }, [state.activeModuleId]);
 
+  /**
+   * Editing — one tap, and the ring is still the ring underneath (§8).
+   *
+   * Two conditions, and the second is the same one the replica itself lives by
+   * (round 6's C4): a canvas needs the panel's REPORTED geometry, because every
+   * gesture converts screen pixels through `panel.radiusPx` and every module
+   * lays itself out against the same numbers. Offering Edit over a panel nobody
+   * has described would place layers by arithmetic on a guess, which is the
+   * fallback `RemoteRing` deleted for exactly this reason.
+   */
+  const canEdit = (sync.monitor?.display ?? null) !== null;
+  const [editing, setEditing] = useState(false);
+  if (editing && (!live || !canEdit)) setEditing(false);
+
+  /** Everything the ring needs, in one object, so both surfaces mount ONE ring. */
+  const ringProps: Omit<RemoteRingProps, 'sizePx'> = {
+    moduleId: state.activeModuleId,
+    config: state.modules[state.activeModuleId]?.cfg ?? null,
+    render: state.render,
+    display: sync.monitor?.display ?? null,
+    monitor: sync.monitor?.snapshot ?? null,
+    monitorAt: sync.monitor?.at ?? 0,
+    posterUrl: isVideo ? posterUrl : null,
+    /*
+      The name the ring's fallback card carries, or `''` for "nothing to
+      name". Video with no source is the one case that must stay blank: the
+      status line already says "Ready to play the demo clip", and the card
+      printing the same four words six pixels away is round 2's R11.
+    */
+    name: isVideo && videoCfg.url.trim() === '' ? '' : title,
+    progress: ringProgress,
+    held,
+  };
+
+  /**
+   * Done — and, when the strip sent them, what they were reaching for.
+   *
+   * The editor deliberately does not grow its own copy of the source field, the
+   * A-B scrubber or the quality ladder: all three are real controls on this
+   * page, a thumb's width below the canvas. Leaving lands the person on them
+   * rather than on a second version of them.
+   */
+  const leaveEditor = (wanted?: StripEscape): void => {
+    setEditing(false);
+    if (wanted === 'source') wantsPaste.current = true;
+  };
+  useEffect(() => {
+    if (editing || !wantsPaste.current) return;
+    wantsPaste.current = false;
+    pasteRef.current?.focus();
+  }, [editing]);
+
   const submitLink = (): void => {
     if (action === null) return;
     const outcome = action.submit(urlValue);
@@ -785,32 +883,70 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         and the actual database. A second, worse copy of all three is not a
         remote control, it is a second app.
       */}
-      {!pairingSurface && (
-        <RemoteRing
-          moduleId={state.activeModuleId}
-          config={state.modules[state.activeModuleId]?.cfg ?? null}
-          render={state.render}
-          display={sync.monitor?.display ?? null}
-          monitor={sync.monitor?.snapshot ?? null}
-          monitorAt={sync.monitor?.at ?? 0}
-          posterUrl={isVideo ? posterUrl : null}
+      {!pairingSurface && !editing && <RemoteRing {...ringProps} />}
+
+      {/*
+        The phone edits the same Look — §8, principle 10.
+
+        The ring goes on being the ring: `RemoteEditor` mounts the same
+        component, live replica and all, at a size a thumb can work with, and
+        puts the editor's overlay above it. Everything else on this page steps
+        aside while it is up, because the remote's other job is a transport for
+        a video and this one is an arrangement — two instruments, one at a time,
+        on 390 px.
+      */}
+      {!pairingSurface && live && editing && (
+        <RemoteEditor
+          runtime={runtime}
           /*
-          The name the ring's fallback card carries, or `''` for "nothing to
-          name". Video with no source is the one case that must stay blank: the
-          status line already says "Ready to play the demo clip", and the card
-          printing the same four words six pixels away is round 2's R11.
-        */
-          name={isVideo && videoCfg.url.trim() === '' ? '' : title}
-          progress={ringProgress}
-          held={held}
+            Does an edit made in there reach the panel? — W1c.
+
+            The wire carries `look` now, so the answer is "the room is joined and
+            the transport is up" rather than "this window shares the display's
+            IndexedDB". Both facts live on this page already; `lookReach.ts`
+            turns them into the tense the claim is allowed to use.
+
+            Only the transport is asked about here: this branch is already inside
+            `live`, which is `paired` and then some, so an `&& paired` would be a
+            condition the type system can see is always true.
+          */
+          delivers={sync.status?.network === 'online'}
+          state={state}
+          presence={presence}
+          ring={ringProps}
+          onDone={leaveEditor}
         />
       )}
 
-      {!pairingSurface && live && (
+      {!pairingSurface && live && !editing && (
         <>
           <h2 className="kh-remote__title" data-testid="remote-title">
             {title}
           </h2>
+
+          {/*
+            One tap to the canvas, and nothing above it moves.
+
+            The remote's first job is play / hold / skip, so editing is an
+            affordance beside the ring rather than a mode the page boots in. It
+            is disabled — with the reason on it — until the display has reported
+            its geometry, which is the same condition the replica inside the
+            ring already lives by: no report, no canvas.
+          */}
+          <p className="kh-remote__editrow">
+            <button
+              type="button"
+              className="kh-btn"
+              data-testid="remote-edit"
+              disabled={!canEdit}
+              title={canEdit ? '' : 'Your Kraken has not reported its panel yet.'}
+              onClick={() => {
+                setEditing(true);
+              }}
+            >
+              Edit this look
+            </button>
+          </p>
           {/*
         One line, one truth.
 
@@ -1028,7 +1164,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                     className="kh-quiet"
                     data-testid="remote-paste-switch"
                     onClick={() => {
-                      commit((s) => ({ ...s, activeModuleId: VIDEO_ID }));
+                      commit((s) => withBaseKind(s, VIDEO_ID));
                       wantsPaste.current = true;
                     }}
                   >
@@ -1113,7 +1249,7 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                   // two rows can never call one module two different things.
                   options={listModules().map((m) => ({ value: m.id, label: m.chipName ?? m.name }))}
                   onChange={(id) => {
-                    commit((s) => ({ ...s, activeModuleId: id }));
+                    commit((s) => withBaseKind(s, id));
                   }}
                 />
               </GroupField>
@@ -1160,6 +1296,8 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
         // actually up" is a second or two on a phone radio, and a card that
         // claims "Paired" through it is claiming something it cannot see yet.
         connecting={paired && sync.status?.network !== 'online'}
+        // M4 — a code in the link that could not be one is said, not swallowed.
+        linkCodeIssue={linkCodeIssue}
         onJoin={join}
         onRotate={rotate}
         onForget={forget}
@@ -1278,6 +1416,7 @@ function PairingCard({
   roomCode,
   remoteUrl,
   connecting,
+  linkCodeIssue,
   onJoin,
   onRotate,
   onForget,
@@ -1319,6 +1458,14 @@ function PairingCard({
   roomCode: string | null;
   remoteUrl: string | null;
   connecting: boolean;
+  /**
+   * Why the code in this page's own link was refused — `null` when there was
+   * none or it was fine (M4).
+   *
+   * Rendered through the same `pair-code-error` Notice a refused **Join** uses:
+   * one refusal, one place, whichever door the code came through.
+   */
+  linkCodeIssue: string | null;
   onJoin: (code: string) => void;
   onRotate: () => void;
   onForget: () => void;
@@ -1335,6 +1482,46 @@ function PairingCard({
    * indistinguishable from one that is broken.
    */
   const [badCode, setBadCode] = useState(false);
+
+  /**
+   * The refusal on the screen, from either door (M4).
+   *
+   * A typed code the user has since started correcting clears `badCode` and so
+   * clears this; a code that came in the LINK cannot be corrected in place, so
+   * it stands until the field is used, which is exactly the remedy the sentence
+   * points at.
+   */
+  const codeIssue = badCode ? ROOM_CODE_HINT : linkCodeIssue;
+  const showIssue = codeIssue !== null;
+  /**
+   * Where the refusal is SHOWN, which is not always where it is about — F-6.
+   *
+   * A code somebody typed belongs beside the field they typed it into, and that
+   * field lives behind "Type a code instead". A code that arrived in the LINK
+   * belongs nowhere near it: the person did not open the disclosure, has no
+   * intention of opening it, and the whole content of the message is that the
+   * link they followed cannot work. Rendered inside the collapsed `<details>`
+   * it was in the DOM, described the field, and was invisible — measured on
+   * `#/remote?room=UUUUUUUU`, `pair-code-error` sat at y = 642 inside a closed
+   * disclosure with no rendered text.
+   *
+   * One Notice, one id (the field's `aria-describedby` still resolves to it
+   * either way), placed by where the code came from.
+   */
+  const issueFromLink = showIssue && !badCode;
+  const issueNotice = showIssue ? (
+    <div id="remote-room-bad" data-testid="pair-code-error">
+      {/*
+        The hint and the error are the same sentence, from `roomCode.ts` —
+        unless the code carried one of the four glyphs Crockford removed, in
+        which case the caller has diagnosed it and the sentence names them
+        (M4). A rule stated one way when it is advice and another way when it
+        is a complaint is two rules to the person reading them; a rule and a
+        diagnosis are not the same thing.
+      */}
+      <Notice tone="error">{codeIssue}</Notice>
+    </div>
+  ) : null;
 
   const qr = useMemo(() => {
     if (remoteUrl === null) return null;
@@ -1391,7 +1578,7 @@ function PairingCard({
     <Field
       label="Room code"
       htmlFor="remote-room"
-      {...(badCode ? {} : { description: ROOM_CODE_HINT })}
+      {...(showIssue ? {} : { description: ROOM_CODE_HINT })}
     >
       <form
         onSubmit={(e) => {
@@ -1415,8 +1602,8 @@ function PairingCard({
             id="remote-room"
             value={draft}
             placeholder="ABCD1234"
-            invalid={badCode}
-            describedBy={badCode ? 'remote-room-bad' : undefined}
+            invalid={showIssue}
+            describedBy={showIssue ? 'remote-room-bad' : undefined}
             onChange={(next) => {
               setDraft(filterRoomCodeInput(next));
               setBadCode(false);
@@ -1427,16 +1614,8 @@ function PairingCard({
           </button>
         </Row>
       </form>
-      {badCode && (
-        <div id="remote-room-bad" data-testid="pair-code-error">
-          {/*
-            The hint and the error are the same sentence, from `roomCode.ts`.
-            A rule stated one way when it is advice and another way when it is
-            a complaint is two rules to the person reading them.
-          */}
-          <Notice tone="error">{ROOM_CODE_HINT}</Notice>
-        </div>
-      )}
+      {/* A typed refusal stays with the field; a link's is hoisted (F-6). */}
+      {!issueFromLink && issueNotice}
     </Field>
   );
 
@@ -1493,6 +1672,7 @@ function PairingCard({
           </Button>
         </div>
         {roomActions}
+        {issueFromLink && issueNotice}
         <Disclosure summary="Pairing options" testId="pairing-options">
           {codeField}
           <p className="kh-hint">{UNPAIR_NOTE}</p>
@@ -1559,6 +1739,7 @@ function PairingCard({
             then <b>Type a code instead</b>.
           </p>
         )}
+        {issueFromLink && issueNotice}
         <Disclosure summary="Pairing options" testId="pairing-options">
           {/*
             The square is for the OTHER device — and it is not the first thing
@@ -1632,6 +1813,14 @@ function PairingCard({
           Create a code
         </Button>
       </Row>
+      {/*
+        The refusal, ABOVE the door rather than behind it — F-6.
+
+        `#/remote?room=UUUUUUUU` is a link somebody followed: the only useful
+        thing this screen can do is say why it did not work, and it said it
+        inside a collapsed disclosure the reader had no reason to open.
+      */}
+      {issueFromLink && issueNotice}
       <Disclosure summary="Type a code instead" testId="pair-by-hand">
         {codeField}
       </Disclosure>

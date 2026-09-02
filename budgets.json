@@ -1,14 +1,23 @@
 {
   "displayCriticalPath": {
     "gzipKb": 90,
-    "chunks": ["index", "vendor-react", "core", "display-shell"]
+    "chunks": [
+      "index",
+      "vendor-react",
+      "core",
+      "display-shell",
+      "render-shared",
+      "rolldown-runtime"
+    ],
+    "note": "`rolldown-runtime` is the bundler's own module-registry shim. It is a STATIC import of the display entry — displayGraph reaches it on every build — so the Kraken Browser downloads it before the LCD shows anything, and leaving it out of this list made the gate flatter than the download. It is counted because it is on the path, not because it is ours."
   },
   "displayGraph": {
     "roots": ["index", "display-shell"],
     "forbidden": ["src/ui/", "src/app/config/"]
   },
   "perModuleChunk": {
-    "gzipKb": 25
+    "gzipKb": 25,
+    "note": "One number for every module-* chunk, so a new module is budgeted the moment its group exists rather than when somebody remembers to add a line. A module chunk is DISPLAY code only: the selection strip's control declarations and the option tables only the strip reads live in each kind's `editor.ts`, off the eager manifest so the LCD stops downloading nine kinds' worth of config-only data it has no editor to render (displayCriticalPath 89.8 -> 89.0 kB gzip), and all nine of those plus the shared `swatches.ts` ink table are claimed by the `module-editors` group in vite.config.ts (priority 93, ranked above the module groups so they cannot take their own `editor.ts` back). That is ONE lazily-fetched chunk of ~1.35 kB gzip for every kind's strip, so the first selection of any layer is one small round trip and never that kind's display chunk — the editor is not the display, and finding out which five controls to draw for a video layer does not fetch the 24 kB player. modules/effect is the one worth explaining: it ships ~19 kB of fragment sources for twelve effects, and NONE of it is in module-effect. Each source is one file behind a dynamic import in src/modules/effect/effects.ts, so the bundler gives it its own chunk and a panel downloads the ~1.5 kB for the effect it is actually showing. The runner, the schema and the CSS are what the module chunk holds. If module-effect ever approaches 25 kB, the cause is a static import of effects/*.ts, not growth in the renderer. The mechanism is one character of the vite group: module-text, module-shape and module-effect all test `[^/\\]*\\.ts$`, which matches a module directory's DIRECT children only, so effect/effects/ is outside the group by construction rather than by an exclusion somebody has to remember."
   },
   "perProviderChunk": {
     "gzipKb": 60,
@@ -28,6 +37,7 @@
     "note": "MEASURED, not guessed: mqtt.js 5.x ships a prebundled browser ESM file (node_modules/mqtt/dist/mqtt.esm.js) that gzips to 109 kB on its own, and a prebundle is not tree-shakeable \u2014 the emitted sync-mqtt chunk is 101 kB gzip and essentially ALL of it is the library. The 70 kB base still governs any MQTT code we write. This chunk is behind two dynamic imports (SyncService -> MqttTransport -> mqtt) and is fetched only when a room is configured AND the transport preference allows MQTT, so it is never on the display critical path; displayGraph (I8) proves that on every build. Same rationale as the provider-hls / provider-dash overrides."
   },
   "totalDistMb": {
-    "mb": 10.0
+    "mb": 10.6,
+    "note": "2026-09-02: raised from 10.0 because two deliberate additions landed on the same day and pushed a MEASURED 10.0382 MiB build past a 10.0 limit. `public/fonts/` is 198.3 kB (203,029 B) — six vendored OFL text faces, their six `OFL.txt` licences and one stylesheet each — and `public/looks/` is 16.4 kB (16,754 B) — the gallery's ten `.krakenlook` files plus `index.json` and a README. Without them the same build is 9.8286 MiB, so the pair costs 0.2096 MiB and neither is on any critical path: a face is fetched only when a Text layer is actually set to it, and a look only when the Gallery tab opens, which is why the fix is a bigger number rather than a smaller `public/`. Nothing was deleted to make room. The number is not the app: 7.49 MiB of the 9.76 MiB `assets/` directory is SOURCEMAPS, which no browser downloads unless devtools is open — emitted JS is 2.20 MiB and CSS is 72 kB, and the demo clip is 31 kB. This gate exists to catch an accidental megabyte (an unoptimised image, a vendored library nobody meant to ship), so it is set to the smallest round value leaving ≥ 5 % headroom over the measured total — 10.6 gives 5.6 %. 10.5 was rejected for giving only 4.6 %. The budget that guards what a panel actually downloads is displayCriticalPath, not this one."
   }
 }

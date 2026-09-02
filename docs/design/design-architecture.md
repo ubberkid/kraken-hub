@@ -21,7 +21,7 @@ Not corrections, but noted so a reader does not go looking: the docsite pages (`
 | Topic | This doc says | Shipped reality (authoritative) |
 |---|---|---|
 | Storage namespace | Namespaced per deployment path so two builds on one `github.io` origin stay independent | **Not implemented.** `src/platform/storage.ts` uses the fixed prefix `kraken-hub:v1:` and `src/platform/idb.ts` the fixed database `kraken-hub.v1`, per the plan's canonical conventions. Storage is therefore origin-scoped only. See `docs/self-hosting.md#nothing-is-hardcoded` and the known-gaps list in `docs/README.md`. |
-| Hardware unknowns | H01–H22 | H01–**H23**; `pagehide` on teardown was added in M2. |
+| Hardware unknowns | H01–H22 | H01–**H33**; `pagehide` on teardown was added in M2. |
 
 ### Post-M4: the design audit (UX rounds 1–3)
 
@@ -374,6 +374,42 @@ Unknown module ids present in stored state are **preserved untouched** — a for
 
 No build config, no routing, no state-schema change required. `defineModule()` is an identity function with DEV-only shape assertions, purely for type inference and early failure.
 
+### 2.7 Compositor (`src/render/LayerHost.ts`)
+
+`ModuleHost` is gone. The display no longer mounts *a module*; it composites a
+**look** — `{ layers: Layer[] }`, bottom first — and a one-layer look is the
+single-module display it replaces, DOM for DOM.
+
+- **One absolutely-positioned host `div` per ON layer** under `.kh-stage`, and
+  **DOM order IS z-order**. There is no `z-index` anywhere:
+  `scripts/check-invariants.mjs` fails the build on one, because a hand-written
+  stacking literal is a second, invisible order the compositor and the editor
+  cannot see.
+- **The base host never moves.** It is created once and is always
+  `root.firstChild`; overlays are inserted after it. Re-inserting an `<iframe>`
+  discards its `contentWindow` and re-navigates (a YouTube embed would reload),
+  while a `<canvas>` keeps its WebGL context across `insertBefore` — which is
+  the same fact that makes `video` `roles: ['base'], maxInstances: 1`.
+- **Reconcile by id, never by position**: a transform is one style write, a frame
+  change is one `geometry()` call, a config change is `update()` and not a
+  remount, and only a *kind* change on the same id remounts.
+- **One frame-clock subscription** for the whole stack, fanned out in array
+  order, with per-layer timings kept in closure state (invariant I4). The
+  governor (`src/render/layerGovernor.ts`) moves the stack between
+  `full → reduced → hz1` with ten-second/thirty-second hysteresis and
+  **never hides, removes or unmounts a layer**.
+- Placement rules (roles, `maxInstances`, decoder/GL caps) are not decided here:
+  `normalizeLook()` in `src/modules/stack.ts` is the only site that runs them.
+  Per-layer geometry is not decided here either: `src/render/layerBox.ts` is
+  shared verbatim with the editor and the phone replica.
+- `src/render/lookOf.ts` is the adapter between the document and the compositor,
+  and it is **total** — every input, including a document with no `look` field at
+  all, yields a valid base-only look.
+
+Full specification, including the cost model and the governor's tiers:
+[`docs/design/design-layers-architecture.md`](design-layers-architecture.md)
+§2 (compositor), §3.4 (placement), §7 (budgets and governor).
+
 ---
 
 ## 3. State model
@@ -577,7 +613,7 @@ export function resolveState(l: Layers, opts: { pin: boolean }): AppState {
 }
 ```
 
-The **remote layer is in-memory**, so a reload drops it — recovered from the MQTT retained snapshot, or (with `sync.persistRemote: true`, the default) from localStorage because the display commits remote-received state, throttled to ≥ 2 s and coalesced. Without `persistRemote`, a reload on a network-down display would revert to the CAM-configured state; that behavior is offered as an option for users who want the CAM config to be authoritative.
+The **remote layer is in-memory**, so a reload drops it — recovered from the MQTT retained snapshot, or (with `sync.persistRemote: true`, the default) from localStorage because the display commits remote-received state, throttled to ≥ 2 s and coalesced. Without `persistRemote`, a reload on a network-down display would revert to the CAM-configured state; that behavior is offered as an option for users who want the CAM config to be authoritative. The flag governs the DOCUMENT only: the sync clock slot (`kraken-hub:v1:sync-clock:<role>`, a self-contained `{ stamp, value }` register table, slot version 2) is written either way, because a page that persists a stamp without the value it described pairs it with whatever its document happens to hold and then out-ranks the truth room-wide.
 
 ### 4.2 Parameter table (`src/state/urlParams.ts` + per-module `urlParams.ts`)
 
@@ -731,6 +767,34 @@ interface TeleBody {
   version: string; uptimeMs: number;
 }
 ```
+
+> **Superseded on 2026-09-02 (protocol `v: 2`).** The envelope above is the
+> shape as designed; what ships adds two fields and drops the `rev` ordering.
+> Where they disagree, the code wins — see `src/sync/merge.ts`.
+>
+> - `stamps?: Record<leafPath, [t, c, src]>` — the hybrid logical clock stamp of
+>   the write that produced each value the body carries. Only leaves somebody
+>   has actually written appear; a missing stamp reads as the beginning of time,
+>   so it can fill a gap and can never overturn a decision.
+> - `clock?: [t, c, src]` — the sender's own clock, folded into the receiver's.
+> - `body.look?: Look` — the arrangement (§6.1 of the layers design).
+>   `activeModuleId` is written alongside it for one release and is the SAME
+>   merge unit as `look.layers[0].kind`.
+>
+> The merge is per-leaf last-writer-wins by that clock, which is commutative,
+> associative and idempotent — so a retained replay, a keepalive republish and a
+> duplicate are all no-ops on their own merits, and the `rev`-based ordering,
+> the "is this a replay?" branch and the acknowledgement map that briefly
+> replaced it are all gone. `AppState.rev` survives only where it was always
+> correct: arbitrating two writers of ONE localStorage document.
+>
+> **Clock skew, honestly.** A write made after seeing another always wins,
+> regardless of skew, because a stamp is `max(now, the latest stamp this page
+> has seen)`. Only two writes that are concurrent *within the two devices'
+> skew* are decided by whose clock reads later. Nothing is ever left split.
+> `v` moved to 2 because a `v: 1` peer sends no stamps, and reading its writes
+> as older than time would lose them silently — a mixed-build room refuses
+> instead.
 
 State is always a **full snapshot, never a delta** — a cold display must be correct after exactly one message. Assert serialized envelope ≤ 8 KB; if over, drop inactive modules and set `partial: true`; if still over, drop `render` detail and log.
 

@@ -59,8 +59,67 @@
   justify-content: center;
 }
 
+/*
+ * The rAF counter, and its band (audit 11, M-g).
+ *
+ * The counter is the number a maintainer FILMS: `?pattern=stack` exists so the
+ * LCD can be shot at 60 fps and the distinct values counted, which is the only
+ * way capture-side FPS can be measured at all. Over the `flat` pattern it sits
+ * on black and has always been legible. Over a stack it sits on whatever the
+ * stack draws, and stacks (c), (d) and (e) draw a full-panel plasma: audit 11
+ * photographed white type with a 6 px shadow over the effect's near-white lobe
+ * at about 1:1. A frame counter that cannot be read is a measurement that cannot
+ * be taken.
+ *
+ * The fix is the plate the stats module already uses (`stats.css`, the
+ * `--kh-stats-plate` rule) and for the same reasons: flat, fully opaque, BLACK.
+ * Opaque because a wash that clears 4.5:1 on the ink hero misses it on the dim
+ * label; black because over the brightest pixel any base can produce black is
+ * still black — the largest contrast the type can be given — and over the black
+ * stage it is not visible at all, so the `flat` pattern looks exactly as it did.
+ * A shadow is not a substitute: it is a gradient, which is per-frame raster work
+ * on the one page whose whole point is to not perturb the frame budget.
+ */
 .kh-diag__counter {
   font-size: calc(var(--kh-inscribed, 400px) / 4);
   font-variant-numeric: tabular-nums;
   color: #fff;
+  background: #000;
+  border-radius: 0.08em;
+  padding: 0.02em 0.12em;
+}
+
+/* `&pattern=stack` — the layer-cost diagnostic (H24–H28). The stack host is a
+   plain positioned box: every layer inside it carries its own absolute
+   geometry, written by the compositor. */
+.kh-diag--stack {
+  display: block;
+  background: #000;
+}
+
+/*
+ * The counter lives in the bottom-LEFT corner band, not on the centre line
+ * (audit 10, M11).
+ *
+ * It was `inset: auto auto safe 50%` with a `translateX(-50%)`, which is the
+ * bottom CENTRE — and every stack from (a) up puts a 1.6 × 0.5 stats overlay at
+ * `y = 0.6`, whose hero reading sits at exactly that point. Measured on a 640
+ * Elite the counter's box was 251.8–388.2 × 413.3–519.0 and the reading it
+ * covered was at ~(320, 490): the one number a maintainer films the panel to
+ * read was printed over the one number the stack exists to render.
+ *
+ * The corner is a real fix rather than a nudge, because it is derived from the
+ * same safe inset every layer is: a stats strip is centred, so the band inside
+ * the safe inset at the left of the panel is empty on every stack — and the
+ * panel's CENTRE, where a hero of any face goes, is unreachable from a corner by
+ * construction.
+ *
+ * No stacking is added: the counter is appended last, so DOM order already puts
+ * it over the stack (the layer z-order invariant is about `look.layers`, and
+ * this is not one).
+ */
+.kh-diag--stack .kh-diag__counter {
+  position: absolute;
+  inset: auto auto var(--kh-safe, 8px) var(--kh-safe, 8px);
+  font-size: calc(var(--kh-inscribed, 400px) / 7);
 }

@@ -11,8 +11,13 @@
 import { DEFAULT_MODULE_ID } from '../state/defaults';
 
 import { clockModule } from './clock';
+import { dateModule } from './date';
+import { effectModule } from './effect';
+import { iconModule } from './icon';
 import { imageModule } from './image';
+import { shapeModule } from './shape';
 import { statsModule } from './stats';
+import { textModule } from './text';
 import { videoModule } from './video';
 
 import type { AnyKrakenModule } from './types';
@@ -31,12 +36,29 @@ import type { AnyKrakenModule } from './types';
  * `clock-lite` (M0's placeholder) was removed in M3 and replaced by `clock`;
  * state migration 3 → 4 rewrites `activeModuleId` and moves the stored config
  * across, so nobody's cooler goes blank.
+ *
+ * `text` and `shape` (W7) sit after the four, and deliberately last: they are
+ * LAYER kinds first — a line of words and a flat ground you put on top of
+ * something else — so they are what a look reaches for once it has a base,
+ * rather than what a chip on the home screen switches the whole panel to. Text
+ * declares `roles: ['overlay']` for exactly that reason.
+ *
+ * `icon` and `date` (the §10 parity round) sit last for the same reason and one
+ * more: both are overlay-only, so neither can ever be what a home-screen chip
+ * switches the panel TO. They are the small things a composed look puts on top
+ * of whatever is already there — a glyph beside a temperature, a date line
+ * under a clock.
  */
 export const MODULES: readonly AnyKrakenModule[] = [
   videoModule,
   clockModule,
   statsModule,
   imageModule,
+  textModule,
+  shapeModule,
+  effectModule,
+  iconModule,
+  dateModule,
 ];
 
 export { DEFAULT_MODULE_ID };

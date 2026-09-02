@@ -1,4 +1,9 @@
-import { KEPT_A_COPY } from '../../config/vocabulary';
+// `config/words.ts`, not `config/vocabulary.ts`: this file is EAGER and on the
+// display path, so a static import of the whole dictionary would ship ~0.38 kB
+// gzip of config-only sentences in `core`. The dictionary re-exports this term,
+// so it is still written once. See `src/config/words.ts`.
+import { KEPT_A_COPY } from '../../config/words';
+import { IDENTITY } from '../../state/look/types';
 import { defineModule } from '../defineModule';
 
 import { VIDEO_DEFAULTS, validateVideoConfig, type VideoModuleConfig } from './types';
@@ -38,6 +43,32 @@ export const videoModule: KrakenModule<VideoModuleConfig> = defineModule<VideoMo
     audio: 'optional',
     remoteCommands: ['setSource', 'setLoop', 'setRender', 'play', 'hold'],
   },
+
+  /**
+   * Base-only, one instance (§0.4, §11.3).
+   *
+   * Not a limitation that fell out of the implementation — a rule that removes
+   * four separate hazards in one line: a second hardware decoder, the module's
+   * `let context` telemetry singleton, `RenderController`'s promoted stage, and
+   * an `<iframe>` that re-navigates the moment `insertBefore` moves it. Because
+   * the base never moves in the DOM, reorders only ever touch overlays.
+   *
+   * `overlayDefault` and `minFrame` are unreachable while `roles` is `['base']`
+   * and exist only because the type asks for them.
+   */
+  layer: {
+    roles: ['base'],
+    maxInstances: 1,
+    // A video scales; re-laying out a decoder to resize it would be absurd.
+    resize: 'scale',
+    minFrame: 0.5,
+    overlayDefault: { frame: { w: 1, h: 1, shape: 'square' }, t: IDENTITY },
+    cost: () => ({ cadence: 'frame', coverage: 1, entropy: 'high', decoders: 1, gl: 0 }),
+  },
+
+  /** §2.3: source · fit · loop · quality · More — declared in `./editor`. */
+  editor: { loadStrip: () => import('./editor') },
+
   defaults: VIDEO_DEFAULTS,
   validate: validateVideoConfig,
 

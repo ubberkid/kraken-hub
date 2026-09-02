@@ -1,0 +1,83 @@
+name: Share a Look
+description: Send a `.krakenlook` for the curated gallery.
+labels: [look, gallery, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `public/looks/README.md` first — it has the file format, the review
+        rules, and the two-step pull request that lands a Look directly.
+
+        A pull request is faster for everybody: one file in `public/looks/`, one
+        row in `public/looks/index.json`. This form is for when you would rather
+        not open one.
+
+  - type: input
+    id: name
+    attributes:
+      label: Look name
+      placeholder: 'Slow tide'
+    validations:
+      required: true
+
+  - type: input
+    id: author
+    attributes:
+      label: How should the gallery credit you?
+      description: A GitHub handle, a name, or "anonymous".
+      placeholder: 'your-github-handle'
+    validations:
+      required: true
+
+  - type: input
+    id: description
+    attributes:
+      label: One line, for the card
+      description: >
+        In the product's words — Look, Layer, Effect, Preset. Never "element",
+        "shader", or an internal id.
+      placeholder: 'A gradient that barely moves, with the liquid temperature on it.'
+    validations:
+      required: true
+
+  - type: textarea
+    id: file
+    attributes:
+      label: The `.krakenlook`
+      description: >
+        Drag the exported file in, or paste its contents. It is plain JSON and a
+        few kilobytes.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: What it looks like on the panel
+      description: >
+        Capture at the real size (640x640 for an Elite). Not required — the
+        gallery renders the Look live — but it helps the review.
+
+  - type: dropdown
+    id: media
+    attributes:
+      label: Does it reference a picture or a clip?
+      options:
+        - No — it is layers and settings only
+        - Yes, from a public URL anybody can fetch
+        - Yes, from my own library (it will import as a placeholder for others)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Review rules (public/looks/README.md)
+      options:
+        - label: I am licensing this Look under the repository's MIT licence.
+          required: true
+        - label: It is mine, or I have the right to share it.
+          required: true
+        - label: The description is one line and uses the product's vocabulary.
+        - label: The file is under the 64 kB cap.

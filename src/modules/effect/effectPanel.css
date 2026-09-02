@@ -1,0 +1,220 @@
+/*
+ * The Effects panel's two non-kit controls: the effect card strip and the
+ * colour wells.
+ *
+ * Config-only: this file is imported from a `.tsx` under `src/modules/`, which
+ * vite chunks into `config-ui`. It can never reach the display graph (I8).
+ *
+ * ## The cards are a grid in a column and a scroller in a wide panel (F9)
+ *
+ * They were only ever a horizontal scroller, on the reasoning that twelve
+ * pictures in a row is a thing you flick through and "the panel it lives in is
+ * 866 px wide at its widest". The panel is; the CONTROL is not. Measured inside
+ * the editor's inspector rail the strip is **203 px** of client width against
+ * 1192 px of scroll width — two cards of twelve, with no scrollbar drawn, no
+ * fade rendered until a scroll has happened, and a browser window at 1280 making
+ * no difference at all because the rail's width does not come from the viewport.
+ * Ten of the twelve effects were unreachable by anything but the arrow keys.
+ *
+ * So the default is a two-column grid: all twelve visible, in the sheet's own
+ * vertical scroll, at a card width that grows with whatever column it is in. The
+ * horizontal scroller survives for the case it was designed for — a genuinely
+ * wide panel — and it is a CONTAINER query, not a viewport one, because the
+ * question is how wide this control is and a media query cannot ask that. (It
+ * would also be dead code the invariants script is right to flag: at 1280 px of
+ * viewport the strip is still 203 px wide.)
+ *
+ * Every card is a fixed size in the scroller, so the row's rhythm does not
+ * change with the length of an effect's name.
+ *
+ * ## Why both of these claim the whole row
+ *
+ * `.kh-field` is `justify-content: space-between` — a label on the left, a
+ * control on the right — which is exactly right for a switch and wrong for
+ * anything that wants the width. Sized as ordinary flex items, the twelve cards
+ * were clipped mid-card at the panel's right edge (audit 9, M6b) and the four
+ * colour wells collapsed into a column pinned to the right margin with ~500 px
+ * of dead space beside the word "Colours" (M6a). `flex: 1 0 100%` is the fix for
+ * both: the label keeps its own line and the control gets the panel.
+ */
+
+/*
+ * The container the cards are measured against.
+ *
+ * A separate element because `container-type` may not be set on the element a
+ * container query is styling — the query has to be answered by an ANCESTOR. It
+ * is the shell that claims the whole row now (`flex: 1 0 100%`), and the cards
+ * simply fill it.
+ */
+.kh-effect-cards-shell {
+  flex: 1 0 100%;
+  min-width: 0;
+  container-type: inline-size;
+  container-name: kh-effect-cards;
+}
+
+/* Twelve cards, all of them visible, in two columns of whatever room there is. */
+.kh-effect-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.kh-effect-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--kh-line);
+  border-radius: var(--kh-r-card);
+  background: var(--kh-panel-2);
+  color: var(--kh-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: border-color var(--kh-dur-fast) var(--kh-ease);
+}
+
+.kh-effect-card:hover {
+  border-color: var(--kh-line);
+  color: var(--kh-ink-2);
+}
+
+.kh-effect-card[aria-checked='true'] {
+  border-color: var(--kh-accent-line);
+  background: var(--kh-accent-bg);
+  color: var(--kh-accent-ink);
+}
+
+.kh-effect-card:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}
+
+.kh-effect-card__art {
+  display: block;
+  height: 52px;
+  border-radius: var(--kh-r-tight);
+}
+
+.kh-effect-card__name {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * ## The scroller, for a control that is actually wide
+ *
+ * A container query, asked of the shell, so the answer is "how much room do
+ * THESE cards have" rather than "how big is the window" — which is the question
+ * a media query would have answered, and it would have answered it wrongly: the
+ * inspector rail is 203 px at a 1280 px viewport just as it is at 866 px.
+ *
+ * Below the threshold this whole block does not exist and the grid above stands.
+ * Above it, twelve fixed cards in a row with the fade at whichever end has more
+ * behind it — the design this control was written for, kept for the surface that
+ * can actually show it.
+ */
+@container kh-effect-cards (min-width: 560px) {
+  .kh-effect-cards {
+    display: flex;
+    overflow-x: auto;
+    /* One flick per card, so a half-shown effect never reads as the selected one. */
+    scroll-snap-type: x proximity;
+    /* Keeps a keyboard-focused card clear of the fade at either end: the same
+       inset `scrollIntoView({ inline: 'nearest' })` honours. */
+    scroll-padding-inline: 36px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .kh-effect-card {
+    flex: 0 0 auto;
+    width: 92px;
+    scroll-snap-align: start;
+  }
+
+  /*
+   * The fade, as a mask rather than a gradient overlay.
+   *
+   * An overlay would have to know the panel's background, and this panel has two
+   * of them (`--kh-panel` on the home screen, `--kh-panel-2` inside a details
+   * body). Masking the scroller fades the cards themselves to transparent
+   * against whatever is behind, and the mask is pinned to the element's box
+   * rather than to the scrolled content, so it stays at the edge.
+   *
+   * `data-more` is measured in the panel, so the fade appears at the end that
+   * genuinely has more behind it — and at neither end when the row fits, which
+   * is every time the grid above is the one in force.
+   */
+  .kh-effect-cards[data-more='end'] {
+    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 32px), transparent 100%);
+  }
+
+  .kh-effect-cards[data-more='start'] {
+    mask-image: linear-gradient(90deg, transparent 0, #000 32px, #000 100%);
+  }
+
+  .kh-effect-cards[data-more='both'] {
+    mask-image: linear-gradient(
+      90deg,
+      transparent 0,
+      #000 32px,
+      #000 calc(100% - 32px),
+      transparent 100%
+    );
+  }
+}
+
+/*
+ * A row of labelled wells that wraps, not a column.
+ *
+ * Four is the count today, and `flex-wrap` is what keeps the row honest at 560
+ * px — two and two — instead of squeezing four swatches too narrow to aim at.
+ */
+.kh-effect-wells {
+  flex: 1 0 100%;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.kh-effect-well {
+  /* Grow to share the row, never below a thumb-sized target. */
+  flex: 1 1 96px;
+  min-width: 84px;
+}
+
+.kh-effect-well label {
+  display: block;
+  margin-top: 4px;
+  color: var(--kh-muted);
+  font-size: 12px;
+  /* One slot name per line, ellipsised — "Ring highlight" must not reflow the
+     row it sits in. */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.kh-effect-swatch {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  background: var(--kh-panel-2);
+  cursor: pointer;
+}
+
+.kh-effect-swatch:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}

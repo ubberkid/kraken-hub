@@ -1,0 +1,36 @@
+/*
+ * The Date panel's sample line and its one non-kit control.
+ *
+ * The colour well is native for the reason `textPanel.css` writes down — a
+ * colour is not an enumeration, and the platform's own picker beats any row of
+ * swatches at choosing one.
+ *
+ * Config-only: imported from a `.tsx` under `src/modules/`, which vite chunks
+ * into `config-ui`. It can never reach the display graph (I8).
+ */
+
+.kh-date-sample {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  background: var(--kh-panel-2);
+  color: var(--kh-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.kh-date-swatch {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  background: var(--kh-panel-2);
+  cursor: pointer;
+}
+
+.kh-date-swatch:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}

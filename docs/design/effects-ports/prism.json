@@ -1,0 +1,96 @@
+{
+  "id": "prism",
+  "displayName": "Prism",
+  "colourSlots": [
+    "Glow",
+    "Glow 2",
+    "Background",
+    "Background 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#BCBCBC",
+        "#BCBCBC",
+        "#E9C1FF",
+        "#B4B1FF"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#3D3D3D",
+        "#FFFFFF",
+        "#9C9C9C",
+        "#4E4E4E"
+      ]
+    },
+    {
+      "name": "Ice",
+      "colors": [
+        "#000000",
+        "#BEFFFF",
+        "#00F6FF",
+        "#AF6BFF"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#000000",
+        "#FFFF00",
+        "#00FFA2",
+        "#0E9E00"
+      ]
+    },
+    {
+      "name": "Bubblegum",
+      "colors": [
+        "#000000",
+        "#FFFFFF",
+        "#FF00FF",
+        "#BC00FF"
+      ]
+    },
+    {
+      "name": "Amethyst",
+      "colors": [
+        "#000000",
+        "#FFFFFF",
+        "#AD00FF",
+        "#BE00FF"
+      ]
+    },
+    {
+      "name": "Ember",
+      "colors": [
+        "#000000",
+        "#FFFF96",
+        "#FF0000",
+        "#D20000"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#000000",
+        "#FFFFFF",
+        "#FFFFFF",
+        "#B3B3B3"
+      ]
+    },
+    {
+      "name": "Sunburst",
+      "colors": [
+        "#000000",
+        "#FFFFBC",
+        "#FFFF00",
+        "#FFBC00"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/prism/Prism.shader",
+  "experimental": true
+}

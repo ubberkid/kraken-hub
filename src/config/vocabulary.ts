@@ -17,6 +17,8 @@
  * the same reason. Deliberately dependency-free.
  */
 
+import { COPY_HOME, KEPT_A_COPY } from './words';
+
 // ---------------------------------------------------------------------------
 // Keeping a copy — one concept, three tenses
 // ---------------------------------------------------------------------------
@@ -31,22 +33,21 @@ export const KEEPING_A_COPY = 'Keeping a copy';
 export const STREAM_ONLY = 'Stream only';
 
 /**
- * Where a kept copy lives — the ONE destination phrase in the product.
- *
- * Not "to your Kraken": the bytes land in CAM's browser storage on the user's
- * PC, which the LCD then reads. "Your Kraken" is who plays it, never where it
- * is kept, and the two were used interchangeably.
+ * `COPY_HOME` ("where a kept copy lives") and `KEPT_A_COPY` ("a copy that
+ * landed") are defined in `./words.ts` and re-exported here, so every surface
+ * still imports them from the dictionary and there is still one spelling of
+ * each. The split exists for the bundler alone: `modules/video/index.ts` is
+ * eager, on the display path, and says `KEPT_A_COPY` in its one-line summary —
+ * importing this file for it dragged the whole config-only dictionary into
+ * `core`. See `words.ts` for the full reasoning.
  */
-export const COPY_HOME = 'on this PC';
+export { COPY_HOME, KEPT_A_COPY };
 
 /** The row that offers the choice. Named by the destination, so the options can be the verbs. */
 export const KEEP_A_COPY_LABEL = 'On this PC';
 
 /** A copy in flight, on a tile or in the ladder. */
 export const KEEPING_A_COPY_NOW = `${KEEPING_A_COPY} ${COPY_HOME}…`;
-
-/** A copy that landed. */
-export const KEPT_A_COPY = `kept ${COPY_HOME}`;
 
 /**
  * The library's storage state when the browser has GRANTED persistence.

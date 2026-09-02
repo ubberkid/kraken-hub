@@ -74,6 +74,7 @@ export function mountDisplay(container: HTMLElement): void {
     }),
     flags: params.flags,
     moduleParams: params.moduleParams,
+    layers: { current: null },
     onReinit: { current: null },
     onCommand: { current: null },
   };

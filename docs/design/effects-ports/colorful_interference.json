@@ -1,0 +1,23 @@
+{
+  "id": "colorful_interference",
+  "displayName": "Interference",
+  "colourSlots": [
+    "Glow A",
+    "Glow B",
+    "Background",
+    "Edge tint"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#85F5FF",
+        "#FF4126",
+        "#B000BE",
+        "#FF8000"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/colorful_interference/ColorfulInterference.shader"
+}

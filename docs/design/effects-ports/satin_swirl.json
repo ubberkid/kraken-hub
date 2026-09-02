@@ -1,0 +1,41 @@
+{
+  "id": "satin_swirl",
+  "displayName": "Satin swirl",
+  "colourSlots": [
+    "Aurora A",
+    "Aurora B",
+    "Background top",
+    "Background bottom"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#65EDFE",
+        "#E66FFA",
+        "#505989",
+        "#273050"
+      ]
+    },
+    {
+      "name": "Bubblegum",
+      "colors": [
+        "#FFFFFF",
+        "#FF00FF",
+        "#4F5189",
+        "#DE00FF"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#FFFFFF",
+        "#FFFFFF",
+        "#FFFFFF",
+        "#CBCBCB"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/satin_swirl/satin_swirl_shader.shader"
+}

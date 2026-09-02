@@ -4,16 +4,15 @@ import {
   PLACEHOLDER,
   buildTile,
   cToF,
-  dialLabelRepeats,
   formatLoad,
   formatRpm,
   formatTemp,
   normalizeRange,
-  secondaryFor,
   statsPaintKey,
+  subLineFor,
   tilesFor,
 } from './format';
-import { STATS_DEFAULTS, validateStatsConfig, type StatsConfig } from './schema';
+import { STATS_DEFAULTS, STATS_METRICS, validateStatsConfig, type StatsConfig } from './schema';
 
 import type { NormalizedMonitoring } from '../../platform/monitoring';
 
@@ -135,19 +134,13 @@ describe('layouts', () => {
     expect(everything).toContain('liquidTemp');
   });
 
-  it('drops the secondary line in the grid layout', () => {
-    const grid = { ...cfg, layout: 'grid' as const };
-    const tile = tilesFor(grid, feed())[0];
-    expect(tile).toBeDefined();
-    expect(secondaryFor(tile!, grid, feed())).toBeNull();
-  });
-
-  it('pairs a temperature dial with its load underneath', () => {
-    const dual = { ...cfg, layout: 'dual' as const };
-    const tile = tilesFor(dual, feed({ cpu: { tempC: 50, load: 0.5 } }))[0];
-    expect(secondaryFor(tile!, dual, feed({ cpu: { tempC: 50, load: 0.5 } }))?.metric).toBe(
-      'cpuLoad',
-    );
+  it('drops the secondary line on the faces with no room for one', () => {
+    for (const layout of ['grid', 'triple', 'strip', 'bar', 'vertical', 'chart'] as const) {
+      const face = { ...cfg, layout };
+      const tile = tilesFor(face, feed())[0];
+      expect(tile).toBeDefined();
+      expect(subLineFor(tile!, face, feed())).toBeNull();
+    }
   });
 });
 
@@ -181,35 +174,50 @@ describe('validateStatsConfig', () => {
   });
 });
 
-describe('a dial is labelled once', () => {
-  /**
-   * Round 7's minors. The audit's display capture shows **CPU 17%** in the arc
-   * gap and **CPU** again under the number, on both dials, on the 640 px panel
-   * where a repeated word costs the most.
-   */
-  it('drops the standalone label when the sub-line already names the same thing', () => {
+/**
+ * The sub-line is the prototype's `48% load · 4.8 GHz`, and the rule it has to
+ * obey is the one the whole module is built on: **it may only say things CAM
+ * actually reports.**
+ */
+describe('the sub-line', () => {
+  const busy = feed({
+    cpu: { tempC: 62, load: 0.48, freqMhz: 4800 },
+    gpu: { tempC: 48, load: 0.41, freqMhz: 2100 },
+    ram: { usedMiB: 9523, totalMiB: 32768 },
+  });
+
+  it('reads the prototype line off the feed, verbatim', () => {
+    const single: StatsConfig = { ...cfg, layout: 'single', primary: 'cpuTemp' };
+    const [tile] = tilesFor(single, busy);
+    expect(subLineFor(tile!, single, busy)).toBe('48% load · 4.8 GHz');
+  });
+
+  it('gives the two-meter face one fact rather than two', () => {
     const dual: StatsConfig = { ...cfg, layout: 'dual' };
-    for (const tile of tilesFor(dual, feed())) {
-      const secondary = secondaryFor(tile, dual, feed());
-      expect(secondary?.label).toBe(tile.label);
-      expect(dialLabelRepeats(tile, secondary)).toBe(true);
-    }
+    const [tile] = tilesFor(dual, busy);
+    expect(subLineFor(tile!, dual, busy)).toBe('48% load');
   });
 
-  /** …and keeps it wherever the two lines genuinely name different things. */
-  it('keeps a label the sub-line does not repeat', () => {
-    const single: StatsConfig = { ...cfg, layout: 'single', primary: 'liquidTemp' };
+  it('says the em dash for a field the feed does not carry, and never a zero', () => {
+    const single: StatsConfig = { ...cfg, layout: 'single', primary: 'cpuTemp' };
     const [tile] = tilesFor(single, feed());
-    const secondary = tile === undefined ? null : secondaryFor(tile, single, feed());
-    expect(secondary?.label).not.toBe(tile?.label);
-    expect(tile === undefined ? true : dialLabelRepeats(tile, secondary)).toBe(false);
+    const line = subLineFor(tile!, single, feed());
+    expect(line).toBe(`${PLACEHOLDER} load · ${PLACEHOLDER} GHz`);
+    expect(line).not.toMatch(/\b0\b/);
+    expect(line).not.toContain('NaN');
   });
 
-  /** The grid has no sub-line at all, so its long labels always stand. */
-  it('always labels the grid, which has no second line', () => {
-    const grid: StatsConfig = { ...cfg, layout: 'grid' };
-    for (const tile of tilesFor(grid, feed())) {
-      expect(dialLabelRepeats(tile, secondaryFor(tile, grid, feed()))).toBe(false);
+  /*
+   * The one line that would be a lie: there is no pump, and no power figure
+   * synthesised from a load and a TDP nobody published.
+   */
+  it('invents nothing — every fact is a field of the feed', () => {
+    for (const metric of STATS_METRICS) {
+      const single: StatsConfig = { ...cfg, layout: 'single', primary: metric };
+      const [tile] = tilesFor(single, busy);
+      const line = subLineFor(tile!, single, busy) ?? '';
+      expect(line).not.toMatch(/pump/i);
+      expect(line).not.toMatch(/watt|\bW\b/i);
     }
   });
 });

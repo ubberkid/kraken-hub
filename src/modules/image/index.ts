@@ -8,6 +8,7 @@
  * `loadConfigPanel()`.
  */
 
+import { IDENTITY, MAX_LAYERS } from '../../state/look/types';
 import { defineModule } from '../defineModule';
 
 import { IMAGE_DEFAULTS, validateImageConfig, type ImageModuleConfig } from './schema';
@@ -40,6 +41,48 @@ export const imageModule: KrakenModule<ImageModuleConfig> = defineModule<ImageMo
     audio: 'none',
     remoteCommands: ['setSource', 'setRender'],
   },
+
+  /**
+   * A picture is the archetypal overlay: a logo in a corner, a badge over a
+   * video. `resize: 'scale'` because a raster has one true size and scaling it
+   * is one style write — re-laying it out at a new frame would decode nothing
+   * new and cost a reflow.
+   *
+   * The default lands top-right in a circle, out of the way of both the clock
+   * and the stats strip, which default to the bottom.
+   */
+  layer: {
+    roles: ['base', 'overlay'],
+    maxInstances: MAX_LAYERS,
+    resize: 'scale',
+    minFrame: 0.3,
+    overlayDefault: {
+      frame: { w: 0.8, h: 0.8, shape: 'circle' },
+      t: { ...IDENTITY, x: 0.45, y: -0.45 },
+    },
+    /*
+     * A still picture repaints when something asks it to, which is never on its
+     * own — except a slideshow, which changes the whole frame once per interval.
+     * `mid` entropy: photographs compress worse than a dial, better than video.
+     */
+    cost: (cfg) => ({
+      // `Partial`, not the config type: `cost()` is called with whatever the
+      // editor is holding, which during a paste is a half-validated object.
+      cadence:
+        (cfg as Partial<ImageModuleConfig> | null)?.slideshow?.enabled === true ? 'tick' : 'static',
+      coverage: 1,
+      entropy: 'mid',
+      decoders: 0,
+      gl: 0,
+    }),
+  },
+
+  /**
+   * §2.3: source · fit · opacity · More — declared in `./editor`, which the
+   * config page fetches on first selection.
+   */
+  editor: { loadStrip: () => import('./editor') },
+
   defaults: IMAGE_DEFAULTS,
   validate: validateImageConfig,
 

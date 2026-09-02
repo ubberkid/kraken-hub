@@ -1,0 +1,41 @@
+{
+  "id": "triad_nexus",
+  "displayName": "Triad nexus",
+  "colourSlots": [
+    "Triangles",
+    "Triangle shade",
+    "Background",
+    "Background 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#FFFB00",
+        "#737100",
+        "#FF00B5",
+        "#FFA600"
+      ]
+    },
+    {
+      "name": "Ice",
+      "colors": [
+        "#00FFFF",
+        "#007373",
+        "#0089FF",
+        "#0089FF"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#FFFFFF",
+        "#737373",
+        "#BCBCBC",
+        "#B8B8B8"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/triad_nexus/triad_nexus_shader.shader"
+}

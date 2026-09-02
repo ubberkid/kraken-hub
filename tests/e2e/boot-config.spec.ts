@@ -24,9 +24,24 @@ test.describe('config boot', () => {
     // The version footer proves the build-time defines reached the bundle.
     await expect(page.locator('.kh-footer')).toContainText('kraken-hub v');
 
-    // No display surface on this page. (The mirror's iframe is a separate
-    // document, so `.kh-stage` in THIS frame would still be a config-UI leak.)
+    /*
+     * No display surface on this page — asserted where it is still a rule.
+     *
+     * The mirror's iframe is a separate document, so `.kh-stage` in THIS frame
+     * used to mean a config-UI leak. Since the editor shipped it means one more
+     * thing, legitimately: at editor widths the halo IS a real `LayerHost`
+     * running the real renderers (principle 1, "the canvas is the halo"), and a
+     * `.kh-stage` in the frame is that compositor rather than a leak. The
+     * project's viewport is `devices['Desktop Chrome']` — 1280 wide — so this
+     * page is in the editor by default and the count is 1.
+     *
+     * Below `PHONE_QUERY`'s 700 px there is no editor and the old rule is
+     * exactly as strong as it was, so it is asserted there.
+     */
+    await page.setViewportSize({ width: 640, height: 640 });
+    await expect(page.getByTestId('layer-rail')).toHaveCount(0);
     await expect(page.locator('.kh-stage')).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     await page.getByTestId('disclosure-about').click();
     // The page is named once, by the breadcrumb whose job is naming pages —
@@ -215,6 +230,17 @@ test.describe('config boot', () => {
    * download and, on an embed, a second set of ads.
    */
   test('the mirror runs the real display for every module but video', async ({ page }) => {
+    /*
+     * Narrow, because the IFRAME mirror is the narrow composition's halo.
+     *
+     * At editor widths the halo is not an iframe at all — it is the editor's own
+     * `LayerHost`, and the mirror says so (`data-mirror-mode="editor"`, asserted
+     * below). The iframe path this test is about is what a window under
+     * `PHONE_QUERY`'s 700 px still gets, and it is the path with the property
+     * worth pinning: the mirror is the REAL display page rather than a
+     * lookalike React tree.
+     */
+    await page.setViewportSize({ width: 640, height: 640 });
     // `?cam=1` — the live mirror is an iframe of the real display page, and
     // that is only true on the window that shares CAM's storage partition
     // (wave 1, A1). Any other browser would boot a SECOND display.
@@ -228,6 +254,13 @@ test.describe('config boot', () => {
     const frame = page.frameLocator('.kh-halo__frame');
     await expect(frame.locator('.kh-stage')).toBeVisible();
     await expect(frame.locator('.kh-clock')).toBeVisible();
+
+    // …and the editor's halo is the third mode, named rather than inferred: no
+    // iframe, no surface card, a compositor in this document.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expect(page.getByTestId('mirror')).toHaveAttribute('data-mirror-mode', 'editor');
+    await expect(page.locator('.kh-halo__frame')).toHaveCount(0);
+    await expect(page.locator('.kh-stage')).toHaveCount(1);
   });
 
   /**
@@ -367,20 +400,23 @@ test.describe('config boot', () => {
     await page.getByTestId('module-chip-clock').click();
     await expect(page.getByTestId('ops-panel')).toHaveCount(0);
 
-    await page.getByTestId('home-clock-hour-format-12').click();
-    await expect(page.getByTestId('home-clock-hour-format-12')).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    /*
+     * `ed-base-format-12`, not `home-clock-hour-format-12`.
+     *
+     * The strip is declared by the module and rendered generically now
+     * (`SelectionStrip`), so a control's id is `ed-<layer>-<control>` and a
+     * Segmented option's is that plus its value. The ids moved with the
+     * mechanism; the property this test is about — the press resolves in place,
+     * opens nothing and scrolls nobody — did not.
+     */
+    await page.getByTestId('ed-base-format-12').click();
+    await expect(page.getByTestId('ed-base-format-12')).toHaveAttribute('aria-checked', 'true');
     // The whole point: no panel, no scroll, no page.
     await expect(page.getByTestId('ops-panel')).toHaveCount(0);
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
-    await page.getByTestId('home-clock-seconds-off').click();
-    await expect(page.getByTestId('home-clock-seconds-off')).toHaveAttribute(
-      'aria-checked',
-      'true',
-    );
+    await page.getByTestId('ed-base-seconds-off').click();
+    await expect(page.getByTestId('ed-base-seconds-off')).toHaveAttribute('aria-checked', 'true');
     // And it is the real setting, not a local widget state.
     const stored = await page.evaluate(() => localStorage.getItem('kraken-hub:v1:state') ?? '');
     expect(stored).toContain('"hourFormat":"12"');
@@ -602,8 +638,16 @@ test.describe('config boot', () => {
     await expect(line).toContainText('1:24 / 3:02');
     await expect(page.locator('.kh-status__live')).toBeVisible();
 
-    // And the halo is no longer a frozen gradient: telemetry draws the arc
-    // (audit F3), over the source's own poster.
+    /*
+     * And the halo is no longer a frozen gradient: telemetry draws the arc
+     * (round 3's F3), over the source's own poster.
+     *
+     * `VideoHalo` is the NARROW composition's halo — at editor widths the same
+     * region is the editor's compositor, and progress is drawn on the canvas
+     * rather than by this component. So the assertion is made where the
+     * component renders, which is also where the finding was made.
+     */
+    await page.setViewportSize({ width: 640, height: 640 });
     await expect(page.getByTestId('halo-arc')).toBeAttached();
     await expect(page.getByTestId('halo-poster')).toBeAttached();
   });
@@ -870,6 +914,305 @@ test.describe('scrolling', () => {
     expect(haloBox?.y ?? 0).toBeLessThan(bandBox?.y ?? 0);
     // The primary action is on screen with it.
     await expect(page.getByTestId('setup-open-cam')).toBeInViewport();
+
+    /*
+     * …and FIRST is not the whole of it — biggest is the other half.
+     *
+     * The starter-Look cards arrived under the setup card and took 121 px of
+     * the one grid row that grows, which put the halo at 199 px: first on the
+     * page and a thumbnail on it. The cards live in the canvas column's left
+     * gutter now (`ui.css`), which is width the halo does not use, so this
+     * number is the halo with no band at all.
+     */
+    expect(
+      haloBox?.width ?? 0,
+      'the halo is first on the page but no longer the biggest thing on it',
+    ).toBeGreaterThanOrEqual(300);
+  });
+
+  /**
+   * …and nothing paints over it — round 11's F-1.
+   *
+   * `CamSetupCard`'s two variants have two class names, and only the About
+   * one (`.kh-setup`) was named in the editor grid's area assignments. So on a
+   * cold profile the first-run band was AUTO-PLACED, and the cell it landed in
+   * was the `strip` row — whose one child is the floating selection strip,
+   * absolutely positioned against its grid area with `bottom: 0`. A row holding
+   * an 85 px band is an 85 px containing block, so the strip stopped floating
+   * over the canvas and painted over the band's last line and the top half of
+   * both its controls: measured 544 x 40 of overlap at 866x537 and again at
+   * 1280x800, with the word "Frame" cut in half.
+   *
+   * Two windows, because the bug reproduced at both and a grid bug that only
+   * one window shows is a grid bug that has been moved rather than fixed.
+   */
+  for (const size of [
+    { width: 866, height: 537 },
+    { width: 1280, height: 800 },
+  ]) {
+    test(`the first-run band and the selection strip never overlap at ${String(size.width)}x${String(size.height)}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(size);
+      // No `displaySeen` seeded: this is genuinely the first run.
+      await page.goto('/');
+      await expect(page.getByTestId('setup-first-run')).toBeVisible();
+      await expect(page.getByTestId('ops-strip')).toBeVisible();
+
+      const overlap = await page.evaluate(() => {
+        const band = document.querySelector('[data-testid="setup-first-run"]');
+        const strip = document.querySelector('[data-testid="ops-strip"]');
+        if (band === null || strip === null) return null;
+        const a = band.getBoundingClientRect();
+        const b = strip.getBoundingClientRect();
+        const w = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+        const h = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+        return Math.round(w * h);
+      });
+      expect(overlap, 'the strip is painting over the first-run band').toBe(0);
+
+      /*
+       * …and the starter-Look cards overlap nothing either, at both windows.
+       *
+       * They are out of flow in the canvas column's gutter, which is the same
+       * shape of placement F-1 was about — an item positioned against a grid
+       * area rather than laid out in one. So it gets the same three-way box
+       * test, and the halo is in it: the gutter is the width the halo does not
+       * use, and "does not use" is a measurement, not a promise.
+       */
+      await expect(page.getByTestId('first-run-templates')).toBeVisible();
+      const starters = await page.evaluate(() => {
+        const rect = (id: string) =>
+          document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect() ?? null;
+        const looks = rect('first-run-templates');
+        if (looks === null) return null;
+        const over = (b: DOMRect | null): number => {
+          if (b === null) return -1;
+          const w = Math.max(0, Math.min(looks.right, b.right) - Math.max(looks.left, b.left));
+          const h = Math.max(0, Math.min(looks.bottom, b.bottom) - Math.max(looks.top, b.top));
+          return Math.round(w * h);
+        };
+        return {
+          onHalo: over(rect('mirror')),
+          onStrip: over(rect('ops-strip')),
+          onSetup: over(rect('setup-first-run')),
+        };
+      });
+      expect(starters?.onHalo, 'the starter cards are painting over the halo').toBe(0);
+      expect(starters?.onStrip, 'the starter cards are painting over the strip').toBe(0);
+      expect(starters?.onSetup, 'the starter cards are painting over the install band').toBe(0);
+
+      /*
+       * …and both of the band's controls are whole. Overlap 0 is a box test;
+       * this is the reader's test, and it is the one the finding was written
+       * from — `elementFromPoint` at each corner and the centre says whether
+       * anything at all is on top of the control, whatever its box says.
+       */
+      const covered = await page.evaluate(() =>
+        ['setup-open-cam', 'setup-reveal-address'].map((id) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          if (el === null) return { id, hits: -1 };
+          const b = el.getBoundingClientRect();
+          const points: [number, number][] = [
+            [b.left + 3, b.top + 3],
+            [b.right - 3, b.top + 3],
+            [b.left + 3, b.bottom - 3],
+            [b.right - 3, b.bottom - 3],
+            [b.left + b.width / 2, b.top + b.height / 2],
+          ];
+          const hits = points.filter(([x, y]) => {
+            const over = document.elementFromPoint(x, y);
+            return !(over === el || el.contains(over) || (over?.contains(el) ?? false));
+          }).length;
+          return { id, hits };
+        }),
+      );
+      for (const control of covered) {
+        expect(control.hits, `${control.id} is painted over`).toBe(0);
+      }
+
+      // And the whole composition still fits CAM's window.
+      expect(
+        await page.evaluate(() => {
+          const d = document.scrollingElement ?? document.documentElement;
+          return Math.max(0, d.scrollHeight - d.clientHeight);
+        }),
+      ).toBe(0);
+    });
+  }
+
+  /**
+   * Three Looks to press, on the screen with nothing on it — §4, and round
+   * 11's M-h.
+   *
+   * A cold profile showed the Add-to-CAM band and nothing else: an empty stage,
+   * a rail with one row in it, and a first screen whose only offer was a
+   * five-minute installation errand. §4 asks for template cards on first run,
+   * and they had never been built — measured on a cold profile at 866x537, no
+   * template card was in the DOM at all.
+   *
+   * ## …and then they cost the halo 121 px
+   *
+   * Built as a row under the setup card, they were 121 px of the one grid row
+   * that grows, and the halo went from 320 px to 199 — first on the page and a
+   * thumbnail on it. They stand in the canvas column's LEFT GUTTER now: the
+   * halo is square and its column is not, so at 866x537 there is 112 px of
+   * unused column on each side of it, for the whole height of the row. Out of
+   * flow, so the row it used to occupy collapses and the halo is the size it is
+   * with no band at all.
+   *
+   * That is what this measures: the cards are there, they are pressable, they
+   * are wholly on screen, and the halo did not pay for them.
+   */
+  test('first run offers Looks to start from, beside the halo', async ({ page }) => {
+    await page.setViewportSize({ width: 866, height: 537 });
+    await page.goto('/');
+
+    const band = page.getByTestId('first-run-templates');
+    await expect(band).toBeVisible();
+    const cards = page.locator('[data-testid^="first-run-look-"]');
+    await expect(cards).toHaveCount(3);
+
+    /*
+     * Every box in ONE evaluate: the template chunk lands after the first
+     * paint, so two sequential `boundingBox()` calls can straddle a reflow and
+     * compare one box's position before the change with another's after it.
+     */
+    const geometry = async () =>
+      page.evaluate(() => {
+        const rect = (id: string) =>
+          document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect() ?? null;
+        const halo = rect('mirror');
+        const looks = rect('first-run-templates');
+        if (halo === null || looks === null) return null;
+        const over = (b: DOMRect | null): number => {
+          if (b === null) return -1;
+          const w = Math.max(0, Math.min(looks.right, b.right) - Math.max(looks.left, b.left));
+          const h = Math.max(0, Math.min(looks.bottom, b.bottom) - Math.max(looks.top, b.top));
+          return Math.round(w * h);
+        };
+        const d = document.scrollingElement ?? document.documentElement;
+        return {
+          halo: Math.round(halo.width),
+          // Beside it, clear of the bezel — never over it, and never a
+          // hair's breadth from it either.
+          bezelGap: Math.round(halo.left - looks.right),
+          onHalo: over(halo),
+          onStrip: over(rect('ops-strip')),
+          onSetup: over(rect('setup-first-run')),
+          overflow: Math.max(0, d.scrollHeight - d.clientHeight),
+          // A thing you press is at least 44 px in both axes, and all of it is
+          // on the screen.
+          cards: [...document.querySelectorAll('[data-testid^="first-run-look-"]')].map((el) => {
+            const b = el.getBoundingClientRect();
+            return {
+              w: Math.round(b.width),
+              h: Math.round(b.height),
+              whole:
+                b.top >= 0 &&
+                b.left >= 0 &&
+                b.bottom <= window.innerHeight &&
+                b.right <= window.innerWidth,
+            };
+          }),
+        };
+      });
+
+    // Polled: the screen is still arriving — `main` carries the enter animation
+    // and the cards' own chunk lands after the first paint, so a single sample
+    // can straddle a reflow.
+    await expect
+      .poll(async () => (await geometry())?.halo ?? 0, { timeout: 5000 })
+      .toBeGreaterThanOrEqual(300);
+
+    const m = await geometry();
+    expect(m).not.toBeNull();
+    expect(m?.bezelGap ?? 0, 'the cards are crowding the halo’s bezel').toBeGreaterThanOrEqual(12);
+    expect(m?.onHalo, 'the cards are painting over the halo').toBe(0);
+    expect(m?.onStrip, 'the cards are painting over the selection strip').toBe(0);
+    expect(m?.onSetup, 'the cards are painting over the install band').toBe(0);
+    expect(m?.overflow, 'the cards pushed the composition past CAM’s window').toBe(0);
+    expect(m?.cards).toHaveLength(3);
+    for (const card of m?.cards ?? []) {
+      expect(card.w, 'a starter card is too narrow to press').toBeGreaterThanOrEqual(44);
+      expect(card.h, 'a starter card is too short to press').toBeGreaterThanOrEqual(44);
+      expect(card.whole, 'a starter card runs off the screen').toBe(true);
+    }
+
+    // …and pressing one changes the Look, which is the entire point of them.
+    const before = await page.evaluate(() => localStorage.getItem('kraken-hub:v1:state') ?? '');
+    await cards.nth(1).click();
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('kraken-hub:v1:state') ?? ''))
+      .not.toBe(before);
+  });
+
+  /**
+   * …and where there is no gutter, the row comes back.
+   *
+   * The gutter is `(column - halo) / 2`, and it closes from both ends: a
+   * narrower window shrinks the column, a taller one grows the halo. Below
+   * 762 px of editor grid — a ~760 px window — three cards beside the halo
+   * would be three cards ON it, so `ui.css` puts them back under the setup
+   * card as a single 82 px row of thumb-and-name.
+   *
+   * This is the branch that has to be measured rather than assumed, because a
+   * fallback nobody looks at is a fallback that is broken.
+   */
+  test('the starter Looks fall back to a compact row where the gutter closes', async ({ page }) => {
+    await page.setViewportSize({ width: 760, height: 537 });
+    await page.goto('/');
+
+    await expect(page.getByTestId('first-run-templates')).toBeVisible();
+    await expect(page.locator('[data-testid^="first-run-look-"]')).toHaveCount(3);
+
+    const geometry = async () =>
+      page.evaluate(() => {
+        const rect = (id: string) =>
+          document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect() ?? null;
+        const halo = rect('mirror');
+        const looks = rect('first-run-templates');
+        const setup = rect('setup-first-run');
+        const d = document.scrollingElement ?? document.documentElement;
+        return {
+          halo: Math.round(halo?.width ?? 0),
+          band: Math.round(looks?.height ?? 0),
+          // The row is UNDER the setup card here, which is the placement the
+          // gutter branch replaces rather than the one it breaks.
+          under: Math.round((looks?.top ?? 0) - (setup?.bottom ?? 0)),
+          overflow: Math.max(0, d.scrollHeight - d.clientHeight),
+          cards: [...document.querySelectorAll('[data-testid^="first-run-look-"]')].map((el) => {
+            const b = el.getBoundingClientRect();
+            return { w: Math.round(b.width), h: Math.round(b.height) };
+          }),
+        };
+      });
+
+    /*
+     * Polled, like every other measurement of this screen in this file: `main`
+     * carries an enter animation and the cards' chunk lands after the first
+     * paint, so a single sample can be taken of a page that is still arriving.
+     */
+    await expect
+      .poll(async () => (await geometry()).under, { timeout: 5000 })
+      .toBeGreaterThanOrEqual(0);
+
+    const m = await geometry();
+    expect(m.under, 'the fallback row is not under the setup card').toBeGreaterThanOrEqual(0);
+    expect(m.band, 'the fallback row is not a compact row any more').toBeLessThanOrEqual(88);
+    expect(m.overflow, 'the fallback row pushed the composition past the window').toBe(0);
+    /*
+     * The halo is smaller here than in the gutter branch and that is the whole
+     * point of the branch — 760x537 is a window where the setup card alone
+     * wraps to 122 px, so the canvas row's ceiling is 283 px before any band
+     * exists. What this holds is that the row stays a row: 88 px of it, not the
+     * 121 px band the gutter placement was written to undo.
+     */
+    expect(m.halo, 'the fallback row is eating the canvas').toBeGreaterThanOrEqual(190);
+    for (const card of m.cards) {
+      expect(card.w, 'a fallback starter card is too narrow to press').toBeGreaterThanOrEqual(44);
+      expect(card.h, 'a fallback starter card is too short to press').toBeGreaterThanOrEqual(44);
+    }
   });
 
   test('the display page stays locked to the viewport', async ({ page }) => {

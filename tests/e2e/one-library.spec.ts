@@ -263,9 +263,30 @@ test.describe('no window offers what it cannot do', () => {
    * Kraken it has never seen.
    */
   test('a remote surface never mounts the display iframe', async ({ page }) => {
+    /*
+     * The claim is the IFRAME, in both compositions.
+     *
+     * `data-mirror-mode` used to have two values because the halo had two
+     * things it could be: the real display document in an iframe (`live`, only
+     * where the storage is) or the named card (`surface`, everywhere else). At
+     * CAM widths the halo is the editor canvas now — a third value, `editor`,
+     * drawing the Look through the preview registry — so `surface` is no longer
+     * the whole of "not the iframe", and asserting it would assert the editor
+     * away. What must stay true either way is that no window which does not own
+     * the bytes boots a second display: never `live`, and never a frame.
+     */
     await page.goto('/#/');
     await page.getByTestId('module-chip-clock').click();
     await expect(page.getByTestId('mirror')).toBeVisible();
+    await expect(page.getByTestId('mirror')).not.toHaveAttribute('data-mirror-mode', 'live');
+    await expect(page.locator('.kh-halo__frame')).toHaveCount(0);
+
+    // The narrow composition — the one a phone gets — still answers `surface`,
+    // which is the exact state the finding was photographed in.
+    await page.setViewportSize({ width: 640, height: 640 });
+    await page.reload();
+    await page.getByTestId('module-chip-clock').click();
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-editor', 'false');
     await expect(page.getByTestId('mirror')).toHaveAttribute('data-mirror-mode', 'surface');
     await expect(page.locator('.kh-halo__frame')).toHaveCount(0);
   });
@@ -274,17 +295,42 @@ test.describe('no window offers what it cannot do', () => {
    * A6 — an unpaired remote has no Library, because there is nothing on the
    * other side of that door. An empty grid calling itself your library is the
    * false second library all over again.
+   *
+   * What changed in round 11 (M-c) is the REMEDY. A6's answer was a redirect:
+   * `#/library` mounted the remote screen and rewrote the hash to `#/remote`,
+   * so the breadcrumb read "Your Kraken / Remote" over a page nobody had asked
+   * for, the bookmarked address was silently replaced, and the remote's own
+   * composition overflowed CAM's 866x537 window by 234 px because it was never
+   * laid out to arrive there. The route answers for itself now: it says where
+   * the library is and offers the pairing that would reach it, at the address
+   * that was asked for, with nothing off the bottom of the window.
    */
-  test('an unpaired remote’s Library route lands on pairing instead', async ({ page }) => {
+  test('an unpaired remote’s Library route says where the library is', async ({ page }) => {
     let loads = 0;
     page.on('load', () => {
       loads += 1;
     });
+    await page.setViewportSize({ width: 866, height: 537 });
     await page.goto('/#/library');
-    await expect(page.getByTestId('pairing-card')).toBeVisible();
-    await expect.poll(() => new URL(page.url()).hash).toBe('#/remote');
-    // A hash rewrite, never a navigation (invariant I1/I2).
+
+    await expect(page.getByTestId('library-unreachable')).toBeVisible();
+    // The address is kept — no redirect, so no navigation either.
+    expect(new URL(page.url()).hash).toBe('#/library');
     expect(loads).toBe(1);
+    // …and the breadcrumb names the page you asked for, not the page a
+    // redirect substituted for it.
+    const crumb = page.locator('.kh-subhead');
+    await expect(crumb).toHaveAttribute('data-route', 'library');
+    await expect(crumb.locator('.kh-subhead__title')).toHaveText('Library');
+    // The one way forward is the real one.
+    await expect(page.getByTestId('library-pair')).toHaveAttribute('href', '#/remote');
+    // It fits CAM's window, which the remote screen standing in for it did not.
+    expect(
+      await page.evaluate(() => {
+        const d = document.documentElement;
+        return Math.max(0, d.scrollHeight - d.clientHeight);
+      }),
+    ).toBe(0);
 
     // The DOOR stays on every surface — the Library is a property of the
     // Kraken, not of the window, and hiding it would be the app telling a phone

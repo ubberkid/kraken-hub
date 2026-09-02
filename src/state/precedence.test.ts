@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { defaultAppState } from './defaults';
+import { baseLook } from './look/types';
 import { mergeLeaf, resolveState } from './precedence';
 
 describe('mergeLeaf', () => {
@@ -73,5 +74,62 @@ describe('resolveState', () => {
   it('validates the merged result rather than trusting it', () => {
     const { state } = resolveState({ url: { render: { zoom: 1000 } } });
     expect(state.render.zoom).toBe(4);
+  });
+
+  /**
+   * `look` is an ARRAY under one key, so `mergeLeaf` replaces it wholesale: a
+   * layer stack is atomic on every channel, and no two layers from two peers are
+   * ever spliced together. What still merges per key is everything around it.
+   *
+   * `?module=` does not carry a look. It lands on `activeModuleId`, in the URL
+   * layer, and `validateAppState` maps that onto the base kind — so the link
+   * changes what the panel is showing without deleting the overlays somebody
+   * arranged, which is the behaviour `lookOf`/`configsOf` are built on: the base
+   * wears `modules[kind].cfg` plus the module-scoped URL params, overlays wear
+   * their own.
+   */
+  it('replaces a look wholesale, and lets ?module= change only the base kind', () => {
+    const overlay = {
+      id: 'lstats01',
+      kind: 'stats',
+      on: true,
+      frame: { w: 1.6, h: 0.5, shape: 'square' as const },
+      t: { x: 0, y: 0.6, s: 1, r: 0, a: 1 },
+      cfg: {},
+    };
+    const { state } = resolveState({
+      persisted: {
+        activeModuleId: 'video',
+        look: { layers: [...baseLook('video').layers, overlay] },
+      },
+      url: { activeModuleId: 'clock' },
+    });
+    expect(state.look.layers[0]?.kind).toBe('clock');
+    expect(state.look.layers[1]).toEqual(overlay);
+  });
+
+  it('never splices two peers’ layer stacks together', () => {
+    const { state } = resolveState({
+      persisted: { look: baseLook('video') },
+      remote: {
+        activeModuleId: 'clock',
+        look: {
+          layers: [
+            ...baseLook('clock').layers,
+            {
+              id: 'limg0001',
+              kind: 'image',
+              on: true,
+              frame: { w: 1, h: 1, shape: 'circle' as const },
+              t: { x: 0.45, y: -0.45, s: 1, r: 0, a: 1 },
+              cfg: {},
+            },
+          ],
+        },
+      },
+    });
+    expect(state.look.layers).toHaveLength(2);
+    expect(state.look.layers[0]?.kind).toBe('clock');
+    expect(state.look.layers[1]?.kind).toBe('image');
   });
 });

@@ -1,4 +1,4 @@
-# Hardware checklist (H01–H23)
+# Hardware checklist (H01–H33)
 
 kraken-hub is built from NZXT's public documentation and three rounds of live
 protocol probing. Every claim in these docs that rests on documentation rather
@@ -181,6 +181,77 @@ If H12 is high and H09 is low, the bottleneck is CAM's capture and compression
 pipeline, and no amount of optimising kraken-hub will help. If both are low, it
 is us.
 
+### Layers — what a stack of layers costs (H24–H28)
+
+The layers design (`docs/design/design-layers-architecture.md`) composes a look
+out of up to eight stacked layers, one absolutely-positioned host `div` each,
+and it makes two performance promises: **per-layer JS is negligible** and **the
+page still renders at the slider value**. The W0 spike exists to put numbers on
+both, and to ask the one question no code inside the page can answer on its own
+— whether CAM's compressor, when the picture gets busy, shows up as reduced
+in-page `achievedFps` (H28). If it does, the governor can see trouble coming and
+throttle; if it does not, the declared per-layer cost is the ONLY capture-side
+lever the app has, and every cost number the UI shows is an **estimate** and
+must say so.
+
+**Protocol for all five stacks:** open
+`?kraken=1&diag=1&pattern=stack&stack=<a|b|c|d|e>` on the LCD with the CAM frame
+rate slider at maximum. Each stack draws the H09 counter on top, so the H09/H10
+filming protocol applies unchanged: record 5 s at 60 fps, count distinct counter
+values per second. Turn the debug overlay on (`diagnostics.showDebugOverlay`)
+to read the per-layer line for each layer, or open `#/diag` in CAM's browser.
+
+The stacks: **a** video + stats strip · **b** video + stats + clock + text ·
+**c** plasma-like base + stats · **d** plasma-like + 4 overlays at `a:0.8` ·
+**e** eight layers.
+
+| ID      | Unknown                                                    | How to measure                                                                                                                                                                                      | Record                                                                                       | Status                                                                             |
+| ------- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **H24** | Per-layer `frame()` cost on real hardware                  | Run each stack; read the per-layer `p95` / `ema` lines in the debug overlay after ~15 s.                                                                                                            | `p95Ms` and `emaMs` per layer, per stack — the numbers G1's 4 ms trip point is calibrated on | simulator ✅ ([w0-measurements](design/w0-measurements.md)); **CAM hardware open** |
+| **H25** | Whole-page cost of a deep stack                            | Same run: read `achieved` and `long frames` at stack **a** and at stack **e**.                                                                                                                      | `achievedFps` and `longFrames` per stack; the a→e delta is the answer                        | simulator ✅ (no delta, 0 long frames); **CAM hardware open**                      |
+| **H26** | Cost of a translucent overlay (its own compositor surface) | Compare stack **d** (4 overlays at `a:0.8`, 4 extra surfaces) with stack **e** (8 layers, 1 translucent).                                                                                           | `achievedFps` for **d** vs **e**, and the counter FPS for both                               | simulator ✅ (no page-side delta); **CAM hardware open**                           |
+| **H27** | Capture FPS per stack                                      | Film the counter for each stack (H09 protocol) — this is the only measurement of what the panel actually shows.                                                                                     | `capture_fps_stack_a` … `capture_fps_stack_e`, plus the slider value                         | manual — **open**                                                                  |
+| **H28** | **Does compressor load reduce page `achievedFps`?**        | Read `achievedFps` in the page (debug overlay / `#/diag`) while filming the counter, for the cheapest stack (**c**, low-entropy gradient) and the most expensive (**e**). Compare page vs captured. | Answer below, in words                                                                       | manual — **open, and it decides the governor's design**                            |
+
+**H28 — the answer** (fill this in; leave it empty rather than guessing):
+
+> _Page `achievedFps` at stack c: ……… · captured FPS at stack c: ………_
+>
+> _Page `achievedFps` at stack e: ……… · captured FPS at stack e: ………_
+>
+> _Does the page's own `achievedFps` fall when the captured FPS falls?_
+> **……… (yes / no / partly — and by how much)**
+
+If **yes**, the page can see compressor overload and `layerGovernor`'s G2/G3
+tiers are a real defence. If **no**, nothing inside the page can observe it: the
+declared per-layer cost stays an estimate, the UI keeps saying "estimated", and
+the only remaining levers are the ones chosen at design time — low-entropy
+effects, opaque scrims, no full-surface fades.
+
+### What W5–W8 shipped, on hardware (H29–H33)
+
+The layer stack stopped being a spike: effects, text layers, gliding stats
+values and `.krakenlook` files all ship now, and each of them makes a claim
+about the **Kraken Browser** specifically that no test on a developer machine
+can settle. Chromium 128 in CAM's webview is not the Chrome you are reading
+this in — it has a different GPU path, no network in the ordinary case, and a
+compressor between the page and the panel.
+
+Every row here is **unverified**. None has been run on a Kraken.
+
+| ID      | Unknown                                     | How to measure                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Record                                                                                                                                                    | Status     |
+| ------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **H29** | Which GL the Effects base actually draws on | Set the base to an effect (Lava lamp is fine) and open `?kraken=1&diag=1`. The effect host — `div.kh-effect` — carries **`data-gl`**, one of `webgl2`, `webgl1` or `none`, naming the renderer that is actually running; a granted context whose program would not link reads `none`, because the still gradient is what is on the panel. **`data-gl-lost="true"`** is present only while a context is lost and waiting to be rebuilt. Read it off the element (the report's `capabilities.features.webgl2` / `.webgl` say what the webview _offers_, which is the other half), and cross-check `notes` for `no WebGL context — the effect stays on its still frame`. | `data-gl` on the effect host; `capabilities.features.{webgl,webgl2}`; whether the panel shows a moving effect or a static two-colour ramp; any GL `notes` | unverified |
+| **H30** | Does a stack with overlays hold `targetFps` | `?kraken=1&diag=1&pattern=stack&stack=<a\|b\|c\|d\|e>` — the five stacks from `src/diag/patterns/stack.ts`, now running the real compositor and the real `effect`/`text` modules. Read `achieved` and `long frames` from the debug overlay (`diagnostics.showDebugOverlay`) after ~15 s on each.                                                                                                                                                                                                                                                                                                                                                                      | `achievedFps` and `longFrames` per stack against the slider's `targetFps` — five rows                                                                     | unverified |
+| **H31** | Do the curated webfonts load in CAM         | Add a text layer and set its face to **Serif**. `src/modules/text/fonts.ts` injects one `<link>` at `fonts/serif.css`, **document-relative**, resolved against wherever the page is served from. Photograph the panel: Playfair Display, or the Georgia/Times fallback stack. A face that never arrives degrades silently by design, so the panel is the only witness.                                                                                                                                                                                                                                                                                                | Playfair or fallback? Does `public/fonts/serif.css` 404 from CAM's URL? Same for the other five faces                                                     | unverified |
+| **H32** | Do stats values glide at the panel's rate   | Put a stats layer on the panel and film it (the H09 protocol: 5 s at 60 fps). A 1 Hz sample is tweened over **420 ms** (`TWEEN_MS`), so a value that changes should show intermediate numbers rather than jumping. Count distinct values per second in the footage, or judge it by eye. The `hz1` governor tier must **snap** instead — no glide at one update per second.                                                                                                                                                                                                                                                                                            | distinct values per second during a change; does the panel snap once the governor drops a layer to `hz1`?                                                 | unverified |
+| **H33** | An 8-layer Look end to end, under 8 kB      | Build a full Look — eight layers, a video base, overlays with real settings — on CAM's configuration window with a phone paired. The trim ladder in `SyncService.fitStateEnvelope` drops `orig` first, then the module bank down to the base kind with `partial: true`, and **never touches `look.layers`**; if nothing fits it logs and refuses rather than shipping a truncated stack.                                                                                                                                                                                                                                                                              | Does the phone show the same **eight** layers? Any `state snapshot does not fit the 8 KB sync cap` in the report's `notes`?                               | unverified |
+
+**H30 does not answer H28.** It reads the page's own `achievedFps` per stack,
+which is what H25 asks for on the same patterns; whether CAM's compressor is
+visible in that number at all is still **H28**, and still open. Film the counter
+(**H27**) in the same run if you want both halves.
+
 ### Storage and liveness
 
 | ID      | Unknown                     | How to measure                                                                                                                                                                                    | Record                                                                                                                                        | Status                                                                                   |
@@ -275,43 +346,54 @@ Copy this into the hardware report issue and fill in what you measured. Leave a
 row blank rather than guessing — a blank row is data, a guess is not.
 
 ```markdown
-| Field                                 | Value |
-| ------------------------------------- | ----- |
-| Model                                 |       |
-| CAM version                           |       |
-| kraken-hub version + gitSha           |       |
-| OS                                    |       |
-| Frame Rate slider (CAM)               |       |
-|                                       |       |
-| **H01** width×height / shape          |       |
-| **H01** targetFps                     |       |
-| **H02** devicePixelRatio              |       |
-| **H03** firstSeenMs / attempts        |       |
-| **H04** monitoring ~1 Hz?             |       |
-| **H04** liquidTemperature?            |       |
-| **H05** YouTube iframe works          |       |
-| **H05** any chrome visible?           |       |
-| **H06** muted autoplay                |       |
-| **H07** unmuted autoplay              |       |
-| **H08** audio audible / device        |       |
-| **H09** capture FPS, flat             |       |
-| **H10** capture FPS, video            |       |
-| **H11** capture FPS, YouTube          |       |
-| **H12** rafFps p50 / p95              |       |
-| **H13** clip survived CAM restart     |       |
-| **H13** clip survived reboot          |       |
-| **H13** storage.persisted             |       |
-| **H14** viaEvent / viaPoll            |       |
-| **H15** settings survived restart     |       |
-| **H16** reload on CAM setting change  |       |
-| **H16** froze after sleep / recovered |       |
-| **H17** H.264 / VP9 / AV1 / HEVC      |       |
-| **H18** Chromium version              |       |
-| **H19** network blocked?              |       |
-| **H20** outermost visible ring %      |       |
-| **H21** dims / sleeps after           |       |
-| **H23** resumed after CAM restart     |       |
-| **H22** Kraken Plus notes             |       |
+| Field                                                 | Value |
+| ----------------------------------------------------- | ----- |
+| Model                                                 |       |
+| CAM version                                           |       |
+| kraken-hub version + gitSha                           |       |
+| OS                                                    |       |
+| Frame Rate slider (CAM)                               |       |
+|                                                       |       |
+| **H01** width×height / shape                          |       |
+| **H01** targetFps                                     |       |
+| **H02** devicePixelRatio                              |       |
+| **H03** firstSeenMs / attempts                        |       |
+| **H04** monitoring ~1 Hz?                             |       |
+| **H04** liquidTemperature?                            |       |
+| **H05** YouTube iframe works                          |       |
+| **H05** any chrome visible?                           |       |
+| **H06** muted autoplay                                |       |
+| **H07** unmuted autoplay                              |       |
+| **H08** audio audible / device                        |       |
+| **H09** capture FPS, flat                             |       |
+| **H10** capture FPS, video                            |       |
+| **H11** capture FPS, YouTube                          |       |
+| **H12** rafFps p50 / p95                              |       |
+| **H13** clip survived CAM restart                     |       |
+| **H13** clip survived reboot                          |       |
+| **H13** storage.persisted                             |       |
+| **H14** viaEvent / viaPoll                            |       |
+| **H15** settings survived restart                     |       |
+| **H16** reload on CAM setting change                  |       |
+| **H16** froze after sleep / recovered                 |       |
+| **H17** H.264 / VP9 / AV1 / HEVC                      |       |
+| **H18** Chromium version                              |       |
+| **H19** network blocked?                              |       |
+| **H20** outermost visible ring %                      |       |
+| **H21** dims / sleeps after                           |       |
+| **H23** resumed after CAM restart                     |       |
+| **H24** worst layer p95 (stack a / e)                 |       |
+| **H25** achievedFps (stack a / e)                     |       |
+| **H25** longFrames (stack a / e)                      |       |
+| **H26** achievedFps (stack d / e)                     |       |
+| **H27** capture FPS a / b / c / d / e                 |       |
+| **H28** does compressor load reduce page achievedFps? |       |
+| **H29** `data-gl` on the effect host                  |       |
+| **H30** achievedFps a / b / c / d / e vs target       |       |
+| **H31** Serif layer: Playfair or fallback             |       |
+| **H32** stats glide visible / hz1 snaps               |       |
+| **H33** phone shows all 8 layers                      |       |
+| **H22** Kraken Plus notes                             |       |
 ```
 
 Attach the display JSON as a fenced code block, and any photographs of the panel
@@ -378,6 +460,12 @@ review:
 monitoring feed (**H04**), autoplay and audio (**H06**–**H08**), localStorage
 and lifecycle across restarts (**H15**, **H16**), network reachability
 (**H19**), the ring target (**H20**), idle dimming (**H21**), `pagehide` on
-teardown (**H23**) — and **H22**, which this report cannot touch at all: the
+teardown (**H23**), the layer-stack numbers on real hardware (**H24**–**H27**)
+and above all **H28**, which decides whether the layer governor can see
+compressor overload at all — and **H22**, which this report cannot touch at all: the
 reporter's device is an Elite, and H22 is a claim about a **Kraken Plus**. That
 row is still the emptiest one on the page.
+
+The five rows W5–W8 added (**H29**–**H33**) postdate that report entirely, so
+they are open by construction: nobody has yet run an effect, a webfont, a
+gliding stats face or an eight-layer Look on a Kraken.

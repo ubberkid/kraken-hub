@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { buildInfo } from '../buildInfo';
 
@@ -101,6 +101,11 @@ export function DiagOverlay({ runtime }: { runtime: DisplayRuntime }) {
     );
   }
 
+  if (pattern === 'stack') {
+    // Five layer stacks of increasing cost, composited by the real LayerHost.
+    return <StackPattern runtime={runtime} />;
+  }
+
   if (pattern === 'flat') {
     // A near-static frame: the counter is the only thing that changes, so this
     // measures capture FPS for low-entropy content (H09).
@@ -151,6 +156,37 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <dd>{children}</dd>
     </>
   );
+}
+
+/**
+ * `?diag=1&pattern=stack&stack=a|b|c|d|e` — the layer-cost measurement path.
+ *
+ * It composites through the real `LayerHost`, so its numbers are the shipping
+ * compositor's numbers. The stacks are built from the REAL registered modules —
+ * `effect` for the frame-cadence base, `text` for the DOM overlays — and the
+ * whole pattern is behind a DYNAMIC import, so neither the display's critical
+ * path nor the diagnostics chunk carries a byte of them.
+ */
+function StackPattern({ runtime }: { runtime: DisplayRuntime }) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const stack = runtime.flags.stack ?? 'a';
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (host === null) return undefined;
+    let stop: (() => void) | null = null;
+    let cancelled = false;
+    void import('./patterns/stack').then((m) => {
+      if (cancelled) return;
+      stop = m.startStackPattern(host, runtime, stack);
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [runtime, stack]);
+
+  return <div className="kh-diag kh-diag--pattern kh-diag--stack" ref={hostRef} />;
 }
 
 function FlatCounter() {

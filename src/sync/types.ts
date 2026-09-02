@@ -10,8 +10,13 @@
  *     boots with nothing but one retained message must be completely correct.
  *     Deltas would make correctness depend on message history, which is exactly
  *     what a retained-message transport cannot promise.
+ *  3. **Ordering is per leaf and lives in the stamps, not in the arrival.** The
+ *     body says what the sender holds; `Envelope.stamps` says when each value
+ *     was decided. See `src/sync/merge.ts`.
  */
 
+import type { Stamp, StampTuple } from './hlc';
+import type { Look } from '../state/look/types';
 import type { ModuleSlot, PlaybackState, RenderSettings } from '../state/schema';
 
 export type Channel = 'state' | 'cmd' | 'tele';
@@ -32,10 +37,20 @@ export const ROLES: readonly Role[] = ['display', 'config', 'remote'];
 /**
  * `v` is the PROTOCOL version and is independent of `AppState.schema`: the wire
  * format and the document format evolve for different reasons and at different
- * rates. A peer that sees `v !== 1` drops the message rather than guessing.
+ * rates. A peer that sees `v !== 2` drops the message rather than guessing.
+ *
+ * **It moved to 2 when the merge changed.** A `v: 1` peer arbitrates by an
+ * acknowledgement map this build no longer sends and would read every frame
+ * from a `v: 2` peer as "acknowledges nothing"; a `v: 2` peer would read every
+ * leaf a `v: 1` peer wrote as unstamped, i.e. as older than the beginning of
+ * time, and silently drop every edit made on the old build. Both directions are
+ * data loss that looks like a working connection, so the two builds refuse each
+ * other outright instead: `decodeEnvelope` returns `null`, the frame is counted
+ * as undecodable, and the room reports no traffic — which is a fault somebody
+ * investigates rather than a setting that will not stick.
  */
 export interface Envelope<T = unknown> {
-  v: 1;
+  v: 2;
   ch: Channel;
   /** Epoch ms on the SENDER's clock. Never trusted for ordering, only for age. */
   ts: number;
@@ -44,12 +59,81 @@ export interface Envelope<T = unknown> {
   role: Role;
   /** Monotonic per `src`, reset on reload. `(src, seq)` is the dedup key. */
   seq: number;
-  /** `ch === 'state'` only: the Lamport `AppState.rev`. */
+  /** `ch === 'state'` only: the Lamport `AppState.rev`. Storage bookkeeping ONLY. */
   rev?: number;
+  /**
+   * ── The ordering ───────────────────────────────────────────────────────────
+   *
+   * `ch === 'state'` only: `leaf path → the hybrid-logical-clock stamp of the
+   * write that produced the value the body carries at that path`. See
+   * `src/sync/hlc.ts` for the clock, `src/sync/leaves.ts` for what a leaf is
+   * and `src/sync/merge.ts` for the merge these stamps drive.
+   *
+   * Only leaves somebody has actually WRITTEN appear. Every state frame is a
+   * full snapshot, so most of the body on most frames is defaults and settled
+   * values nobody is arguing about; a missing stamp reads as `EPOCH`, which
+   * loses to anything, so an unstamped leaf can fill a gap and can never
+   * overturn a decision. That is the property that makes a retained replay safe
+   * to treat as an ordinary frame, and it is what let the whole "is this a
+   * replay?" special case — and the rev floor under it — be deleted.
+   */
+  stamps?: Record<string, StampTuple>;
+  /**
+   * The sender's own clock: the greatest stamp it has seen from anybody.
+   *
+   * A receiver folds it into its own clock, which is what makes the next write
+   * this page makes order strictly after everything the sender had accounted
+   * for — including writes whose stamps were trimmed off this frame, and
+   * writes by peers this page has never heard from. It is one tuple, and it is
+   * the whole of the causality machinery that remains.
+   */
+  clock?: StampTuple;
   body: T;
 }
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
+
+/**
+ * How many leaf stamps a RECEIVER will remember from one frame.
+ *
+ * There used to be a fixed cap of 32 here that applied on the way OUT as well,
+ * and it was wrong in a way that could not heal. A frame carries a full
+ * snapshot; dropping a leaf's stamp while keeping its value does not send
+ * "less information", it sends the strongest possible LIE about that leaf —
+ * `EPOCH`, the beginning of time. A receiver that was not listening when the
+ * stamp was fresh then loses that leaf forever, because a leaf buried under 33
+ * newer edits can never climb back into the sender's newest 32. Measured: a
+ * phone locked while CAM picked a module and then tuned 34 settings never
+ * learned the module, through thirty seconds of continuous republishing.
+ *
+ * So the wire cap is gone. `fitStateEnvelope`'s byte ladder is the only
+ * trimmer, it is measured against the real 8 kB budget, and its rule is that a
+ * VALUE NEVER TRAVELS WITHOUT ITS STAMP. What remains here is a receive-side
+ * sanity bound so a hostile peer cannot make us hold an unbounded map: an
+ * envelope is already capped at 8 kB and the smallest possible entry is about
+ * 16 bytes, so nothing honest can ever reach this number.
+ */
+export const MAX_WIRE_STAMP_ENTRIES = 1024;
+
+/**
+ * How many registers the localStorage clock slot keeps.
+ *
+ * A cap is still right HERE, and only here: the slot is a private note this
+ * page leaves itself, and a register it drops costs ordering after a reload
+ * and nothing more — the leaf simply restores unstamped and cannot win an
+ * argument. Nobody else is misled, because the slot never travels.
+ *
+ * Overflow drops the OLDEST registers first: an old stamp is one the room
+ * settled long ago, and the leaf still in play is the one touched last.
+ */
+export const MAX_SLOT_REGISTERS = 32;
+
+/**
+ * A ceiling on the serialized clock slot, because the slot now carries VALUES
+ * as well as stamps (see `appSync.ts`'s `StoredClock`) and one module's config
+ * leaf can be a URL. Registers are added newest-first until either cap bites.
+ */
+export const MAX_SLOT_BYTES = 32_768;
 
 /** Invariant I6: a sync payload is capped at 8 KB. */
 export const MAX_ENVELOPE_BYTES = 8192;
@@ -64,11 +148,25 @@ export const MAX_ENVELOPE_BYTES = 8192;
  *
  * `partial` is set only when the complete module map did not fit in 8 KB and
  * everything but the active module had to be dropped. A receiver must then
- * merge rather than replace — which it does anyway, because the remote layer
- * is a `DeepPartial` patch.
+ * merge rather than replace — which it does anyway, because every leaf is
+ * merged on its own stamp and a leaf the body does not mention is a leaf the
+ * receiver keeps.
  */
 export interface SyncStateBody {
+  /**
+   * The base kind. LEGACY for one release: always written as
+   * `look.layers[0].kind`, and forced back into it on receipt, so the two can
+   * never disagree on the wire. Removed at schema 8 (§1.2 of the layers
+   * design); until then `src/sync/leaves.ts` treats them as ONE leaf.
+   */
   activeModuleId: string;
+  /**
+   * The arrangement: what is on the panel, in what order, at what size.
+   *
+   * Optional because a body written by a build that predates §6 carries none,
+   * and `syncBodyToPatch` projects that losslessly through `baseLook`.
+   */
+  look?: Look;
   modules: Record<string, ModuleSlot>;
   playback: PlaybackState | null;
   render: RenderSettings;
@@ -310,4 +408,12 @@ export interface RecvMeta {
   rev: number | null;
   retained: boolean;
   via: TransportId;
+  /**
+   * The frame's per-leaf stamps, decoded. Empty for a frame that carried none —
+   * which reads as "every leaf on this frame is unstamped", i.e. able to fill a
+   * gap and unable to overturn anything.
+   */
+  stamps: ReadonlyMap<string, Stamp>;
+  /** The sender's clock, or `null` on a frame that carried none. */
+  clock: Stamp | null;
 }

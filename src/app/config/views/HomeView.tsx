@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 
 import {
   CAM_FRAME_RATE_LEAD,
@@ -12,10 +12,7 @@ import {
   LOCAL_COPY_PITCH,
 } from '../../../config/vocabulary';
 import { formatBytes } from '../../../lib/bytes';
-import { validateClock } from '../../../modules/clock/schema';
-import { validateImageConfig } from '../../../modules/image/schema';
 import { getModule, listModules } from '../../../modules/registry';
-import { validateStatsConfig } from '../../../modules/stats/schema';
 import { videoModule } from '../../../modules/video';
 import { readClipIndex } from '../../../modules/video/local/clipStore';
 import {
@@ -26,17 +23,31 @@ import {
 import { readTeleMirror, type TelePacket } from '../../../modules/video/telemetry/videoTelemetry';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { DEVICE_PRESETS } from '../../../platform/devicePresets';
-import { withModuleConfig } from '../../../state/selectors';
-import { Meter, Notice, Segmented } from '../../../ui';
-import { FitControl } from '../../../ui/Framing';
+import { BASE_LAYER_ID, MAX_LAYERS } from '../../../state/look/types';
+import { selectLayerConfig, withModuleConfig } from '../../../state/selectors';
+import { decodeMonitorSnapshot } from '../../../sync/monitorSnapshot';
+import { Meter, Notice } from '../../../ui';
+import { withBaseKind } from '../../state/switchBase';
 import { hasDisplayBeenSeen } from '../displaySeen';
+import { alignPatches, distributePatches, type AlignEdge, type AlignRef } from '../editor/arrange';
+import {
+  SOLID_BASE_CFG,
+  SOLID_BASE_KIND,
+  baseCapableKinds,
+  hasSolidBase,
+} from '../editor/basePicker';
+import { budgetReading } from '../editor/budget';
+import { readLookName, writeLookName } from '../editor/looksStore';
+import { nudgeStep } from '../editor/nudge';
+import { resize as resizeLayer } from '../editor/ops';
+import { monitoringIsSimulated } from '../editor/previewMonitoring';
+import { useEditor } from '../editor/useEditor';
 import {
   TELE_FRESH_MS,
   describeFlow,
   eventTime,
   describeVideoStatus,
   failureLine,
-  formatSeconds,
   isLowFps,
   pickMirrorPreset,
   readDisplayFacts,
@@ -51,6 +62,7 @@ import { PanelClaim } from '../PanelClaim';
 import {
   CLAIM_FRAME_RATE,
   CLAIM_HANDOFF_PICKUP,
+  CLAIM_SAMPLE_READINGS,
   CLAIM_STREAMING_HEADLINE,
   CLAIM_STREAMING_NO_COPY,
   CLAIM_YOUTUBE_EMBED,
@@ -61,18 +73,28 @@ import {
 } from '../panelClaims';
 import { panelIsLive, panelPresence, type PanelPresence } from '../panelPresence';
 import { pasteAction, type PasteAction, type PasteIssue } from '../pasteLink';
+import { replicaGeometry } from '../replica';
 import { ownsBytes } from '../surface';
 import { PHONE_QUERY, useNarrow } from '../useNarrow';
 
 import { CamSetupCard } from './CamSetupCard';
 import { prefetchConfigPanel } from './configPanels';
+import { AddSheet } from './editor/AddSheet';
+import { ArrangeStrip } from './editor/ArrangeStrip';
+import { EditorCanvas } from './editor/EditorCanvas';
+import { EditorHeader } from './editor/EditorHeader';
+import { InspectorSheet } from './editor/InspectorSheet';
+import { LayerRail } from './editor/LayerRail';
+import { crossFadeLookSwitch } from './editor/looks/crossFade';
+import { FirstRunTemplates } from './editor/looks/FirstRunTemplates';
+import { LooksSheet } from './editor/looks/LooksSheet';
+import { useCarousel } from './editor/looks/useCarousel';
+import { SelectionStrip } from './editor/SelectionStrip';
 import { LoopScrubber, LOOP_MAX_SEC } from './LoopScrubber';
 import { ModuleSettingsView } from './ModuleSettingsView';
 import { VideoHalo } from './VideoHalo';
 
-import type { AppState } from '../../../state/schema';
 import type { ConfigRuntime } from '../runtime';
-import type { ReactNode } from 'react';
 
 /**
  * "Your Kraken" — the home screen (docs/design/halo-prototype.html, screen 1).
@@ -356,7 +378,7 @@ export function HomeView({
   useEffect(() => {
     if (openModule === undefined || openModule === '') return;
     if (getModule(openModule) === null) return;
-    runtime.store.commit((s) => ({ ...s, activeModuleId: openModule }));
+    runtime.store.commit((s) => withBaseKind(s, openModule));
   }, [openModule, runtime]);
 
   /**
@@ -396,6 +418,97 @@ export function HomeView({
   const narrow = useNarrow(PHONE_QUERY);
 
   const preset = DEVICE_PRESETS[pickMirrorPreset(facts)];
+
+  /**
+   * The editor is a DESKTOP/CAM surface this wave (§5, and W6 brings the phone).
+   *
+   * A coarse pointer under 700 px keeps the composition it has always had —
+   * mirror, one action, chips, strip — because the remote is what a phone gets,
+   * and shipping half an editor onto a 390 px screen would be worse than
+   * shipping none.
+   */
+  const editorMode = !narrow;
+
+  /**
+   * The panel the halo is standing in for, at its own pixel size.
+   *
+   * `replicaGeometry` rather than a second derivation: the phone's ring already
+   * had to answer "what geometry is the panel", and two answers to that question
+   * is how a layer ends up 4 px out on one surface and nobody can say which one
+   * is lying.
+   */
+  const haloPanel = useMemo(
+    () =>
+      replicaGeometry(
+        {
+          w: preset.width,
+          h: preset.height,
+          shape: preset.shape,
+          targetFps: facts?.targetFps ?? preset.targetFps,
+        },
+        state.render,
+      ),
+    [preset, facts?.targetFps, state.render],
+  );
+
+  const editor = useEditor({
+    runtime,
+    panel: { shape: preset.shape },
+    render: { safeRadiusPct: state.render.safeRadiusPct },
+  });
+
+  /*
+    The carousel's timer (§4), on the home screen rather than in the sheet: a
+    rotation that stopped when you closed the menu would be no rotation at all.
+    It is a no-op on any window that does not own the saved-Looks store.
+  */
+  useCarousel({ store: runtime.store, owns });
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [looksOpen, setLooksOpen] = useState(false);
+  /**
+   * The inspector (§2.4, M6) — `More`'s destination at editor widths.
+   *
+   * It is a sheet in the RAIL's column, like the add sheet, rather than the
+   * options panel taking the floor: the panel is the right answer on the phone's
+   * single-column home, where there is no rail to put anything in, and the wrong
+   * one here, where it cost the halo 180 px to show a wall of controls that the
+   * strip's five buttons had all been aliases for.
+   */
+  const [inspectOpen, setInspectOpen] = useState(false);
+  /**
+   * Which part of the inspector the press was ASKING for — round 11's F-7.
+   *
+   * The strip's Effect, Preset and Colours are all doors into the kind's own
+   * panel (`runStripAction` below), and the inspector opens at the top, which
+   * is Layout: five number fields and a sentence about panel pixels. Measured
+   * on the effect layer at 866x537, the sheet's body is 365 px tall over
+   * 1,651 px of content, so pressing **Effect** showed 0 of the 12 effect tiles
+   * and left a person looking at an X/Y readout, with no sign that the thing
+   * they asked for was 400 px below the fold.
+   *
+   * A counter rather than a boolean: pressing **Effect** twice in a row must
+   * scroll twice, and a flag that is already `'options'` is a state change React
+   * has no reason to act on. `More` — the door with no particular destination —
+   * leaves it `null` and the inspector opens where it always did, at the top.
+   */
+  const [reveal, setReveal] = useState<{ section: 'options'; nonce: number } | null>(null);
+  /** Align to the panel, or to the selection's own box (§2.1). */
+  const [alignRef, setAlignRef] = useState<AlignRef>('canvas');
+
+  /** Opening one sheet closes the other two — they share the rail's column. */
+  const openSheet = (which: 'add' | 'looks' | 'inspect' | null): void => {
+    setAddOpen(which === 'add');
+    setLooksOpen(which === 'looks');
+    setInspectOpen(which === 'inspect');
+  };
+  const [lookName, setLookNameState] = useState(readLookName);
+  const renameLook = (next: string): void => {
+    const trimmed = next.trim();
+    writeLookName(trimmed === '' ? null : trimmed);
+    setLookNameState(trimmed === '' ? null : trimmed);
+  };
+
   // Not memoized on purpose: both are pure, cheap and derived from state the
   // component already re-renders on, and a manual memo here is exactly the kind
   // the React compiler cannot preserve.
@@ -590,6 +703,461 @@ export function HomeView({
    */
   const compact = openOps || loopOpen || receiptUp;
 
+  /**
+   * What the selection strip is about — the selected layer, or the base.
+   *
+   * The base is the resting selection because the base is what the panel mostly
+   * IS: with nothing selected the strip carries the background's own controls,
+   * which is exactly what the old branch-based ops strip did, and selecting an
+   * overlay swaps the row and changes nothing else on the screen (principle 3).
+   */
+  /**
+   * The keyboard map (§2.1).
+   *
+   * Undo is the one that has to work from anywhere — it is the promise the whole
+   * editor rests on (principle 4) — so the listener is on `window` rather than
+   * on the canvas, and it stands down while the caret is in a field, because
+   * ⌘Z in a text box means "undo my typing" and always will.
+   */
+  useEffect(() => {
+    if (!editorMode) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && event.key.toLowerCase() === 'z') {
+        if (typing) return;
+        event.preventDefault();
+        if (event.shiftKey) editor.redo();
+        else editor.undo();
+        return;
+      }
+      if (typing) return;
+
+      /*
+       * Escape deselects — round 10's F8.
+       *
+       * Measured: one layer selected, press Escape, one layer still selected.
+       * Every other surface in the product treats Escape as "put that down", and
+       * the canvas was the one place it did nothing at all — on the screen where
+       * a stray selection is what makes the next arrow press move the wrong
+       * thing.
+       *
+       * It stands down while something is open on top: Escape's first meaning is
+       * always "close the thing in front of me", and the handlers for the
+       * options panel, the scrubber and the sheets are the ones that own it
+       * then. It also stands down in a text field, like every key here.
+       */
+      if (event.key === 'Escape') {
+        if (openOps || loopOpen) return;
+        if (addOpen || looksOpen || inspectOpen) {
+          setAddOpen(false);
+          setLooksOpen(false);
+          setInspectOpen(false);
+          return;
+        }
+        if (editor.selection.length === 0) return;
+        event.preventDefault();
+        editor.select(null);
+        return;
+      }
+
+      const id = editor.selection[0];
+      if (mod && event.key.toLowerCase() === 'a') {
+        event.preventDefault();
+        editor.selectMany(editor.overlays.map((l) => l.id));
+        return;
+      }
+      if (id === undefined) return;
+
+      if (mod && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        editor.duplicate(id);
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        editor.remove(id);
+        return;
+      }
+      if (event.key === '[' || event.key === ']') {
+        const at = state.look.layers.findIndex((l) => l.id === id);
+        if (at > 0) editor.move(id, at + (event.key === ']' ? 1 : -1));
+        return;
+      }
+      /*
+       * One PANEL pixel, ten with Shift — §2.1, and round 10's M4.
+       *
+       * It shipped as `0.01` of a unit, which is 3.2 px on a 640 Elite and 1.2
+       * on a 240 square: the same press, a different visible distance, and
+       * neither of them a pixel. `nudgeStep` converts through the panel's own
+       * radius (and not through the halo's on-screen scale — a nudge must move
+       * the same distance on the Kraken whatever size the CAM window is).
+       */
+      const step = nudgeStep(event.shiftKey, haloPanel.radiusPx);
+      const nudge: Record<string, { x?: number; y?: number }> = {
+        ArrowLeft: { x: -step },
+        ArrowRight: { x: step },
+        ArrowUp: { y: -step },
+        ArrowDown: { y: step },
+      };
+      const delta = nudge[event.key];
+      if (delta === undefined) return;
+      const layer = state.look.layers.find((l) => l.id === id);
+      if (layer === undefined) return;
+      event.preventDefault();
+      editor.transform(id, {
+        x: layer.t.x + (delta.x ?? 0),
+        y: layer.t.y + (delta.y ?? 0),
+      });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [
+    editor,
+    editorMode,
+    state.look,
+    haloPanel.radiusPx,
+    openOps,
+    loopOpen,
+    addOpen,
+    looksOpen,
+    inspectOpen,
+  ]);
+
+  const stripLayer = editor.selected ?? editor.layers[0] ?? null;
+  const stripModule = stripLayer === null ? null : getModule(stripLayer.kind);
+  const stripIsBase = stripLayer !== null && stripLayer.id === BASE_LAYER_ID;
+  const stripConfig =
+    stripLayer === null || stripModule === null
+      ? null
+      : stripModule.validate(selectLayerConfig(state, stripLayer));
+
+  /** A config write lands in the layer's ONE home, decided by position (§4.1). */
+  const writeStripConfig = (next: unknown): void => {
+    if (stripLayer === null || stripModule === null) return;
+    if (stripIsBase) {
+      runtime.store.commit((sn) =>
+        withModuleConfig(sn, stripModule.id, stripModule.configVersion, next),
+      );
+      return;
+    }
+    editor.writeConfig(stripLayer.id, stripModule.configVersion, next);
+  };
+
+  /**
+   * Whether anything on this look is reading invented numbers (F8).
+   *
+   * `now` rather than `Date.now()` — this is a render, and the page's one
+   * sampled clock is what every other freshness question on the screen uses.
+   */
+  const sampleReadings =
+    state.look.layers.some(
+      (l) => l.on && getModule(l.kind)?.capabilities.needsMonitoring === true,
+    ) &&
+    monitoringIsSimulated({ snapshot: decodeMonitorSnapshot(fresh?.mon), at: fresh?.ts ?? 0 }, now);
+
+  const budget = budgetReading({
+    look: state.look,
+    registry: getModule,
+    configOf: (layer) => selectLayerConfig(state, layer),
+    presence,
+    targetFps: facts?.targetFps ?? null,
+    achievedFps: fresh?.achievedFps ?? null,
+  });
+
+  /**
+   * The strip's own actions.
+   *
+   * Every one of them opens something that already exists on this screen: the
+   * primary action's field, the A/B scrubber, the module's options panel. The
+   * strip does not grow a second copy of anything.
+   */
+  const runStripAction = (
+    action: 'source' | 'loop' | 'colours' | 'preset' | 'effect' | 'quality',
+  ): void => {
+    if (action === 'loop') {
+      setLoopOpen((open) => !open);
+      return;
+    }
+    if (action === 'source') {
+      pasteRef.current?.focus();
+      return;
+    }
+    /*
+     * Colours, presets, the effect catalog and the quality ladder all need data
+     * a manifest may not carry, and all of it is in the kind's own panel.
+     *
+     * At editor widths that panel lives in the INSPECTOR (§2.4, M6) rather than
+     * in the floor-yielding options panel — which is why Effect's "Effect" and
+     * "Preset" both landing on the same 621 px wall stopped being four buttons
+     * pretending to be four buttons. On the phone's single-column home there is
+     * no rail to open a sheet in, so it is the panel exactly as before.
+     */
+    if (editorMode) {
+      setReveal((prev) => ({ section: 'options', nonce: (prev?.nonce ?? 0) + 1 }));
+      openSheet('inspect');
+      return;
+    }
+    showOps(true);
+  };
+
+  /**
+   * The group operations, committed as ONE entry each (§2.1, F7).
+   *
+   * `arrange.ts` decides what moves and by how much; `transformMany` writes it.
+   * Nothing here does geometry, and nothing here writes a layer.
+   */
+  const runAlign = (edge: AlignEdge): void => {
+    editor.transformMany(
+      alignPatches({ look: state.look, ids: editor.selection, panel: haloPanel }, edge, alignRef),
+    );
+  };
+  const runDistribute = (axis: 'x' | 'y'): void => {
+    editor.transformMany(
+      distributePatches({ look: state.look, ids: editor.selection, panel: haloPanel }, axis),
+    );
+  };
+
+  /**
+   * The three blocks the editor RE-HOMES rather than rebuilds.
+   *
+   * The chip row, the primary action and the nav row exist once, with the same
+   * ids and the same behaviour they have always had; at editor widths the rail
+   * hosts them in its column, and at phone widths they stay in the flow. Two
+   * copies of the chips would be two rows that can disagree, which is the
+   * duplication the whole strip contract exists to end.
+   */
+  /**
+   * The chip row is the BASE picker, so it offers exactly the backgrounds —
+   * round 11's M-a.
+   *
+   * It used to be `listModules()`: nine chips in registry order, including
+   * Text, Icon and Date, whose manifests declare `roles: ['overlay']` and
+   * therefore cannot be a background at all. Pressing one asked
+   * `withBaseKind()` for something the model does not describe. Meanwhile the
+   * add sheet's BACKGROUND row — the OTHER base picker, one press away in the
+   * same column — was already derived from `roles` and offered a seventh entry
+   * this row did not have (Solid colour). Two pickers for one question,
+   * disagreeing in both directions.
+   *
+   * `basePicker.ts` is the one derivation now; the sheet reads it too.
+   */
+  const baseKinds = baseCapableKinds(modules);
+  const chipRow = (
+    <div className="kh-mods" role="group" aria-label="What's on the screen">
+      {baseKinds.map((m) => {
+        const active = m.id === activeId;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            className="kh-mod"
+            aria-pressed={active}
+            // Only the ACTIVE chip is a disclosure. An inactive chip switches
+            // modules and nothing else, and claiming otherwise in the
+            // accessibility tree would promise a panel that does not open.
+            aria-expanded={active ? openOps : undefined}
+            aria-controls={active ? 'kh-ops-panel' : undefined}
+            data-testid={`module-chip-${m.id}`}
+            onClick={() => {
+              if (active) {
+                showOps(!openOps);
+                return;
+              }
+              /*
+                §7's third transition: the base cross-fades, it does not cut.
+
+                The SAME mechanism a Look switch uses (`crossFade.ts`), reached
+                by class rather than rebuilt here — the audit's F9 found
+                `document.getAnimations()` empty after a base switch, and the
+                fix for that is one more caller of the animation that already
+                exists, not a second way to fade the same element.
+              */
+              crossFadeLookSwitch();
+              runtime.store.commit((sn) => withBaseKind(sn, m.id));
+              editor.select(BASE_LAYER_ID);
+              showOps(false);
+              setLoopOpen(false);
+            }}
+          >
+            {m.chipName ?? m.name}
+          </button>
+        );
+      })}
+
+      {/*
+        Solid colour — the add sheet's seventh background, here too (M-a).
+
+        It is the shape kind wearing `SOLID_BASE_CFG` rather than a kind of its
+        own (§10), which is why its id is `base-chip-solid` and not
+        `module-chip-…`: `module-chip-<id>` names a MODULE, and two suites
+        enumerate that prefix and open each chip's options by it. A chip whose
+        id promised a module called "solid" would have sent them looking for a
+        panel that does not exist.
+      */}
+      {hasSolidBase(modules) && (
+        <button
+          type="button"
+          className="kh-mod"
+          data-testid="base-chip-solid"
+          onClick={() => {
+            crossFadeLookSwitch();
+            runtime.store.commit((sn) =>
+              withModuleConfig(
+                withBaseKind(sn, SOLID_BASE_KIND),
+                SOLID_BASE_KIND,
+                getModule(SOLID_BASE_KIND)?.configVersion ?? 1,
+                SOLID_BASE_CFG,
+              ),
+            );
+            editor.select(BASE_LAYER_ID);
+            showOps(false);
+            setLoopOpen(false);
+          }}
+        >
+          Solid
+        </button>
+      )}
+    </div>
+  );
+
+  const pasteRow = (
+    <>
+      {action === null ? (
+        /*
+      Clock and Stats have nothing to be handed. The row used to shout
+      "Paste a video link" at them anyway — the most prominent control in
+      the product, asking for something the screen in front of you cannot
+      use (R9). It is one quiet sentence that changes the subject instead.
+    */
+        <p className="kh-paste kh-paste--quiet">
+          <button
+            type="button"
+            className="kh-quiet"
+            data-testid="paste-switch"
+            onClick={() => {
+              runtime.store.commit((s) => withBaseKind(s, videoModule.id));
+              showOps(false);
+              setLoopOpen(false);
+              wantsPaste.current = true;
+            }}
+          >
+            Play something
+          </button>
+        </p>
+      ) : (
+        <form
+          className="kh-paste"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <input
+            ref={pasteRef}
+            className="kh-paste__input"
+            type="text"
+            value={draft}
+            data-testid="paste-input"
+            /*
+          The spine's fingerprint — round 6's C1.
+
+          Every url-accepting field in the product carries the module it is
+          currently the field FOR, put there by `pasteAction` and by nothing
+          else. `tests/e2e/paste-spine.spec.ts` walks every route and state,
+          finds the fields by role, and fails on one that has no such
+          attribute — so a link field added later cannot quietly reintroduce
+          the hard-wiring `RemoteAdd` and `LibraryView` shipped with.
+        */
+            data-paste-field={action.moduleId}
+            aria-label={action.label}
+            placeholder={action.placeholder}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setIssue(null);
+            }}
+          />
+          <button type="submit" className="kh-btn kh-btn--primary" data-testid="paste-submit">
+            {action.submitLabel}
+          </button>
+        </form>
+      )}
+    </>
+  );
+
+  const navRow = (
+    <nav className="kh-more" aria-label="More">
+      <a href="#/remote" data-testid="disclosure-remote">
+        Remote
+      </a>
+      <span aria-hidden="true">·</span>
+      {/*
+      Two destinations, still — and the shelf's ONE name (A5).
+
+      The door stays on every surface, because the Library is a property of
+      the Kraken rather than of the window: hiding it would be the app
+      telling a phone it has no library, which is the impression this wave
+      exists to remove. What changed is on the other side of it — a window
+      that owns no bytes and is paired to no Kraken has nothing to show, so
+      `ConfigApp` lands that case on pairing instead of drawing an empty
+      grid and calling it yours.
+    */}
+      <a href="#/library" data-testid="disclosure-library">
+        {LIBRARY_NOUN}
+      </a>
+    </nav>
+  );
+
+  /**
+   * A selection of several layers is a different subject (F7).
+   *
+   * The strip went on showing the BASE's controls while four rail rows were
+   * marked, which is the app answering a question nobody asked. Two or more
+   * selected layers get the group row instead: six alignments, what to align
+   * them to, and distribute.
+   */
+  const multiSelected = editor.selection.filter((id) => id !== BASE_LAYER_ID);
+
+  const selectionStrip =
+    editorMode && multiSelected.length >= 2 ? (
+      <ArrangeStrip
+        count={multiSelected.length}
+        reference={alignRef}
+        onReference={setAlignRef}
+        onAlign={runAlign}
+        onDistribute={runDistribute}
+        canDistribute={multiSelected.length >= 3}
+      />
+    ) : stripLayer === null || stripModule?.editor === undefined ? null : (
+      <SelectionStrip
+        layer={stripLayer}
+        config={stripConfig}
+        loopOpen={loopOpen}
+        onConfig={writeStripConfig}
+        onTransform={(patch) => {
+          editor.transform(stripLayer.id, patch);
+        }}
+        onResize={(factor) => {
+          editor.commitLook(resizeLayer(state.look, stripLayer.id, factor, editor.registry));
+        }}
+        onAction={runStripAction}
+        onMore={() => {
+          if (editorMode) {
+            setReveal(null);
+            openSheet('inspect');
+          } else {
+            showOps(true);
+          }
+        }}
+      />
+    );
+
   return (
     <section
       className="kh-home"
@@ -616,7 +1184,38 @@ export function HomeView({
         moment a display has published anything (`displaySeen.ts`).
       */
       data-firstrun={setupDone ? 'false' : 'true'}
+      /*
+        Which composition this is.
+
+        `true` — the two-column editor: the halo as the canvas on the left, the
+        layer rail on the right, no tabs. `false` — the single-column screen a
+        phone still gets, because the remote is what a phone is for and half an
+        editor on 390 px would be worse than none (§5). The stylesheet reads
+        this, and so does `tests/e2e/editor.spec.ts`.
+      */
+      data-editor={editorMode ? 'true' : 'false'}
     >
+      {/*
+        The editor's header (§2): the Look's name, undo/redo, the budget meter.
+        No tabs, and never more than one row — the composition below it is
+        promised to fit CAM's 537 px window and this is the first thing that
+        would eat it.
+      */}
+      {editorMode && (
+        <EditorHeader
+          name={lookName}
+          onRename={renameLook}
+          onOpenLooks={() => {
+            openSheet(looksOpen ? null : 'looks');
+          }}
+          budget={budget}
+          canUndo={editor.canUndo}
+          canRedo={editor.canRedo}
+          onUndo={editor.undo}
+          onRedo={editor.redo}
+        />
+      )}
+
       {isLowFps(facts) && (
         <div className="kh-fps-banner" role="status" data-testid="fps-banner">
           {/*
@@ -641,16 +1240,36 @@ export function HomeView({
         and the line steps alongside it rather than being orphaned under a
         64 px circle.
       */}
-      <div className="kh-home__mirror">
-        <div
-          className={preset.shape === 'circle' ? 'kh-halo' : 'kh-halo kh-halo--square'}
-          data-testid="mirror"
-          data-mirror-preset={preset.id}
-          data-mirror-mode={activeId === videoModule.id || !owns ? 'surface' : 'live'}
-        >
-          <div className="kh-halo__lcd">
-            {activeId === videoModule.id || !owns ? (
-              /*
+      <div className="kh-home__mirror" data-mirror-preset={preset.id}>
+        {editorMode ? (
+          /*
+            Principle 1: the canvas IS the halo.
+
+            A real `LayerHost` at halo size, running the real renderers through
+            the preview registry — the same compositor and the same `layerBox`
+            maths the LCD uses, so what you drag is what the panel shows. The
+            iframe mirror below is what a PHONE still gets: it is one document
+            for one module, which is exactly what the remote surface is for.
+          */
+          <EditorCanvas
+            editor={editor}
+            state={state}
+            panel={haloPanel}
+            monitor={decodeMonitorSnapshot(fresh?.mon)}
+            monitorAt={fresh?.ts ?? 0}
+            progress={haloProgress}
+            coarsePointer={narrow}
+          />
+        ) : (
+          <div
+            className={preset.shape === 'circle' ? 'kh-halo' : 'kh-halo kh-halo--square'}
+            data-testid="mirror"
+            data-mirror-preset={preset.id}
+            data-mirror-mode={activeId === videoModule.id || !owns ? 'surface' : 'live'}
+          >
+            <div className="kh-halo__lcd">
+              {activeId === videoModule.id || !owns ? (
+                /*
                 The mirror is an iframe of the REAL display page, and that is
                 only honest on the window that owns the storage (A1).
 
@@ -663,25 +1282,29 @@ export function HomeView({
                 A remote surface gets the same named card the video path already
                 uses, and the ring on `#/remote` is where a live replica lives.
               */
-              <VideoHalo
-                url={activeId === videoModule.id ? videoCfg.url : ''}
-                name={status.name}
-                progress={haloProgress}
-                held={liveStats?.held === true}
-                compact={compact}
-              />
-            ) : (
-              <iframe
-                className="kh-halo__frame"
-                title={`Your Kraken — live mirror (${preset.label})`}
-                src={`./?kraken=1&sim=${preset.id}`}
-                style={
-                  { '--kh-mirror-w': preset.width, '--kh-mirror-h': preset.height } as CSSProperties
-                }
-              />
-            )}
+                <VideoHalo
+                  url={activeId === videoModule.id ? videoCfg.url : ''}
+                  name={status.name}
+                  progress={haloProgress}
+                  held={liveStats?.held === true}
+                  compact={compact}
+                />
+              ) : (
+                <iframe
+                  className="kh-halo__frame"
+                  title={`Your Kraken — live mirror (${preset.label})`}
+                  src={`./?kraken=1&sim=${preset.id}`}
+                  style={
+                    {
+                      '--kh-mirror-w': preset.width,
+                      '--kh-mirror-h': preset.height,
+                    } as CSSProperties
+                  }
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <p className="kh-status" data-testid="status-line">
           {status.live && <span className="kh-status__live" aria-hidden="true" />}
@@ -696,6 +1319,39 @@ export function HomeView({
           </span>
         </p>
       </div>
+
+      {/*
+        The numbers in the halo are the simulator's, and it says so (F8).
+
+        The editor mounts the real stats renderer against `previewMonitoring`,
+        which falls back to `platform/simulator.ts` when nothing is publishing —
+        the right call, because an empty gauge teaches nobody anything about the
+        face they are arranging. It was made in silence: the halo read
+        `41 °C · CPU · 16 % load` on a window that had never heard from a Kraken,
+        and a cooler app showing a made-up temperature without saying so is the
+        worst thing it can do.
+
+        Two conditions, and both are necessary: the source has to be simulated
+        (`monitoringIsSimulated`, the same test the source's own `isSimulated()`
+        runs), and the look has to contain a layer that reads it —
+        `capabilities.needsMonitoring`, off the manifest, so a kind added later
+        is covered without an edit here.
+
+        A SIBLING of the mirror rather than a child of it: `ui.css` parks it in
+        the canvas column's own corner with `grid-area`, which costs the halo no
+        height, and making the mirror a positioned ancestor instead would have
+        re-parented the status line — which is absolutely positioned too — out of
+        the rail's column and onto the selection strip.
+      */}
+      {editorMode && sampleReadings && (
+        <PanelClaim
+          claim={CLAIM_SAMPLE_READINGS}
+          presence={presence}
+          as="p"
+          className="kh-samplenote"
+          testId="sample-readings"
+        />
+      )}
 
       {/*
         First run, and only first run — BELOW the halo.
@@ -714,65 +1370,42 @@ export function HomeView({
         <CamSetupCard runtime={runtime} variant="first-run" presence={presence} dense={compact} />
       )}
 
-      {action === null ? (
-        /*
-          Clock and Stats have nothing to be handed. The row used to shout
-          "Paste a video link" at them anyway — the most prominent control in
-          the product, asking for something the screen in front of you cannot
-          use (R9). It is one quiet sentence that changes the subject instead.
-        */
-        <p className="kh-paste kh-paste--quiet">
-          <button
-            type="button"
-            className="kh-quiet"
-            data-testid="paste-switch"
-            onClick={() => {
-              runtime.store.commit((s) => ({ ...s, activeModuleId: videoModule.id }));
-              showOps(false);
-              setLoopOpen(false);
-              wantsPaste.current = true;
-            }}
-          >
-            Play something
-          </button>
-        </p>
-      ) : (
-        <form
-          className="kh-paste"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          <input
-            ref={pasteRef}
-            className="kh-paste__input"
-            type="text"
-            value={draft}
-            data-testid="paste-input"
-            /*
-              The spine's fingerprint — round 6's C1.
+      {/*
+        …and three Looks to press — §4, and round 11's M-h.
 
-              Every url-accepting field in the product carries the module it is
-              currently the field FOR, put there by `pasteAction` and by nothing
-              else. `tests/e2e/paste-spine.spec.ts` walks every route and state,
-              finds the fields by role, and fails on one that has no such
-              attribute — so a link field added later cannot quietly reintroduce
-              the hard-wiring `RemoteAdd` and `LibraryView` shipped with.
-            */
-            data-paste-field={action.moduleId}
-            aria-label={action.label}
-            placeholder={action.placeholder}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setIssue(null);
-            }}
-          />
-          <button type="submit" className="kh-btn kh-btn--primary" data-testid="paste-submit">
-            {action.submitLabel}
-          </button>
-        </form>
+        The band above is an errand: point CAM at this address. It is the right
+        thing to say first and it is the only thing a cold profile said at all,
+        so the first screen of the product was an instruction with no product
+        under it — measured on a cold profile at 866x537, `look-template-*`
+        appeared nowhere in the DOM. §4 asks for template cards on first run and
+        they were never built; `FirstRunTemplates` is them, using the same
+        `LookPreview` and the same apply path the Looks sheet uses.
+
+        It is a SIBLING of the setup card here and a column beside the halo on
+        screen: `ui.css` moves it into the canvas column's left gutter, which is
+        the width a square halo leaves over in a column that is not square — so
+        it costs the canvas row nothing, and the halo on a cold profile is the
+        320 px it is with no band at all rather than the 199 the first version
+        of this band left it at. Where the gutter closes (a narrow window, or a
+        tall one where the halo outgrows the column) the same markup falls back
+        to a compact row under the card.
+
+        Editor widths only, and only while the options panel is not taking the
+        floor: on a phone the remote is the screen (§5), and with a panel open
+        the band is already down to one clause and one button (`dense`).
+      */}
+      {editorMode && !setupDone && !compact && (
+        <FirstRunTemplates
+          editor={editor}
+          state={state}
+          panel={haloPanel}
+          monitor={decodeMonitorSnapshot(fresh?.mon)}
+          monitorAt={fresh?.ts ?? 0}
+          onRename={renameLook}
+        />
       )}
+
+      {!editorMode && pasteRow}
 
       {issue !== null && (
         <div className="kh-home__notice">
@@ -784,49 +1417,43 @@ export function HomeView({
         <DownloadFlow flow={flow} url={videoCfg.url} gone={!receiptUp} presence={presence} />
       )}
 
-      <div className="kh-mods" role="group" aria-label="What's on the screen">
-        {modules.map((m) => {
-          const active = m.id === activeId;
-          return (
-            <button
-              key={m.id}
-              type="button"
-              className="kh-mod"
-              aria-pressed={active}
-              // Only the ACTIVE chip is a disclosure. An inactive chip switches
-              // modules and nothing else, and claiming otherwise in the
-              // accessibility tree would promise a panel that does not open.
-              aria-expanded={active ? openOps : undefined}
-              aria-controls={active ? 'kh-ops-panel' : undefined}
-              data-testid={`module-chip-${m.id}`}
-              onClick={() => {
-                if (active) {
-                  showOps(!openOps);
-                  return;
-                }
-                runtime.store.commit((s) => ({ ...s, activeModuleId: m.id }));
-                showOps(false);
-                setLoopOpen(false);
-              }}
-            >
-              {m.chipName ?? m.name}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="kh-ops" data-testid="ops-strip">
-        <OpsStrip
-          activeId={activeId}
-          state={state}
-          runtime={runtime}
-          videoCfg={videoCfg}
-          setVideo={setVideo}
-          loopOpen={loopOpen}
-          onToggleLoop={() => {
-            setLoopOpen((open) => !open);
+      {/*
+        The rail (§2.2) — the stack, and the column the chip row, the primary
+        action and the nav live in at editor widths. It renders only there: a
+        phone gets the remote, not half an editor (§5).
+      */}
+      {editorMode && (
+        <LayerRail
+          editor={editor}
+          heaviestId={budget.worstId}
+          onAdd={() => {
+            openSheet('add');
           }}
+          baseRow={chipRow}
+          footer={
+            <>
+              {pasteRow}
+              {navRow}
+            </>
+          }
         />
+      )}
+
+      {!editorMode && chipRow}
+
+      {/*
+        The strip is DECLARED now, not branched.
+
+        `SelectionStrip` renders `KrakenModule.editor.strip` for whichever layer
+        is selected — the base by default. The old `OpsStrip` was a chain of
+        `if (activeId === …)` cases that knew four modules by name, so the three
+        that shipped after it had no strip at all. The `data-testid`s are
+        unchanged on purpose (`ops-fill`, `ops-face`, `ops-format`,
+        `ops-seconds`, `ops-loop-button`): a redesign that renamed them would be
+        a redesign that hid whether it had changed behaviour.
+      */}
+      <div className="kh-ops" data-testid="ops-strip" data-strip-kind={stripLayer?.kind ?? ''}>
+        {selectionStrip}
       </div>
 
       {activeId === videoModule.id && loopOpen && (
@@ -889,26 +1516,88 @@ export function HomeView({
         version line in the footer: the exact string a bug report asks you to
         quote is the thing you press to get the report.
       */}
-      <nav className="kh-more" aria-label="More">
-        <a href="#/remote" data-testid="disclosure-remote">
-          Remote
-        </a>
-        <span aria-hidden="true">·</span>
-        {/*
-          Two destinations, still — and the shelf's ONE name (A5).
+      {!editorMode && navRow}
 
-          The door stays on every surface, because the Library is a property of
-          the Kraken rather than of the window: hiding it would be the app
-          telling a phone it has no library, which is the impression this wave
-          exists to remove. What changed is on the other side of it — a window
-          that owns no bytes and is paired to no Kraken has nothing to show, so
-          `ConfigApp` lands that case on pairing instead of drawing an empty
-          grid and calling it yours.
-        */}
-        <a href="#/library" data-testid="disclosure-library">
-          {LIBRARY_NOUN}
-        </a>
-      </nav>
+      {/*
+        The Looks sheet (§4). Mutually exclusive with the add sheet — they share
+        the same grid area, and two sheets stacked is the composition running
+        past CAM's fold, which is the one thing this screen promises not to do.
+      */}
+      {editorMode && looksOpen && (
+        <LooksSheet
+          editor={editor}
+          state={state}
+          panel={haloPanel}
+          monitor={decodeMonitorSnapshot(fresh?.mon)}
+          monitorAt={fresh?.ts ?? 0}
+          name={lookName}
+          onRename={renameLook}
+          owns={owns}
+          presence={presence}
+          onCarousel={(next) => {
+            runtime.store.commit((s2) => {
+              if (next === undefined) {
+                const { carousel: _dropped, ...rest } = s2;
+                return rest;
+              }
+              return { ...s2, carousel: next };
+            });
+          }}
+          onClose={() => {
+            setLooksOpen(false);
+          }}
+        />
+      )}
+
+      {editorMode && addOpen && (
+        <AddSheet
+          modules={editor.modules}
+          canAdd={editor.layers.length < MAX_LAYERS}
+          onAdd={(kind, cfg) => {
+            editor.add(kind, cfg);
+            setAddOpen(false);
+          }}
+          onBase={(kind, cfg) => {
+            crossFadeLookSwitch();
+            runtime.store.commit((sn) => {
+              const based = withBaseKind(sn, kind);
+              return cfg === undefined
+                ? based
+                : withModuleConfig(based, kind, getModule(kind)?.configVersion ?? 1, cfg);
+            });
+            editor.select(BASE_LAYER_ID);
+            setAddOpen(false);
+          }}
+          onClose={() => {
+            setAddOpen(false);
+          }}
+        />
+      )}
+
+      {/*
+        The inspector (§2.4) — everything about the selected layer, in the
+        rail's own column, with its body the thing that scrolls.
+      */}
+      {editorMode && inspectOpen && stripLayer !== null && (
+        <InspectorSheet
+          editor={editor}
+          layer={stripLayer}
+          module={stripModule}
+          config={stripConfig}
+          panel={haloPanel}
+          reveal={reveal}
+          onConfig={writeStripConfig}
+          onClose={() => {
+            setInspectOpen(false);
+          }}
+        />
+      )}
+
+      {editor.refusal !== null && (
+        <div className="kh-home__notice" data-testid="editor-refusal">
+          <Notice tone="warn">{editor.refusal}</Notice>
+        </div>
+      )}
     </section>
   );
 }
@@ -917,236 +1606,21 @@ export function HomeView({
 // The ops strip — controls, not links
 // ---------------------------------------------------------------------------
 
-/** One labelled item on the strip. The label names the thing, never the system. */
-function Op({ label, testId, children }: { label: string; testId: string; children: ReactNode }) {
-  return (
-    <span className="kh-op" data-testid={testId}>
-      <span className="kh-op__lab">{label}</span>
-      {children}
-    </span>
-  );
-}
-
-/**
- * What a person actually changes about the module that is on screen.
+/*
+ * `OpsStrip` used to live here, and it is worth saying what replaced it.
  *
- * Every one of these resolves where it stands. The rule the old line broke, and
- * the reason the audit called it "a lie": a control that looks like a toggle
- * must BE a toggle. Anything that genuinely needs a panel is reached by tapping
- * the active chip, which is a different gesture with a different promise.
+ * It was a chain of `if (activeId === 'video')` / `'clock'` / `'stats'` /
+ * `'image'` branches, one per module, each hand-writing that module's three
+ * controls. It shipped before text, shape and effect existed — and those three
+ * therefore had NO strip at all, because a view cannot grow a case for a module
+ * that was not written yet, and nothing in the contract said it had to.
+ *
+ * The strip is DATA now: `KrakenModule.editor.strip`, ≤ 5 controls with `More`
+ * last, enumerated over every registered kind by `registry.test.ts`, and
+ * rendered generically by `views/editor/SelectionStrip.tsx`. Nothing in this
+ * file knows a module's name any more, and a kind added next year arrives with
+ * its own strip.
  */
-function OpsStrip({
-  activeId,
-  state,
-  runtime,
-  videoCfg,
-  setVideo,
-  loopOpen,
-  onToggleLoop,
-}: {
-  activeId: string;
-  state: AppState;
-  runtime: ConfigRuntime;
-  videoCfg: VideoModuleConfig;
-  setVideo: (patch: Partial<VideoModuleConfig>) => void;
-  loopOpen: boolean;
-  onToggleLoop: () => void;
-}) {
-  /** Commit a module's own config, at the version the registry declares. */
-  const setModule = (id: string, cfg: unknown): void => {
-    const mod = getModule(id);
-    if (mod === null) return;
-    runtime.store.commit((s) => withModuleConfig(s, mod.id, mod.configVersion, cfg));
-  };
-
-  if (activeId === videoModule.id) {
-    const loop = videoCfg.loop;
-    const loopLabel = loop.enabled
-      ? `${formatSeconds(loop.start)} – ${loop.end === null ? 'end' : formatSeconds(loop.end)}`
-      : 'Off';
-    return (
-      <>
-        <Op label="Fit" testId="ops-fill">
-          <FitControl
-            id="home-video-fit"
-            ariaLabel="Fit"
-            value={videoCfg.render.fit}
-            onChange={(fit) => {
-              setVideo({ render: { ...videoCfg.render, fit } });
-            }}
-          />
-        </Op>
-        <span className="kh-op" data-testid="ops-loop">
-          <button
-            type="button"
-            className="kh-op__btn"
-            aria-expanded={loopOpen}
-            aria-controls="ops-loop-panel"
-            data-testid="ops-loop-button"
-            onClick={onToggleLoop}
-          >
-            <span className="kh-op__lab">Loop</span>
-            <b className="kh-tnum">{loopLabel}</b>
-          </button>
-        </span>
-        {/*
-          No "Keeping a copy" badge here any more.
-
-          It was a permanent green chip asserting a *policy* in the grammar of a
-          *stage*, next to a status line that said "Streaming clip.mp4" about the
-          same file at the same moment (round 2, R5). Keeping a copy is something
-          that happens and then is over: it belongs to the ladder — "Keeping a
-          copy of X", then "Playing X · 0:12 / 3:02" — and the setting behind it
-          is one control in the module's options, where a setting lives.
-        */}
-      </>
-    );
-  }
-
-  if (activeId === 'clock') {
-    const c = validateClock(state.modules['clock']?.cfg);
-    const commit = (patch: Record<string, unknown>): void => {
-      setModule('clock', { ...c, ...patch });
-    };
-    return (
-      <>
-        <Op label="Face" testId="ops-face">
-          <Segmented
-            id="home-clock-face"
-            ariaLabel="Face"
-            value={c.face}
-            options={[
-              { value: 'digital', label: 'Digital' },
-              { value: 'analog', label: 'Analog' },
-            ]}
-            onChange={(face) => {
-              commit({ face });
-            }}
-          />
-        </Op>
-        <Op label="Hours" testId="ops-format">
-          <Segmented
-            id="home-clock-hour-format"
-            ariaLabel="Hours"
-            value={c.hourFormat}
-            options={[
-              { value: '24', label: '24' },
-              { value: '12', label: '12' },
-            ]}
-            onChange={(hourFormat) => {
-              commit({ hourFormat });
-            }}
-          />
-        </Op>
-        <Op label="Seconds" testId="ops-seconds">
-          <Segmented
-            id="home-clock-seconds"
-            ariaLabel="Seconds"
-            value={c.showSeconds ? 'on' : 'off'}
-            options={[
-              { value: 'on', label: 'On' },
-              { value: 'off', label: 'Off' },
-            ]}
-            onChange={(v) => {
-              commit({ showSeconds: v === 'on' });
-            }}
-          />
-        </Op>
-      </>
-    );
-  }
-
-  if (activeId === 'stats') {
-    const s = validateStatsConfig(state.modules['stats']?.cfg);
-    const commit = (patch: Record<string, unknown>): void => {
-      setModule('stats', { ...s, ...patch });
-    };
-    return (
-      <>
-        <Op label="Layout" testId="ops-layout">
-          <Segmented
-            id="home-stats-layout"
-            ariaLabel="Layout"
-            value={s.layout}
-            options={[
-              { value: 'single', label: 'One' },
-              { value: 'dual', label: 'Two' },
-              { value: 'grid', label: 'All' },
-            ]}
-            onChange={(layout) => {
-              commit({ layout });
-            }}
-          />
-        </Op>
-        <Op label="Degrees" testId="ops-unit">
-          <Segmented
-            id="home-stats-unit"
-            ariaLabel="Degrees"
-            value={s.unit}
-            options={[
-              { value: 'c', label: '°C' },
-              { value: 'f', label: '°F' },
-            ]}
-            onChange={(unit) => {
-              commit({ unit });
-            }}
-          />
-        </Op>
-        <Op label="Labels" testId="ops-labels">
-          <Segmented
-            id="home-stats-labels"
-            ariaLabel="Labels"
-            value={s.showLabels ? 'on' : 'off'}
-            options={[
-              { value: 'on', label: 'On' },
-              { value: 'off', label: 'Off' },
-            ]}
-            onChange={(v) => {
-              commit({ showLabels: v === 'on' });
-            }}
-          />
-        </Op>
-      </>
-    );
-  }
-
-  if (activeId === 'image') {
-    const i = validateImageConfig(state.modules['image']?.cfg);
-    return (
-      <>
-        <Op label="Fit" testId="ops-fill">
-          <FitControl
-            id="home-image-fit"
-            ariaLabel="Fit"
-            value={i.render.fit}
-            onChange={(fit) => {
-              setModule('image', { ...i, render: { ...i.render, fit } });
-            }}
-          />
-        </Op>
-        <Op label="Slideshow" testId="ops-slideshow">
-          <Segmented
-            id="home-image-slideshow"
-            ariaLabel="Slideshow"
-            value={i.slideshow.enabled ? 'on' : 'off'}
-            options={[
-              { value: 'on', label: 'On' },
-              { value: 'off', label: 'Off' },
-            ]}
-            onChange={(v) => {
-              setModule('image', {
-                ...i,
-                slideshow: { ...i.slideshow, enabled: v === 'on' },
-              });
-            }}
-          />
-        </Op>
-      </>
-    );
-  }
-
-  return null;
-}
 
 /**
  * The download story, told in plain words (prototype screen 2).

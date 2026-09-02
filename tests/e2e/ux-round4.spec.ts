@@ -56,8 +56,19 @@ test.describe('F2 — a control does not change depth under the user', () => {
     await page.goto('/');
     await openOptions(page, 'stats');
 
+    /*
+     * Layout is `stats-layout` now, not `home-stats-layout`.
+     *
+     * The gesture in the finding was a segment on the home screen's ops strip
+     * restructuring the panel underneath it. The strip's duplicate of Layout is
+     * gone — the face picker grew to eight options and became a panel-sized
+     * decision, so it lives in the panel's own primary block. The finding is
+     * unchanged and so is what it protects: pressing a segment about DIALS must
+     * not move Colour between two levels of the hierarchy. Only the selector
+     * for that segment moved, from the strip's copy to the one that survived.
+     */
     for (const layout of ['single', 'dual', 'grid', 'single'] as const) {
-      await page.getByTestId(`home-stats-layout-${layout}`).click();
+      await page.getByTestId(`stats-layout-${layout}`).click();
       // The control exists, in every layout…
       const colour = page.locator('#stats-theme');
       await expect(colour).toHaveCount(1);
@@ -80,24 +91,67 @@ test.describe('F2 — a control does not change depth under the user', () => {
   });
 
   /**
-   * …and the same rule read from the other side: the door is where the panel's
-   * only content lives, so it is OPEN on arrival rather than absent.
+   * …and the same rule read from the other side: one tap lands on a CONTROL,
+   * never on a signpost sentence and a closed disclosure.
    *
-   * That is the half of round 3's F5 this preserves — one tap still lands on a
-   * control, never on a signpost sentence and a closed disclosure.
+   * That is the half of round 3's F5 this preserves, and the assertion follows
+   * the class rather than the one panel that used to violate it. Stats was the
+   * example — on Two dials it had no primary control at all, so `ModuleOptions`
+   * opened the door on arrival. Stats has a primary block in every face now
+   * (Face itself, Last minute, Degrees), so the *empty room* it stood for has
+   * no instance left; asserting the door is open would be asserting the bug.
+   *
+   * What is asserted instead is the promise both halves of the rule make, over
+   * every module the editor offers: whatever the panel's shape, the first thing
+   * a second tap produces is something you can change. Either there are
+   * controls above the door, or the door is already open with controls in it —
+   * never a paragraph and a closed disclosure.
    */
-  test('a panel with nothing above the door opens with the door open', async ({ page }) => {
+  test('every module’s options open onto a control, not onto a door', async ({ page }) => {
     await cam(page);
     await page.goto('/');
-    // Two dials is the default layout, so Stats has no primary control here.
-    await openOptions(page, 'stats');
 
-    const advanced = page.getByTestId('stats-advanced');
-    await expect(advanced).toBeVisible();
-    expect(await advanced.evaluate((el) => (el as HTMLDetailsElement).open)).toBe(true);
+    // The chips live in the editor's rail, which mounts after the first paint.
+    await expect(page.getByTestId('module-chip-clock')).toBeVisible();
+
+    const ids = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="module-chip-"]')].map(
+        (el) => el.getAttribute('data-testid')?.slice('module-chip-'.length) ?? '',
+      ),
+    );
+    expect(ids.length, 'no module chips to open').toBeGreaterThan(0);
+
+    for (const id of ids) {
+      await openOptions(page, id);
+      // The whole judgement is made in the page, so the spec itself carries no
+      // branch: `landed` is the finding's sentence, evaluated once per module.
+      const landed = await page.evaluate(() => {
+        const panel = document.querySelector('[data-testid="ops-panel"]');
+        const above = panel?.querySelectorAll('section.kh-panel .kh-field').length ?? 0;
+        const door = panel?.querySelector('details') ?? null;
+        const openWithControls =
+          (door?.open ?? false) && (door?.querySelectorAll('.kh-field').length ?? 0) > 0;
+        return above > 0 || openWithControls;
+      });
+      expect(landed, `${id}: the options are a door and nothing else`).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('ops-panel')).toHaveCount(0);
+    }
+  });
+
+  /**
+   * The other half of the same sentence: `data-advanced` is a promise about the
+   * composition, and it tracks the door rather than being set once at open.
+   */
+  test('opening the door switches the page to the composition it promises', async ({ page }) => {
+    await cam(page);
+    await page.goto('/');
+    await openOptions(page, 'stats');
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-advanced', 'false');
+
+    await page.getByTestId('stats-advanced').locator('summary').click();
     await expect(page.locator('#stats-theme')).toBeVisible();
-    // The page says which promise it is making, and the promise matches: an
-    // open door means the taller, scrolling composition.
+    // An open door means the taller, scrolling composition — and the page says so.
     await expect(page.locator('.kh-home')).toHaveAttribute('data-advanced', 'true');
   });
 

@@ -41,10 +41,24 @@ account, no telemetry — that:
 - **downloads the video into its own clip library and plays the local copy**, so
   playback is ad-free, offline-proof and seamless;
 - **loops the exact section you care about**, with no visible seam;
-- **is a hub, not a video player** — video, image/GIF, clock and stats are
-  all modules, and adding a fifth is one directory and one line;
+- **is a hub, not a video player** — video, image/GIF, clock, stats, effects,
+  text, shape, icon and date are all modules, and adding another is one directory
+  and one line;
+- **is a layer editor, not a mode picker** — the home screen IS your Kraken, at
+  the biggest size the window allows: drag a clock onto your video, snap it to
+  the middle, undo fifty steps, and watch a live mirror of the panel do it
+  ([the editor](docs/editor.md));
+- **ships ten designed Looks and reads anybody else's** — a Look is a few
+  kilobytes of JSON, every card in the Looks menu is that Look actually running
+  rather than a screenshot, and the community gallery is a folder in this
+  repository reviewed like any other change: no backend, no account, nothing
+  tracked ([Looks](docs/looks.md));
 - **takes commands from your phone** — scan the code CAM is showing and the
   phone connects on its own, over an encrypted, backendless channel;
+- **edits the same Look from that phone** — the replica ring becomes the canvas:
+  tap a layer, drag it, pinch it, turn it with two fingers, add one, undo, all on
+  the arrangement CAM is showing
+  ([editing from your phone](docs/remote-control.md#editing-from-your-phone));
 - **takes _files_ from your phone too** — a photo or a video goes from the camera
   roll straight to your Kraken over your own network, peer to peer, with nothing
   of ours in the middle, and lands in the same library a file dropped on the PC
@@ -150,19 +164,32 @@ Every row is chrome-free on the panel — that is what the geometry engine is fo
 The per-provider version of this table, including exactly what fails and why, is
 [docs/providers.md](docs/providers.md).
 
-## Four modules
+## Nine modules
 
-Everything on the panel is a module, including the video player. Adding a fifth
+Everything on the panel is a module, including the video player. Adding another
 is one directory and one line in the registry —
 [docs/modules.md](docs/modules.md) is the walkthrough, and the Clock module was
 built by following it.
 
-| Module    | What it does                                                                                                                                                               |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Video** | Any of the sources above, downloaded and played locally, A‑B looped, chrome-free                                                                                           |
-| **Image** | A picture or GIF from a link or your library — downloaded and painted from disk, with the video module's fit/zoom/pan/rotate math and an optional slideshow                |
-| **Clock** | Digital or analog, 12/24-hour, optional seconds and date line, five flat colour themes. Deliberately correct at CAM's 1 FPS default: the hands tick, they never sweep      |
-| **Stats** | CPU and GPU temperature and load plus liquid temperature, from CAM's 1 Hz feed. Single dial, dual dial or a compact grid. Anything CAM does not report reads `--`, never 0 |
+| Module      | What it does                                                                                                                                                               |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Video**   | Any of the sources above, downloaded and played locally, A‑B looped, chrome-free                                                                                           |
+| **Image**   | A picture or GIF from a link or your library — downloaded and painted from disk, with the video module's fit/zoom/pan/rotate math and an optional slideshow                |
+| **Clock**   | Digital or analog, 12/24-hour, optional seconds and date line, five flat colour themes. Deliberately correct at CAM's 1 FPS default: the hands tick, they never sweep      |
+| **Stats**   | CPU and GPU temperature and load plus liquid temperature, from CAM's 1 Hz feed. Single dial, dual dial or a compact grid. Anything CAM does not report reads `--`, never 0 |
+| **Effects** | Twelve moving backgrounds drawn by the graphics card — a lava lamp, aurora ribbons, drifting cells — in your own colours, optionally warming with your machine. No network |
+| **Text**    | A line of your own words: size, weight, colour, alignment and one of six faces                                                                                             |
+| **Shape**   | A rectangle, disc, ring or rule — a flat ground to put the rest of a look on                                                                                               |
+| **Icon**    | One glyph from a curated set that ships with the app — three weights, your colour, and an optional halo for a glyph over a busy background                                 |
+| **Date**    | The date on its own, in one of six formats, from the plain day number to the full weekday line                                                                             |
+
+Every one of them is a **layer kind**. Video is always the whole panel; Image,
+Clock, Stats, Effects and Shape are either the panel or a layer over one; Text,
+Icon and Date are overlays only. The editor is how you stack them — up to eight layers in one Look, dragged
+into place on a live mirror of the panel ([the editor](docs/editor.md)). Effects
+has its own document, [docs/effects.md](docs/effects.md); Text and Shape share
+[docs/modules-text-shape.md](docs/modules-text-shape.md), and Icon and Date
+[docs/modules-icon-date.md](docs/modules-icon-date.md).
 
 There is **no pump-RPM readout**, because CAM exposes no such field. The stats
 panel says so plainly rather than inventing a number.
@@ -300,23 +327,28 @@ npm run capture    # regenerate every screenshot in docs/assets/
 The app ships a hardware simulator, so every panel size, shape and frame rate is
 reachable from an ordinary browser tab. Start `npm run dev`, then open:
 
-| URL                                             | What it gives you                                                     |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| `/`                                             | the configuration UI, exactly as CAM's browser sees it                |
-| `/?kraken=1&sim=elite`                          | the display, as the LCD sees it: 640 round at 40 FPS                  |
-| `/?kraken=1&sim=z`                              | Kraken Z — 320 round, and CAM's 1 FPS ceiling                         |
-| `/?kraken=1&sim=kraken2023`                     | Kraken (2023) — 240 square, no round mask                             |
-| `/?kraken=1&sim=elite&fps=1`                    | what a user who never touched the CAM slider actually sees            |
-| `/?kraken=1&sim=elite&inject=late`              | CAM injecting `window.nzxt` 1.5 s after the page booted               |
-| `/?kraken=1&sim=elite&monitor=missing`          | the 1 Hz feed with fields rotating in and out of `undefined`          |
-| `/?kraken=1&sim=elite&module=clock&face=analog` | the Clock module's analog face                                        |
-| `/?kraken=1&sim=elite&module=stats&layout=grid` | Stats in the compact grid layout                                      |
-| `/?kraken=1&sim=elite&module=image&src=…`       | the Image module on a direct picture link                             |
-| `/?kraken=1&sim=elite&diag=1`                   | the on-LCD diagnostics overlay (`&pattern=rings` for H20)             |
-| `/#/library`                                    | your library: one grid of clips and pictures, plus the quota          |
-| `/#/remote`                                     | the remote — and on a phone, every address resolves here              |
-| `/#/about`                                      | About, Connection and Report — with every probe behind one disclosure |
-| `/#/diag`                                       | resolves to `/#/about` — the two pages merged                         |
+| URL                                                 | What it gives you                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| `/`                                                 | the configuration UI, exactly as CAM's browser sees it                |
+| `/?kraken=1&sim=elite`                              | the display, as the LCD sees it: 640 round at 40 FPS                  |
+| `/?kraken=1&sim=z`                                  | Kraken Z — 320 round, and CAM's 1 FPS ceiling                         |
+| `/?kraken=1&sim=kraken2023`                         | Kraken (2023) — 240 square, no round mask                             |
+| `/?kraken=1&sim=elite&fps=1`                        | what a user who never touched the CAM slider actually sees            |
+| `/?kraken=1&sim=elite&inject=late`                  | CAM injecting `window.nzxt` 1.5 s after the page booted               |
+| `/?kraken=1&sim=elite&monitor=missing`              | the 1 Hz feed with fields rotating in and out of `undefined`          |
+| `/?kraken=1&sim=elite&module=clock&face=analog`     | the Clock module's analog face                                        |
+| `/?kraken=1&sim=elite&module=stats&layout=grid`     | Stats in the compact grid layout                                      |
+| `/?kraken=1&sim=elite&module=image&src=…`           | the Image module on a direct picture link                             |
+| `/?kraken=1&sim=elite&module=effect&effect=voronoi` | one of the twelve effects, in your stored colours                     |
+| `/?kraken=1&sim=elite&module=text`                  | the Text layer — overlay-only, so it draws over the stage background  |
+| `/?kraken=1&sim=elite&module=shape`                 | the Shape layer as a full-panel ground                                |
+| `/?kraken=1&sim=elite&module=icon`                  | the Icon layer — overlay-only, drawing the default `bolt` glyph       |
+| `/?kraken=1&sim=elite&module=date`                  | the Date layer — today's date, weekday · day · month by default       |
+| `/?kraken=1&sim=elite&diag=1`                       | the on-LCD diagnostics overlay (`&pattern=rings` for H20)             |
+| `/#/library`                                        | your library: one grid of clips and pictures, plus the quota          |
+| `/#/remote`                                         | the remote — and on a phone, every address resolves here              |
+| `/#/about`                                          | About, Connection and Report — with every probe behind one disclosure |
+| `/#/diag`                                           | resolves to `/#/about` — the two pages merged                         |
 
 The simulator refuses to run whenever a real `window.nzxt` is present, so a
 `?sim=` left in a configured URL is inert inside CAM.
@@ -333,12 +365,17 @@ and did not ship. The short version:
 | [Providers](docs/providers.md)                   | Every source, what works, and what does not — with reasons                            |
 | [Local clips](docs/local-clips.md)               | Download-first ingestion, quota, persistence, the ffmpeg one-liner                    |
 | [Why not extraction](docs/why-not-extraction.md) | The measurements that killed YouTube stream extraction, with curl repros              |
+| [The editor](docs/editor.md)                     | Layers, the selection strip, undo, and what the budget meter is telling you           |
+| [Looks](docs/looks.md)                           | Templates, Your Looks, the `.krakenlook` file, importing, the gallery, the carousel   |
 | [Modules](docs/modules.md)                       | Writing a module: the contract, the renderer, chunking, testing                       |
+| [Effects](docs/effects.md)                       | The twelve moving backgrounds: presets, your own colours, cost, and 1 FPS             |
+| [Text and Shape](docs/modules-text-shape.md)     | The two overlay-first layer kinds, and the decisions particular to them               |
+| [Icon and Date](docs/modules-icon-date.md)       | The icon and date overlays and the solid base, and what is particular to each         |
 | [Resolver protocol](docs/resolver-protocol.md)   | The frozen v1 companion contract, and its security posture                            |
 | [Remote control](docs/remote-control.md)         | Pairing, transports, failover, and the honest privacy model                           |
 | [Troubleshooting](docs/troubleshooting.md)       | Symptom → mechanism → fix, each linked to the H-id that would settle it               |
 | [Self-hosting](docs/self-hosting.md)             | Forking, Pages, custom domains, the no-hardcoded-origin table                         |
-| [Hardware checklist](docs/hardware-checklist.md) | H01–H23: what is still unmeasured, and how to measure it                              |
+| [Hardware checklist](docs/hardware-checklist.md) | H01–H33: what is still unmeasured, and how to measure it                              |
 | [Design docs](docs/design/)                      | The implementation-ready design, kept as authored, with corrections where reality won |
 
 ## Contributing

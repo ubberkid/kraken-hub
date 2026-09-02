@@ -6,7 +6,7 @@ import { ownsBytes } from './surface';
 import { usePhoneOnly } from './useNarrow';
 import { AboutView } from './views/AboutView';
 import { HomeView } from './views/HomeView';
-import { LibraryView } from './views/LibraryView';
+import { LibraryElsewhere, LibraryView } from './views/LibraryView';
 import { RemoteView } from './views/RemoteView';
 
 import type { ConfigRuntime } from './runtime';
@@ -265,17 +265,24 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
                   />
                 </HashRedirect>
               )}
+              {/*
+                `#/library` ANSWERS, on every surface — round 11's M-c.
+
+                An unpaired, non-owning window used to be redirected here: the
+                route mounted `RemoteView` and rewrote the hash to `#/remote` a
+                tick later, so the breadcrumb read "Your Kraken / Remote" over a
+                page nobody had asked for and the composition overflowed CAM's
+                866x537 window by 234 px. A6's reasoning was right — there is no
+                shelf to show a window attached to no Kraken — and the remedy
+                was a redirect, which is the app changing the subject rather
+                than answering. `LibraryElsewhere` is the answer, at the address
+                that was asked for.
+              */}
               {route.name === 'library' &&
-                (reachable ? (
-                  <LibraryView runtime={runtime} />
-                ) : (
-                  <HashRedirect from="library" to="#/remote">
-                    <RemoteView runtime={runtime} />
-                  </HashRedirect>
-                ))}
+                (reachable ? <LibraryView runtime={runtime} /> : <LibraryElsewhere />)}
               {route.name === 'sources' && (
-                <HashRedirect from="sources" to={reachable ? '#/library' : '#/remote'}>
-                  {reachable ? <LibraryView runtime={runtime} /> : <RemoteView runtime={runtime} />}
+                <HashRedirect from="sources" to="#/library">
+                  {reachable ? <LibraryView runtime={runtime} /> : <LibraryElsewhere />}
                 </HashRedirect>
               )}
               {route.name === 'remote' && <RemoteView runtime={runtime} />}

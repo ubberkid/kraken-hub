@@ -1,0 +1,23 @@
+{
+  "id": "color_spiral",
+  "displayName": "Colour spiral",
+  "colourSlots": [
+    "Shadow",
+    "Mid",
+    "Light",
+    "Peak"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#050510",
+        "#B4123C",
+        "#37D6FF",
+        "#FFFFFF"
+      ]
+    }
+  ],
+  "costClass": "high-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/color_spiral/ColorSpiral.shader"
+}

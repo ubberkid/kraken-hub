@@ -1,0 +1,71 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "effect": 1
+  },
+  "configs": {
+    "effect": {
+      "colors": [
+        "#FF9500",
+        "#FFFF00",
+        "#FFFF00",
+        "#FFD200"
+      ],
+      "effect": "plasma",
+      "preset": "sunburst",
+      "reactsToTemp": true,
+      "tempSource": "liquid"
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "A lava lamp that warms with the loop, with the temperatures over it.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "effect",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "cfg": {
+          "layout": "dual",
+          "metrics": [
+            "cpuTemp",
+            "gpuTemp",
+            "liquidTemp"
+          ],
+          "showLabels": true,
+          "theme": "mono"
+        },
+        "frame": {
+          "h": 1.3,
+          "shape": "circle",
+          "w": 1.3
+        },
+        "id": "ltemps",
+        "kind": "stats",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        },
+        "v": 1
+      }
+    ]
+  },
+  "media": [],
+  "name": "Lava lamp + temps",
+  "version": 7
+}

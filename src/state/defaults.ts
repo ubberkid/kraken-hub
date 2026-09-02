@@ -3,6 +3,7 @@
  * with no hardware, no network and no stored state.
  */
 
+import { baseLook } from './look/types';
 import {
   SCHEMA_VERSION,
   type AppState,
@@ -74,6 +75,10 @@ export function defaultAppState(): AppState {
     updatedAt: 0,
     writerId: '',
     writerRole: 'config',
+    // A fresh install is a one-layer look: the default module, whole panel.
+    // Byte-identical to what the 6 → 7 migration and `lookOf`'s legacy
+    // projection produce, so all three agree.
+    look: baseLook(DEFAULT_MODULE_ID),
     activeModuleId: DEFAULT_MODULE_ID,
     modules: {},
     playback: null,

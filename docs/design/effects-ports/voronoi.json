@@ -1,0 +1,95 @@
+{
+  "id": "voronoi",
+  "displayName": "Voronoi cells",
+  "colourSlots": [
+    "Contours",
+    "Cells",
+    "Rim",
+    "Rim 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#FFFF00",
+        "#FF00F6",
+        "#FFFF00",
+        "#999900"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#000000",
+        "#7E7E7E",
+        "#000000",
+        "#000000"
+      ]
+    },
+    {
+      "name": "Ice",
+      "colors": [
+        "#007BB7",
+        "#00E2FF",
+        "#007BB7",
+        "#004A6E"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#41B300",
+        "#B7FF00",
+        "#41B300",
+        "#276B00"
+      ]
+    },
+    {
+      "name": "Bubblegum",
+      "colors": [
+        "#BA00B1",
+        "#FF00F6",
+        "#BA00B1",
+        "#70006A"
+      ]
+    },
+    {
+      "name": "Amethyst",
+      "colors": [
+        "#9600BC",
+        "#C700FF",
+        "#9600BC",
+        "#5A0071"
+      ]
+    },
+    {
+      "name": "Ember",
+      "colors": [
+        "#BC0000",
+        "#FF0000",
+        "#BC0000",
+        "#710000"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#000000",
+        "#FFFFFF",
+        "#000000",
+        "#000000"
+      ]
+    },
+    {
+      "name": "Sunburst",
+      "colors": [
+        "#B37200",
+        "#FFFF00",
+        "#B37200",
+        "#6B4400"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/voronoi/Voronoi_Circle.shader"
+}

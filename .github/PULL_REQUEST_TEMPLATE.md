@@ -18,6 +18,7 @@ matter on a small circular panel.
 - [ ] Added or updated tests
 - [ ] Updated the docs affected by this change
 - [ ] Added a line under `## [Unreleased]` in `CHANGELOG.md`
+- [ ] A `.krakenlook` added under `public/looks/` has its row in `public/looks/index.json` (`public/looks/README.md`)
 - [ ] No new runtime dependency (or an ADR is linked below)
 - [ ] Bundle budgets still pass (`npm run size`)
 - [ ] Verified on real hardware — yes / no / N-A

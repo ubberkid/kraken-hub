@@ -6,6 +6,7 @@
  * parse URL parameters without downloading anything.
  */
 
+import { IDENTITY, MAX_LAYERS } from '../../state/look/types';
 import { defineModule } from '../defineModule';
 
 import { STATS_DEFAULTS, STATS_LAYOUTS, validateStatsConfig, type StatsConfig } from './schema';
@@ -32,11 +33,21 @@ export const statsModule: KrakenModule<StatsConfig> = defineModule<StatsConfig>(
     // The whole point of the module.
     needsMonitoring: true,
     /*
-     * FALSE, deliberately. The data source is 1 Hz; painting faster cannot
-     * produce a different pixel whatever `targetFps` is. The one timer the
-     * module owns exists to notice the feed going AWAY, not to render.
+     * TRUE since the face redesign, and the reason is the only reason that
+     * would justify it.
+     *
+     * It was false, on the sound argument that the data source is 1 Hz and
+     * painting faster cannot produce a different pixel. That holds only while
+     * the module paints the SAMPLE. It paints a glide toward the sample now —
+     * one tween per metric, ~400 ms, so a new reading arrives rather than
+     * appearing — and between samples there genuinely is a different pixel.
+     *
+     * It is not a licence to be expensive: `frame()` returns on a boolean while
+     * no tween is moving, which is most frames, and the module still declares
+     * `cadence: 'tick'` below because the CHANGE it can produce is still capped
+     * by a 1 Hz feed. The timer it kept exists to notice the feed going AWAY.
      */
-    needsFrameLoop: false,
+    needsFrameLoop: true,
     usesMedia: false,
     hasTimeline: false,
     // A dial arc moving one step per second is not motion in the sense the
@@ -46,6 +57,41 @@ export const statsModule: KrakenModule<StatsConfig> = defineModule<StatsConfig>(
     audio: 'none',
     remoteCommands: [],
   },
+
+  /**
+   * Stats over your video is the gesture the whole layer model exists for, so
+   * this is the placement that had to be right.
+   *
+   * The overlay default is the `strip` face: a scrim along the bottom of the
+   * panel with three compact ring meters on it. An OPAQUE scrim is not a
+   * compromise — over a video it *reduces* the changed area CAM has to
+   * compress, because the pixels underneath it stop moving.
+   *
+   * `resize: 'frame'` for the same reason as the clock: this is type and SVG,
+   * and it should be laid out again rather than scaled.
+   */
+  layer: {
+    roles: ['base', 'overlay'],
+    maxInstances: MAX_LAYERS,
+    resize: 'frame',
+    minFrame: 0.4,
+    overlayDefault: {
+      frame: { w: 1.6, h: 0.5, shape: 'square' },
+      t: { ...IDENTITY, y: 0.6 },
+      // The face that makes it an overlay rather than a shrunken base.
+      cfg: { ...STATS_DEFAULTS, layout: 'strip' },
+    },
+    /*
+     * The feed is 1 Hz, so nothing here can paint faster than that whatever the
+     * frame rate is, and a second's change is one arc segment and a digit or
+     * two — `0.3` of its own box, flat fills, no gradient anywhere.
+     */
+    cost: () => ({ cadence: 'tick', coverage: 0.3, entropy: 'low', decoders: 0, gl: 0 }),
+  },
+
+  /** §2.3: metric · face · size · colour · More — declared in `./editor`. */
+  editor: { loadStrip: () => import('./editor') },
+
   defaults: STATS_DEFAULTS,
   validate: validateStatsConfig,
 

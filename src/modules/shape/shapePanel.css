@@ -1,0 +1,31 @@
+/*
+ * The Shape panel's one non-kit control — the same colour well the Text panel
+ * uses, and there for the same reason: a colour is not an enumeration, so it is
+ * the one setting where the platform's own picker beats anything `src/ui/`
+ * could offer. See `src/modules/text/textPanel.css` for the full argument.
+ *
+ * Config-only: imported from a `.tsx` under `src/modules/`, which vite chunks
+ * into `config-ui`. It can never reach the display graph (I8).
+ */
+
+.kh-shape-paint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kh-shape-swatch {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  background: var(--kh-panel-2);
+  cursor: pointer;
+}
+
+.kh-shape-swatch:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}

@@ -1,14 +1,44 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { deriveRoomKeys, open as unseal } from './crypto';
+import { decodeEnvelope } from './envelope';
 import {
   CONNECT_TIMEOUT_MS,
   KEEPALIVE_MS,
   PUBLISH_THROTTLE_MS,
   createSyncService,
+  type SyncServiceOptions,
 } from './SyncService';
 
-import type { Channel, FrameHandler, SyncStateBody, SyncTransport, TransportStatus } from './types';
-import type { SyncSettings } from '../state/schema';
+import type {
+  Channel,
+  Envelope,
+  FrameHandler,
+  RecvMeta,
+  SyncStateBody,
+  SyncTransport,
+  TransportStatus,
+} from './types';
+import type { ModuleSlot, SyncSettings } from '../state/schema';
+
+/**
+ * Read a published frame the way a peer would: unseal it, then decode it.
+ *
+ * Needed by the stamp tests, which assert on a field of the ENVELOPE
+ * rather than on what a subscriber was handed — `seen` is a promise the sender
+ * makes on the wire, and the wire is where it has to be checked.
+ */
+async function peek(frame: Uint8Array | undefined): Promise<Envelope | null> {
+  if (frame === undefined) return null;
+  const keys = await deriveRoomKeys('ABCD1234');
+  const plain = await unseal(keys, 'state', frame);
+  return plain === null ? null : decodeEnvelope(plain);
+}
+
+/** The nth `state` frame a transport actually sent, decoded. */
+async function decodeSent(wire: TestTransport, index: number): Promise<Envelope | null> {
+  return peek(wire.published.filter((p) => p.ch === 'state')[index]?.frame);
+}
 
 /**
  * A transport the test drives by hand.
@@ -126,7 +156,7 @@ function body(activeModuleId = 'video'): SyncStateBody {
 }
 
 /** Two services joined by the single transport pair the test controls. */
-async function pair(): Promise<{
+async function pair(aOpts: Partial<SyncServiceOptions> = {}): Promise<{
   a: ReturnType<typeof createSyncService>;
   b: ReturnType<typeof createSyncService>;
   wire: TestTransport;
@@ -141,6 +171,7 @@ async function pair(): Promise<{
     settings: SETTINGS,
     withLocal: false,
     factories: { fake: () => wire },
+    ...aOpts,
   });
   const b = createSyncService({
     role: 'display',
@@ -225,7 +256,9 @@ describe('state channel', () => {
   it('delivers a full snapshot to a peer', async () => {
     const { a, b, pump } = await pair();
     const seen: SyncStateBody[] = [];
-    b.onState((s) => seen.push(s));
+    b.onState((s) => {
+      seen.push(s);
+    });
 
     a.publishState(body(), { rev: 1, immediate: true });
     await flush(1);
@@ -241,7 +274,9 @@ describe('state channel', () => {
   it('never applies its own echo', async () => {
     const { a, wire } = await pair();
     const seen: SyncStateBody[] = [];
-    a.onState((s) => seen.push(s));
+    a.onState((s) => {
+      seen.push(s);
+    });
 
     a.publishState(body(), { rev: 1, immediate: true });
     await flush(1);
@@ -256,7 +291,9 @@ describe('state channel', () => {
   it('drops a duplicate (src, seq) — retained redelivery and replay are inert', async () => {
     const { a, b, wire, peer } = await pair();
     const seen: SyncStateBody[] = [];
-    b.onState((s) => seen.push(s));
+    b.onState((s) => {
+      seen.push(s);
+    });
 
     a.publishState(body(), { rev: 5, immediate: true });
     await flush(1);
@@ -273,10 +310,25 @@ describe('state channel', () => {
     await b.stop();
   });
 
-  it('ignores a snapshot whose rev is not newer than the applied one', async () => {
+  it('applies a snapshot whose rev is OLDER than the last one from that peer', async () => {
+    /*
+     * The rev floor is gone, and its removal is a fix rather than a
+     * simplification. `rev` is a Lamport counter kept in each writer's own
+     * localStorage document, and a reloaded page's persisted rev is by
+     * construction at least the rev of the frame the broker retained — so the
+     * floor dropped the bootstrap on EVERY reload, before any subscriber saw
+     * it, which is the third of the four defects that killed the previous
+     * design (S4, fact 3).
+     *
+     * Nothing is lost by deleting it: a redelivery of the same frame is stopped
+     * by `(src, seq)` dedup one line earlier, and a genuinely older SNAPSHOT
+     * carries older per-leaf stamps, so the merge ignores it on its own merits.
+     */
     const { a, b, pump } = await pair();
     const seen: SyncStateBody[] = [];
-    b.onState((s) => seen.push(s));
+    b.onState((s) => {
+      seen.push(s);
+    });
 
     a.publishState(body('video'), { rev: 9, immediate: true });
     await flush(1);
@@ -288,8 +340,7 @@ describe('state channel', () => {
     pump();
     await flush(1);
 
-    expect(seen).toHaveLength(1);
-    expect(seen[0]?.activeModuleId).toBe('video');
+    expect(seen).toHaveLength(2);
     await a.stop();
     await b.stop();
   });
@@ -303,6 +354,96 @@ describe('state channel', () => {
     expect(text).not.toContain('example.test');
     expect(text).not.toContain('activeModuleId');
     expect(frame[0]).toBe(0x01);
+    await a.stop();
+  });
+});
+
+describe('stamps and the clock on the wire', () => {
+  /*
+   * `SyncService` owns none of the merge policy any more — it carries what
+   * `appSync` hands it and trims it when the envelope will not fit. These prove
+   * the carrying and the trimming; `merge.ts` and the convergence suites prove
+   * the policy.
+   */
+
+  it('publishes no stamps at all for a service that merges nothing', async () => {
+    const { a, wire } = await pair();
+    a.publishState(body(), { rev: 1, immediate: true });
+    await flush(1);
+    const env = await decodeSent(wire, 0);
+    expect(env?.stamps).toBeUndefined();
+    expect(env?.clock).toBeUndefined();
+    await a.stop();
+  });
+
+  it('carries the stamps and the clock it is handed', async () => {
+    const { a, wire } = await pair({
+      wireStamps: () => ({
+        map: { 'render.fit': [1_700_000_000_000, 0, 'phonepeer001'] },
+        clock: [1_700_000_000_000, 0, 'phonepeer001'],
+      }),
+    });
+    a.publishState(body(), { rev: 1, immediate: true });
+    await flush(1);
+    const env = await decodeSent(wire, 0);
+    expect(env?.stamps).toEqual({ 'render.fit': [1_700_000_000_000, 0, 'phonepeer001'] });
+    expect(env?.clock).toEqual([1_700_000_000_000, 0, 'phonepeer001']);
+    await a.stop();
+  });
+
+  it('delivers them to the receiver as decoded stamps', async () => {
+    const { a, b, pump } = await pair({
+      wireStamps: () => ({ map: { 'render.fit': [17, 2, 'peer'] }, clock: [17, 2, 'peer'] }),
+    });
+    const metas: RecvMeta[] = [];
+    b.onState((_s, m) => {
+      metas.push(m);
+    });
+    a.publishState(body(), { rev: 1, immediate: true });
+    await flush(1);
+    pump();
+    await flush(1);
+    expect(metas[0]?.stamps.get('render.fit')).toEqual({ t: 17, c: 2, s: 'peer' });
+    expect(metas[0]?.clock).toEqual({ t: 17, c: 2, s: 'peer' });
+    await a.stop();
+    await b.stop();
+  });
+
+  it('drops a trimmed module\u2019s stamps with the module (\u00a76.2)', async () => {
+    /*
+     * The converse of the ladder's rule, asserted at the one rung that can
+     * break it: trimming the bank removes leaves from the BODY, and a stamp
+     * left behind for a leaf the body no longer carries is a stamp with no
+     * value \u2014 the mirror image of the defect the whole layer exists to stop.
+     * It is also pure waste, since a receiver can pair it with nothing.
+     *
+     * There is no rung above this one any more. The ladder used to open by
+     * dropping the stamps of every leaf whose value equalled the built-in
+     * default while shipping those values anyway, which made setting anything
+     * back to its default permanently unsendable on any frame over 8 kB. See
+     * `fitStateEnvelope`.
+     */
+    const big: Record<string, ModuleSlot> = {};
+    for (let i = 0; i < 40; i += 1)
+      big[`mod${String(i)}`] = { v: 1, cfg: { blob: 'y'.repeat(150) } };
+    const stamps: Record<string, [number, number, string]> = {};
+    for (let i = 0; i < 32; i += 1)
+      stamps[`modules.mod${String(i)}.cfg.blob`] = [1_700_000_000_000, i, 'phonepeer001'];
+    stamps['render.fit'] = [1_700_000_000_000, 99, 'phonepeer001'];
+    const { a, wire } = await pair({
+      wireStamps: () => ({ map: stamps, clock: [1, 0, 'p'] }),
+    });
+    a.publishState({ ...body('mod7'), modules: big }, { rev: 1, immediate: true });
+    await flush(1);
+    const env = await decodeSent(wire, 0);
+    expect(env).not.toBeNull();
+    const shipped = Object.keys(env?.stamps ?? {});
+    // The bank had to go at this size, and the stamps of the modules that went
+    // with it went too \u2014 while the active module's stamp, and a stamp on a leaf
+    // sitting at its built-in default, both travelled.
+    expect(shipped).not.toContain('modules.mod0.cfg.blob');
+    expect(shipped).toContain('modules.mod7.cfg.blob');
+    expect(shipped).toContain('render.fit');
     await a.stop();
   });
 });

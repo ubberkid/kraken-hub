@@ -118,9 +118,16 @@ test.describe('a local change is not rolled back', () => {
     // `#/module/video` is a redirect now — options are contextual, so it lands
     // on home with the video panel already open (design audit, F1).
     await config.goto(`/?room=${ROOM}&transport=fake#/module/video`);
-    // The strip's Fit control, which is now the ONLY one: the module panel asked
-    // the same question again four inches lower, and round 2 deleted the copy.
-    const contain = config.getByTestId('home-video-fit-contain');
+    /*
+     * The strip's Fit control, which is now the ONLY one: the module panel asked
+     * the same question again four inches lower, and round 2 deleted the copy.
+     *
+     * `ed-base-fill-contain`, not `home-video-fit-contain`: the strip is
+     * declared by the module and rendered generically (`SelectionStrip`), so a
+     * control is `ed-<layer>-<control>` and a Segmented option is that plus its
+     * value. Same control, same question, same precedence bug it guards.
+     */
+    const contain = config.getByTestId('ed-base-fill-contain');
     await expect(contain).toBeVisible();
 
     await contain.click();

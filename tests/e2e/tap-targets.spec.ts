@@ -266,4 +266,59 @@ test.describe('every control is a thumb target at 390 px', () => {
     );
     expect(withImpossibleFloor).toBeGreaterThan(0);
   });
+
+  /**
+   * The one control that dismisses a sheet — round 10's M3.
+   *
+   * `.kh-iconbtn` is 26×26, which is right for a mouse and 18 px under the floor
+   * for a finger, and the sheet's close button is that class. It measured 26×26
+   * on the phone's add sheet, which is the same `AddSheet` component the desktop
+   * editor renders — so the fix is a coarse-pointer rule and the measurement is
+   * of that rule, taken where the sheet exists.
+   *
+   * A touch context at CAM's own window rather than at 390: the editor is what
+   * puts these sheets on the screen, and the media query is
+   * `(pointer: coarse)` — not a width. A touch laptop and a phone in a paired
+   * room get the same 44 px.
+   */
+  test('a sheet’s close button is a thumb target on a touch screen', async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 866, height: 537 },
+      hasTouch: true,
+      isMobile: true,
+    });
+    await context.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    const page = await context.newPage();
+    await page.goto('/');
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
+
+    /** How each sheet is opened, beside the id of the button that closes it. */
+    const sheets: readonly { open: (p: Page) => Promise<void>; close: string }[] = [
+      {
+        open: async (p) => {
+          await p.getByTestId('rail-add').click();
+        },
+        close: 'add-sheet-close',
+      },
+      {
+        open: async (p) => {
+          await p.getByTestId('looks-menu').click();
+          await p.getByTestId('looks-browse').click();
+        },
+        close: 'looks-sheet-close',
+      },
+    ];
+
+    for (const sheet of sheets) {
+      await sheet.open(page);
+      const box = await page.getByTestId(sheet.close).boundingBox();
+      expect(box?.width, `${sheet.close} width`).toBeGreaterThanOrEqual(TAP_PX);
+      expect(box?.height, `${sheet.close} height`).toBeGreaterThanOrEqual(TAP_PX);
+      await page.getByTestId(sheet.close).click();
+    }
+
+    await context.close();
+  });
 });

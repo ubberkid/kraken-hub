@@ -345,6 +345,54 @@ from the same re-anchored telemetry as the scrubber. The arc advances smoothly
 between packets rather than stepping twice a second, because the position is
 extrapolated locally from `posSec + posAtTs`.
 
+### Editing from your phone
+
+Under the ring there is **Edit this look**. It turns the ring into a canvas —
+the replica keeps running underneath — and gives you the same editor CAM has,
+with the gestures a hand expects:
+
+| Gesture               | What it does                                       |
+| --------------------- | -------------------------------------------------- |
+| Tap a layer           | Selects it; its strip appears below the canvas     |
+| Tap the background    | Deselects                                          |
+| Drag                  | Moves it, snapping to the same guides CAM uses     |
+| Pinch                 | Resizes it                                         |
+| Two fingers, turning  | Rotates it, with the same 0 / 15 / 45 / 90° ticks  |
+| Long press (½ second) | Duplicate · Bring to front · Send to back · Remove |
+
+**Layers** opens the layer rail as a sheet, **+ Add a layer** opens the same add
+sheet CAM shows, and the look's name at the top opens the Looks menu. Undo and
+redo sit beside it, and one drag, pinch or twist is one undo step — not one per
+frame. **Done** puts the remote back.
+
+Three things are worth knowing, and the app says all three itself rather than
+leaving you to find out:
+
+- **The canvas needs a panel.** Edit is disabled until your Kraken has reported
+  its geometry, because every layer is positioned against the real panel's size.
+  A canvas over a guessed panel would place things by arithmetic on a number
+  nobody supplied.
+- **The layers are drawn as outlines.** The phone shows _where_ each layer sits,
+  not what is inside it: pixels are the one thing this design never streams, and
+  a plausible-looking fake would be worse than an honest wireframe.
+- **The arrangement travels like any other change.** A look is state, and the
+  sync body carries it — so a layer you drag on the phone is on the cooler by the
+  time you let go, and the line under the canvas says _"Your Kraken has this
+  arrangement."_ It says that only when the room is genuinely connected; joined
+  but offline, or never paired at all, it reverts to _"Kept here until your
+  Kraken is back"_. The edits are real and they are kept either way; what the app
+  will not do is promise a delivery it cannot see.
+
+  Two people arranging the same look at once is the ordinary
+  last-writer-wins case — whichever tap was later is the one every screen lands
+  on. [When two people change the same thing at once](#when-two-people-change-the-same-thing-at-once)
+  has the mechanism, and it is the same mechanism for a layer's position as for
+  the video's fit.
+
+The deeper controls — the source field, the A-B loop, the quality ladder — are
+not duplicated into the editor. They are real controls on the remote itself, so
+pressing them in the strip closes the editor and puts you in front of them.
+
 ### Quality
 
 **Quality**, on the remote page itself. The same control as the CAM panel, with the same
@@ -448,6 +496,82 @@ Position never travels as a bare number. It is always `posSec` plus `posAtTs`
 (when it was sampled), and the receiver re-anchors, clamping the extrapolation
 to 30 seconds. Two machines do not share a clock, and a display can sleep for
 hours; without the clamp, both produce a seek to a position that never existed.
+
+### When two people change the same thing at once
+
+Every setting that travels is merged **per key**, and each key remembers when it
+was last decided. The "when" is a hybrid logical clock: a wall-clock reading that
+is dragged forward by everything the device has heard from the room. Two
+consequences, both worth knowing:
+
+- **A change that came after something you saw always wins.** If your phone had
+  already received CAM's edit when you tapped, your tap is stamped later than it
+  — by the clock, not by an argument between the two devices — so your value is
+  the one every screen ends up on. This holds even if your phone's clock is
+  minutes behind: the stamp is `max(now, the latest thing this page has seen)`,
+  so a slow clock can never write into the past.
+- **And a change made after something you did NOT see wins too, now.** The
+  clause above used to be the whole story, and it left a real hole on the one
+  device most likely to hit it. Everything that happens while your phone's
+  screen is locked, or while it is in a lift, is something it has not seen — so
+  on a phone whose clock was more than a few seconds behind, the first tap after
+  it came back was stamped in the past and quietly lost. Measured: a phone ten
+  seconds behind, away for six and a half, tapped on return — the button went
+  green and came back. Each page now also keeps a reading of **room time**: the
+  latest wall clock it has heard from anybody, which it stamps with instead of
+  its own. A device joining a room adopts room time on the **first frame of any
+  kind** — including the telemetry a display sends, which matters because a
+  display never publishes state, so a phone alone with one would otherwise hear
+  nothing at all for a whole session. Room time is kept across a reload, and so
+  is the fact of having heard it: a page whose previous session genuinely learned
+  nothing holds its first tap until a frame arrives and then re-stamps it.
+- **And a change made after your own clock jumps wins too.** Room time is
+  projected forward on a clock that cannot go backwards, so a device that
+  corrects its clock — an NTP step, a Kraken with no RTC reaching a time server,
+  a user fixing a timezone — does not start writing into its own past. The 5 Hz
+  publish throttle is measured the same way. Before that, a device whose clock
+  stepped back an hour simply stopped publishing for an hour: it kept receiving,
+  it reported "online", and the room split in two in silence.
+- **Two genuinely simultaneous changes resolve by whichever clock reads later.**
+  If you and somebody else touch the same setting within a fraction of a second,
+  before either device has heard the other, there is no fact about who moved
+  first — the room picks one, and it picks the SAME one on every screen. In
+  practice the deciding margin is the two devices' clock skew **after room time
+  has been applied**, which is milliseconds once a device has heard a single
+  frame, and only its raw skew for a device that has heard nothing at all yet.
+  On phones and desktops synced to network time that is milliseconds. Nothing is ever left
+  split: the panel, the configuration window and the phone all land on one value
+  within a round trip.
+
+Different keys never contend at all. One person changing the fit while another
+rotates the panel is two independent writes, and both survive.
+
+If a device's clock is badly wrong — hours out, no network time — the only thing
+that degrades is that tie-break, and only until it has heard one frame. A change
+it makes after seeing yours still wins over yours; a change it makes after
+coming back from an outage still wins, because it stamps in room time; only a
+change made at the same instant as yours, by a device that has never heard the
+room, is decided by the wrong clock.
+
+A device running AHEAD drags room time forward for everyone while it is present,
+which changes who wins a tie and nothing else. Readings more than a day out are
+**clamped to a day** rather than ignored, and the difference is worth stating
+honestly, because ignoring them was worse: a peer past the limit still stamped
+its own writes at its own time, and discarding its reading only stopped everyone
+else from tracking it. What that clamp does and does not buy:
+
+- a device that is CONNECTED is fully covered without it. Once your page has
+  received a stamp from a far-future clock, its own next write is ordered after
+  that stamp, so the room converges on whoever tapped last whatever any clock
+  says — measured, in both directions, with a peer three days fast;
+- a device that has been AWAY is covered up to the clamp. Coming back from an
+  outage it stamps up to a day ahead, which beats anything the wrong-clock peer
+  wrote unless that peer is more than a day out _and_ the excess is longer than
+  the outage;
+- past that, the wrong-clock peer wins those ties until its clock is corrected.
+  There is no fix for this inside a design with no consensus round, and a room
+  where a peer can lie about the clock is a room where that peer can also simply
+  write the value it wants.
 
 ### Where the position on your phone comes from
 

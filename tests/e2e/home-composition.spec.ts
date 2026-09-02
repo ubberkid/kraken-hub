@@ -147,6 +147,29 @@ async function pageMetrics(page: Page): Promise<PageMetrics> {
       // picture list is explicitly a fixed-height shelf (`.kh-list--shelf`).
       if (el.classList.contains('kh-list--shelf')) continue;
       /*
+       * …and so is a sheet's BODY, for the same reason and by the same design
+       * (§2.4/§4: "scrolls internally"). Fifty saved Looks is fifty cards and
+       * eight layers is eight rows; the alternative to a box that scrolls inside
+       * itself is a page that grows without limit, which is the failure this
+       * metric exists to catch rather than an example of it. The SHEET around it
+       * still has to fit, and the `overflow` number below still measures that —
+       * these exemptions buy nothing outside their own boxes.
+       *
+       * `kh-sheet__body` is the one the Looks sheet uses since round 10's M9:
+       * the grid's own `max-height` gave three of ten templates a 204 px window
+       * onto 827 px of cards, and handing the scroll to the sheet body — the
+       * class every other editor sheet already scrolls with — gave the cards the
+       * sheet's whole height. `kh-rail__list` is round 10's F2, the same
+       * treatment for the layer rail.
+       */
+      if (
+        el.classList.contains('kh-looks-grid') ||
+        el.classList.contains('kh-looks-pick') ||
+        el.classList.contains('kh-sheet__body') ||
+        el.classList.contains('kh-rail__list')
+      )
+        continue;
+      /*
        * Only SCROLL boxes count.
        *
        * `overflow: visible` gives sub-pixel rounding, not swallowed content. A
@@ -433,17 +456,27 @@ test('the halo becomes a live corner thumb while the options are open, and comes
   // battery, reading a database with nothing in it.
   await page.goto('/?cam=1');
   await page.getByTestId('module-chip-clock').click();
-  await expect(page.getByTestId('mirror')).toHaveAttribute('data-mirror-mode', 'live');
+  /*
+   * `editor`, not `live` — the third mirror mode.
+   *
+   * The project's viewport is `devices['Desktop Chrome']`, which is 1280 wide,
+   * so this page is in the editor and its halo is the editor's own compositor
+   * rather than an iframe of the display page. The property under test is about
+   * the halo YIELDING and coming back, which is the same property in either
+   * composition; what changes is what the thumb is made of, so the assertion
+   * says which one it is looking at.
+   */
+  await expect(page.getByTestId('mirror')).toHaveAttribute('data-mirror-mode', 'editor');
 
   const full = await haloWidth(page);
   expect(full).toBeGreaterThan(150);
 
   await openOptions(page, 'clock');
   await expect.poll(async () => haloWidth(page)).toBeLessThan(90);
-  // Still the object, and still the real display page — a thumb, not a picture
-  // of one: the mirror's iframe is the same document it always was.
+  // Still the object, and still a running compositor — a thumb, not a picture
+  // of one.
   await expect(page.getByTestId('mirror')).toBeInViewport();
-  await expect(page.locator('.kh-halo__frame')).toHaveCount(1);
+  await expect(page.locator('.kh-stage')).toHaveCount(1);
 
   await page.getByTestId('ops-close').click();
   await expect.poll(async () => haloWidth(page)).toBeGreaterThan(150);
@@ -897,4 +930,38 @@ test.describe('the page fits CAM’s window in every stage of the paste story', 
     await expect(page.locator('.kh-home')).toHaveAttribute('data-compact', 'false');
     await expect.poll(async () => haloWidth(page)).toBeGreaterThan(150);
   });
+});
+
+/**
+ * ── W8b — the Looks sheet is a state of the home screen, and it fits ─────────
+ *
+ * The sheet carries four groups, a grid of live previews and a footer of file
+ * actions, and it opens on the one screen this suite exists to protect. It is
+ * therefore enumerated here rather than tested somewhere on its own: principle 9
+ * is a promise about the PAGE in CAM's window, in every state it can be in, and
+ * a sheet that measured itself would be the round-2 mistake with a new name.
+ */
+test.describe('the Looks sheet fits CAM’s window', () => {
+  for (const tab of ['templates', 'yours', 'gallery', 'carousel'] as const) {
+    test(`${tab}: the whole composition fits at 866×537 with the sheet open`, async ({ page }) => {
+      await cam(page);
+      await page.goto('/');
+
+      await page.getByTestId('looks-menu').click();
+      await page.getByTestId('looks-browse').click();
+      await expect(page.getByTestId('looks-sheet')).toBeVisible();
+      await page.getByTestId(`looks-tab-${tab}`).click();
+      await expect(page.getByTestId('looks-sheet')).toHaveAttribute('data-tab', tab);
+
+      await expect.poll(async () => (await pageMetrics(page)).overflow).toBe(0);
+
+      const m = await pageMetrics(page);
+      expect(m.overflow, `${tab}: the sheet runs past the bottom of CAM's window`).toBe(0);
+      // The grid is allowed to scroll inside itself; nothing else is.
+      expect(m.clipped, `${tab}: something outside the Looks grid is clipped`).toBe(0);
+      expect(m.navFullyVisible, `${tab}: the nav row is cut by the fold`).toBe(true);
+      expect(m.footerFullyVisible, `${tab}: the footer is cut by the fold`).toBe(true);
+      expect(m.scrollY).toBe(0);
+    });
+  }
 });

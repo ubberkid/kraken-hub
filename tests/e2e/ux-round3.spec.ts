@@ -307,28 +307,71 @@ test.describe('round 3 minors', () => {
     }
   });
 
+  /**
+   * The finding, and where it lives now.
+   *
+   * The mirror row used to be left-aligned inside a centred box while every
+   * other row was centred — one orphan x-axis, at the moment the halo is least
+   * able to anchor anything. The class is *the compact mirror shares the
+   * composition's axis with the rows it was shrunk for*.
+   *
+   * At CAM widths the composition is the layer editor now, and the rows that
+   * share the mirror's column are the ops strip and the options panel — the
+   * module chips moved out of that column entirely, into the rail beside it, so
+   * `.kh-mods` is no longer the axis to measure against and measuring it would
+   * assert the editor is *not* two columns. The narrow composition below 700 px
+   * still stacks mirror, chips and ops in one column, and that is asserted at
+   * 640 px, against the original selector, underneath.
+   */
+  async function axisGap(page: Page, a: string, b: string): Promise<number> {
+    return page.evaluate(
+      ([one, two]) => {
+        const centre = (s: string): number | null => {
+          const el = document.querySelector(s);
+          if (el === null) return null;
+          const r = el.getBoundingClientRect();
+          return Math.round(r.left + r.width / 2);
+        };
+        const x = centre(one);
+        const y = centre(two);
+        return x === null || y === null ? -1 : Math.abs(x - y);
+      },
+      [a, b] as const,
+    );
+  }
+
   test('the compact mirror stays on the composition’s axis', async ({ page }) => {
     await cam(page);
     await page.goto('/');
     await openOptions(page, 'clock');
 
+    // The composition this width gets, so the axis being asserted is named.
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-editor', 'true');
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-compact', 'true');
+
+    // The canvas column's own rows: the mirror, the strip under it, and the
+    // panel the strip opened. One x-axis, no orphan.
     await expect
-      .poll(async () =>
-        page.evaluate(() => {
-          const centre = (s: string): number | null => {
-            const el = document.querySelector(s);
-            if (el === null) return null;
-            const r = el.getBoundingClientRect();
-            return Math.round(r.left + r.width / 2);
-          };
-          const mirror = centre('.kh-home__mirror');
-          const chips = centre('.kh-mods');
-          return mirror === null || chips === null ? -1 : Math.abs(mirror - chips);
-        }),
-      )
-      // The mirror row used to be left-aligned inside a centred box while every
-      // other row was centred — one orphan x-axis, at the moment the halo is
-      // least able to anchor anything.
+      .poll(async () => axisGap(page, '.kh-home__mirror', '.kh-ops'))
+      .toBeLessThanOrEqual(2);
+    await expect
+      .poll(async () => axisGap(page, '.kh-home__mirror', '[data-testid="ops-panel"]'))
+      .toBeLessThanOrEqual(2);
+  });
+
+  test('the compact mirror stays on the axis in the narrow composition too', async ({ page }) => {
+    await page.setViewportSize({ width: 640, height: 640 });
+    await page.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await page.goto('/');
+    await openOptions(page, 'clock');
+
+    // Below 700 px the home screen is still the pre-editor single column, which
+    // is the composition the finding was photographed on.
+    await expect(page.locator('.kh-home')).toHaveAttribute('data-editor', 'false');
+    await expect
+      .poll(async () => axisGap(page, '.kh-home__mirror', '.kh-mods'))
       .toBeLessThanOrEqual(2);
   });
 });

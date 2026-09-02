@@ -1,0 +1,72 @@
+/*
+ * Text layer styles. Imported from `display.ts`, so they ride in the module's
+ * own lazy chunk rather than on the display critical path.
+ *
+ * Every size that depends on the panel is written by the renderer from the box
+ * it measures; nothing here knows a pixel dimension. No `@font-face` and no
+ * `@import`: the six curated faces arrive through `fonts.ts`, one `<link>` at a
+ * time, only when a layer asks for one.
+ *
+ * Flat fill, one optional flat shadow, no gradients and no transitions: CAM
+ * compresses every captured frame, and anything that smears pixels across a
+ * repaint costs achieved FPS for no legibility.
+ */
+
+/*
+ * ## The layer's visual centre IS its anchor
+ *
+ * A text layer is placed by dragging it, and a drag aims at what the eye sees:
+ * the glyphs. So the box the compositor positions and the mass the reader is
+ * looking at have to share a centre — otherwise "drop it in the middle" leaves
+ * the words visibly off-middle, and no amount of care with the transform can
+ * fix it because the transform was never wrong.
+ *
+ * Flex rather than grid, and BOTH axes centred here rather than one axis here
+ * and the other left to `text-align`. `text-align` positions the glyphs inside
+ * a full-width line box, which gets a short line to the right place but leaves
+ * the line box itself spanning the layer — so anything measuring the rendered
+ * line (the editor's own outline, a test, a person with a ruler) measures the
+ * box and not the words. The renderer writes `justify-content` from the same
+ * `align` value, so the flex item hugs the text and its centre is the text's.
+ *
+ * `align-items: center` is what makes the vertical claim structural rather than
+ * incidental: it holds for a line that wrapped to three, for a face with tall
+ * ascenders, and for a box far taller than one line of type — the case where
+ * "it happened to look centred" stops being true.
+ */
+.kh-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.kh-text__line {
+  /* The layer lays out inside its OWN safe inset — `--kh-safe` is republished
+     per host by the compositor, so this resolves against this layer's box. */
+  padding: 0 var(--kh-safe, 0px);
+  /*
+   * Symmetric half-leading, and the reason the line box's centre is the type's
+   * centre: CSS splits `line-height − font-size` equally above and below the
+   * text, so any line-height keeps the em box centred. 1.1 leaves room for
+   * descenders without pushing a single line off its own middle.
+   */
+  line-height: 1.1;
+  /* A long line wraps rather than running off the panel, where there is no
+     scrollbar and no way to discover the missing half. */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  /* Hug the words, but never overflow the layer it is centred in. */
+  max-width: 100%;
+}
+
+.kh-text--upper .kh-text__line {
+  text-transform: uppercase;
+}
+
+.kh-text--shadow .kh-text__line {
+  /* One flat offset, no blur ramp: legibility over a video base without giving
+     the compressor a gradient to chew on. */
+  text-shadow: 0 0.04em 0 rgb(0 0 0 / 65%);
+}

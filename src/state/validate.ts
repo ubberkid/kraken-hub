@@ -12,10 +12,16 @@
 import { clamp, isFiniteNumber, isPlainObject } from '../lib/clamp';
 
 import { DEFAULT_MODULE_ID, defaultAppState } from './defaults';
+import { type Look } from './look/types';
+import { validateLook } from './look/validate';
 import {
+  CAROUSEL_MAX_SEC,
+  CAROUSEL_MIN_SEC,
   SCHEMA_VERSION,
   type AppState,
+  type CarouselSettings,
   type DiagnosticsPrefs,
+  type ModuleId,
   type ModuleSlot,
   type PlatformPrefs,
   type PlaybackState,
@@ -217,6 +223,69 @@ function validatePlayback(raw: unknown, n: Notes): PlaybackState | null {
 /** Module ids are kebab-case; anything else is dropped rather than trusted. */
 export const MODULE_ID_RE = /^[a-z][a-z0-9-]{1,23}$/;
 
+/**
+ * A saved Look's id, as the carousel may name it.
+ *
+ * The store mints them, so this is a shape check rather than an existence
+ * check: whether the id still names a Look is a question only the window that
+ * owns the store can answer, and it answers it on the tick by skipping ids it
+ * cannot resolve. A document that outlived a deleted Look is therefore not
+ * corrupt — it is one entry shorter than it looks.
+ */
+const LOOK_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
+
+/** More than this many is not a rotation, it is a paste accident. */
+const MAX_CAROUSEL_IDS = 50;
+
+/**
+ * The rotation, repaired rather than refused — and ABSENT rather than defaulted.
+ *
+ * The distinction matters: `undefined` means "no carousel", which is the state
+ * almost every document is in and the state the UI reads as "off". A carousel
+ * whose list repairs down to fewer than two ids is not a carousel either (there
+ * is nothing to rotate between), so it becomes `undefined` too, with a note —
+ * which is how a document that names two Looks and then loses one to a delete
+ * turns itself off instead of flickering between one Look and itself.
+ */
+function validateCarousel(raw: unknown, n: Notes): CarouselSettings | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isPlainObject(raw)) {
+    n.add('carousel', raw, undefined);
+    return undefined;
+  }
+
+  const rawIds = raw['lookIds'];
+  const ids: string[] = [];
+  if (Array.isArray(rawIds)) {
+    for (const id of rawIds) {
+      if (typeof id === 'string' && LOOK_ID_RE.test(id) && !ids.includes(id)) ids.push(id);
+      else n.add('carousel.lookIds', id, undefined);
+      if (ids.length >= MAX_CAROUSEL_IDS) break;
+    }
+  } else {
+    n.add('carousel.lookIds', rawIds, []);
+  }
+
+  if (ids.length < 2) {
+    n.add('carousel', raw, undefined);
+    return undefined;
+  }
+
+  return {
+    lookIds: ids,
+    intervalSec: Math.round(
+      num(
+        raw['intervalSec'],
+        CAROUSEL_MIN_SEC,
+        CAROUSEL_MIN_SEC,
+        CAROUSEL_MAX_SEC,
+        'carousel.intervalSec',
+        n,
+      ),
+    ),
+  };
+}
+
 function validateModules(raw: unknown, n: Notes): Record<string, ModuleSlot> {
   const out: Record<string, ModuleSlot> = {};
   if (!isPlainObject(raw)) {
@@ -240,6 +309,40 @@ function validateModules(raw: unknown, n: Notes): Record<string, ModuleSlot> {
   return out;
 }
 
+/**
+ * The document's `look`, repaired and reconciled with `activeModuleId`.
+ *
+ * Two jobs, and they are worth keeping apart in your head.
+ *
+ * **Repair.** `validateLook` is total and idempotent, so a corrupt, foreign or
+ * absent look degrades to something renderable — base-only at worst — instead of
+ * failing the load. Its notes are folded into the document's, path and all, so
+ * the diagnostics view says exactly which layer was wrong. `MAX_LAYERS` is a
+ * repair there too: a ninth layer is a tail drop with a note (the editor's ops
+ * refuse the ninth long before it can be written). `MAX_LOOK_BYTES` is NOT —
+ * an oversized look is noted and kept whole, because silently deleting somebody's
+ * overlay for being verbose is data loss, not recovery (§4.1). Neither cap ever
+ * truncates a layer.
+ *
+ * **Reconciliation.** For this release the base kind lives in two places, and
+ * two homes for one value need a rule. The rule is that `activeModuleId` wins:
+ * it is the field every writer in the app still commits (home chips, library
+ * tiles, paste, the phone, `?module=`), and the only base kind on the wire. So
+ * the base's kind is rewritten from it and the overlays are left standing —
+ * exactly the `switchBase` semantics the editor will use when it takes over the
+ * write path, at which point this rewrite reverses and then disappears with the
+ * field. It is silent: a disagreement here is the normal shape of a module
+ * switch during this release, not corruption to report.
+ */
+function validateDocumentLook(raw: unknown, activeModuleId: ModuleId, n: Notes): Look {
+  const { look, notes } = validateLook(raw);
+  for (const note of notes) n.items.push(note);
+
+  const base = look.layers[0];
+  if (base === undefined || base.kind === activeModuleId) return look;
+  return { layers: [{ ...base, kind: activeModuleId }, ...look.layers.slice(1)] };
+}
+
 // ---- the document ----------------------------------------------------------
 
 const ROLES: readonly Role[] = ['display', 'config', 'remote'];
@@ -261,6 +364,7 @@ export function validateAppState(raw: unknown): ValidationResult {
         })();
 
   const state: AppState = {
+    look: validateDocumentLook(o['look'], activeModuleId, n),
     schema: SCHEMA_VERSION,
     rev: Math.round(num(o['rev'], 0, 0, Number.MAX_SAFE_INTEGER, 'rev', n)),
     updatedAt: num(o['updatedAt'], 0, 0, Number.MAX_SAFE_INTEGER, 'updatedAt', n),
@@ -274,6 +378,16 @@ export function validateAppState(raw: unknown): ValidationResult {
     platform: validatePlatform(o['platform'], def.platform, n),
     diagnostics: validateDiagnostics(o['diagnostics'], def.diagnostics, n),
   };
+
+  /*
+   * Assigned rather than declared, because the field is genuinely optional:
+   * writing `carousel: undefined` into the object would make
+   * `Object.hasOwn(state, 'carousel')` true and `JSON.stringify` emit nothing,
+   * which is two answers to "is there a carousel" for anything that asks the
+   * first way.
+   */
+  const carousel = validateCarousel(o['carousel'], n);
+  if (carousel !== undefined) state.carousel = carousel;
 
   return { state, notes: n.items };
 }

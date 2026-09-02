@@ -1,0 +1,82 @@
+/*
+ * The Icon panel's glyph grid and its one non-kit control.
+ *
+ * `src/ui/` has no picture grid and should not grow one for a single module:
+ * this is forty-eight square cells of one module's own artwork, not a house
+ * vocabulary. The colour well is native for the reason `textPanel.css` writes
+ * down — a colour is not an enumeration, and the platform's picker is better
+ * than any row of swatches at choosing one.
+ *
+ * Config-only: imported from a `.tsx` under `src/modules/`, which vite chunks
+ * into `config-ui`. It can never reach the display graph (I8).
+ */
+
+.kh-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  background: var(--kh-panel-2);
+}
+
+.kh-icon-cell {
+  /* 44 px: the touch target the fidelity suite measures, not a visual choice. */
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--kh-ink);
+  cursor: pointer;
+}
+
+.kh-icon-cell svg {
+  width: 24px;
+  height: 24px;
+}
+
+.kh-icon-cell:hover {
+  border-color: var(--kh-line);
+}
+
+.kh-icon-cell[data-chosen='true'] {
+  border-color: var(--kh-accent);
+  background: var(--kh-panel);
+  color: var(--kh-accent);
+}
+
+.kh-icon-cell:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}
+
+.kh-icon-grid__none {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 6px;
+  color: var(--kh-muted);
+}
+
+.kh-icon-swatch {
+  display: block;
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  background: var(--kh-panel-2);
+  cursor: pointer;
+}
+
+.kh-icon-swatch:focus-visible {
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}

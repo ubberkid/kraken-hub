@@ -1,0 +1,59 @@
+{
+  "author": "kraken-hub",
+  "configVersions": {
+    "video": 2
+  },
+  "configs": {
+    "video": {
+      "demoWhenEmpty": true,
+      "url": ""
+    }
+  },
+  "createdAt": "2026-09-02T00:00:00.000Z",
+  "description": "A looping clip with the time over it. The clip is yours to pick — none ships.",
+  "format": "kraken-hub-look",
+  "look": {
+    "layers": [
+      {
+        "frame": "panel",
+        "id": "base",
+        "kind": "video",
+        "name": "Your clip",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "cfg": {
+          "face": "digital",
+          "showSeconds": false,
+          "theme": "mono"
+        },
+        "frame": {
+          "h": 0.45,
+          "shape": "square",
+          "w": 1.3
+        },
+        "id": "lclock",
+        "kind": "clock",
+        "on": true,
+        "t": {
+          "a": 1,
+          "r": 0,
+          "s": 1,
+          "x": 0,
+          "y": 0.58
+        },
+        "v": 1
+      }
+    ]
+  },
+  "media": [],
+  "name": "Sunset loop + clock",
+  "version": 7
+}

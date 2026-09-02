@@ -30,6 +30,42 @@ describe('parseUrlParams', () => {
     expect(moduleParams['mute']).toBe('0');
   });
 
+  it.each(['text', 'shape', 'effect'])('selects the W7 layer kind %s as the base', (kind) => {
+    const { patch, notes } = parseUrlParams(`?kraken=1&sim=elite&module=${kind}`);
+    expect(patch.activeModuleId).toBe(kind);
+    expect(notes).toEqual([]);
+  });
+
+  it('keeps ?effect= raw for the effect module, like ?face= and ?layout=', () => {
+    const { moduleParams, notes } = parseUrlParams('?module=effect&effect=voronoi');
+    expect(moduleParams['effect']).toBe('voronoi');
+    expect(notes).toEqual([]);
+  });
+
+  it('does not judge an effect id — only the module knows the twelve', () => {
+    // Same contract as `face` and `layout` (docs/modules.md §9): an id this
+    // table has never heard of is handed over raw, dropped by `validate()`, and
+    // is NOT a note here.
+    const { moduleParams, notes } = parseUrlParams('?effect=not-an-effect');
+    expect(moduleParams['effect']).toBe('not-an-effect');
+    expect(notes).toEqual([]);
+  });
+
+  it('rejects an empty ?effect=', () => {
+    const { moduleParams, notes } = parseUrlParams('?effect=');
+    expect(moduleParams['effect']).toBeUndefined();
+    expect(notes.map((n) => n.key)).toEqual(['effect']);
+  });
+
+  it('reports ?preset= as unknown rather than accepting one it cannot honour', () => {
+    // The palette table is lazy on purpose, so the eager manifest could record
+    // the label and never paint the colours. Better an honest "unknown".
+    const { moduleParams, notes } = parseUrlParams('?module=effect&preset=ember');
+    expect(moduleParams['preset']).toBeUndefined();
+    expect(notes.map((n) => n.key)).toEqual(['preset']);
+    expect(notes[0]?.reason).toContain('unknown');
+  });
+
   it('normalises a room code and enables sync', () => {
     const { patch } = parseUrlParams('?room=ab12cd34');
     expect(patch.sync?.roomCode).toBe('AB12CD34');
@@ -87,5 +123,15 @@ describe('parseUrlParams', () => {
       page: 2,
     });
     expect(parseUrlParams('?pattern=spiral').flags.pattern).toBeNull();
+  });
+
+  // W0 spike (throwaway): removed with `src/render/compositor.spike.ts`.
+  it('carries the layer-stack selector, and refuses one it cannot compose', () => {
+    expect(parseUrlParams('?pattern=stack&stack=d').flags).toMatchObject({
+      pattern: 'stack',
+      stack: 'd',
+    });
+    expect(parseUrlParams('?stack=z').flags.stack).toBeNull();
+    expect(parseUrlParams('?stack=z').notes[0]?.reason).toContain('a|b|c|d|e');
   });
 });

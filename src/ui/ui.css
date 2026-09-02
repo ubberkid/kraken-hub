@@ -96,6 +96,22 @@ html.kh-config-mode .kh-app {
   --kh-line: #232e3e;
   --kh-line-soft: #1a2230;
 
+  /*
+   * The step ABOVE the panel: what a row, a menu, a sheet or a small control
+   * sits on when it has to read as a thing lying on the panel rather than as
+   * part of it.
+   *
+   * It was used five times in this file and declared nowhere — so the rail's
+   * rows, the strip's step buttons, the Looks menu and both sheets were all
+   * resolving `background: var(--kh-surface)` to nothing and rendering
+   * transparent. Invisible while a sheet was a block at the bottom of the page;
+   * emphatically not invisible once the sheet stood over the rail and the chips
+   * read straight through it (which is why the editor's sheet rule had to say
+   * `--kh-panel` in its own hand). One declaration, and the five sites mean what
+   * they say.
+   */
+  --kh-surface: #131c28;
+
   /* ---- ink -------------------------------------------------------------- */
   --kh-ink: #e9eef5;
   --kh-ink-2: #c9d4e0;
@@ -1500,6 +1516,47 @@ html.kh-config-mode .kh-app {
   font-weight: 600;
 }
 
+/*
+ * "Sample readings" — round 10's F8, in the halo's own top corner.
+ *
+ * Not the status line's class, and that is the whole placement decision: in the
+ * editor `.kh-status` is absolutely positioned at the bottom of the rail's
+ * column, and a second box wearing it would land on top of the first. This one
+ * belongs to the CANVAS, because the dials it is about are on the canvas — so it
+ * sits over the halo's top-left, quiet, out of the strip's way at the bottom and
+ * out of the nav's way in the other column.
+ */
+.kh-samplenote {
+  color: var(--kh-warn-ink);
+  font-size: 0.7rem;
+  margin: 0;
+}
+
+/*
+ * …and it costs the canvas nothing, by the same trick the strip uses.
+ *
+ * An absolutely-positioned GRID ITEM's containing block is its own grid area, so
+ * `grid-area: canvas` plus `top/left: 0` puts this in the canvas column's top
+ * corner without taking a row — beside the halo rather than above it, in the
+ * column space a square leaves either side of itself. In flow it would have
+ * shortened the halo by its own height, and the halo has 15 px of slack over
+ * §2's 400 px floor at CAM's window.
+ *
+ * It is a SIBLING of the mirror rather than a child of it for a reason worth
+ * writing down: making `.kh-home__mirror` a positioned ancestor to hold this
+ * re-parented `.kh-status`, which is absolutely positioned too, out of the
+ * rail's column and on top of the selection strip. One positioned element, one
+ * containing block, no side effects.
+ */
+.kh-home[data-editor='true'] .kh-samplenote {
+  grid-area: canvas;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  z-index: 4; /* layer-order-ok: a caption over the canvas, not a look's z-order */
+}
+
 .kh-tnum {
   font-variant-numeric: tabular-nums;
 }
@@ -1925,6 +1982,39 @@ html.kh-config-mode .kh-app {
   display: flex;
   flex-wrap: wrap;
   row-gap: 2px;
+}
+
+/*
+ * A wrapping row wraps; it does not squeeze.
+ *
+ * A flex item shrinks by default, so a `--wrap` row whose container is narrower
+ * than one line of options never got to the second line — it crushed every
+ * option instead. Measured on the remote's module picker at 390 px, with nine
+ * registered kinds in a half-width column: nine 25 px buttons, well under the
+ * 44 px floor, with their labels overflowing. `flex: none` is what makes the
+ * wrap the escape valve it was written to be.
+ */
+.kh-seg--wrap .kh-seg__opt {
+  flex: none;
+}
+
+/*
+ * The strip's text buttons, at a thumb's size on a thumb's screen.
+ *
+ * `Source`, `Loop`, `Quality` and `More` are as wide as their words — 28–39 px
+ * — which is right for a pointer and under the floor for a finger. Keyed on the
+ * WIDTH breakpoint rather than on `pointer: coarse`, and the difference is not
+ * academic: `tap-targets.spec.ts` measures a 390 px viewport in Desktop Chrome,
+ * where the pointer is fine and the floor still applies, because a narrow window
+ * is where a phone's layout is served. Same query `useNarrow` uses, so the two
+ * cannot disagree.
+ */
+@media (max-width: 700px) {
+  .kh-op__btn {
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 /*
@@ -3513,6 +3603,24 @@ main > .kh-panel .kh-setup {
   text-overflow: ellipsis;
 }
 
+/*
+ * …until there are more kinds than a half-width column can share.
+ *
+ * `flex: 1; min-width: 0` shares the row evenly, which was the right answer for
+ * the four modules that existed when it was written and is a squeeze at nine:
+ * measured at 390 px, every option in the remote's module picker was 25 px wide
+ * with its label ellipsed, well under the 44 px floor the rest of the file
+ * keeps. The row already carries `--wrap`; this lets it use it. Both halves of
+ * the pair get the rule, so the two rows stay the same shape as each other.
+ */
+@media (max-width: 700px) {
+  .kh-remote__pair2 .kh-seg__opt {
+    flex: none;
+    min-width: 44px;
+    padding-inline: 10px;
+  }
+}
+
 /* `.kh-hint` is only styled inside `.kh-panel`, and there is no panel here. */
 .kh-remote__ess .kh-hint {
   margin: 0.1rem 0 0.45rem;
@@ -3665,4 +3773,1802 @@ main > .kh-panel .kh-setup {
   to {
     background-position: -120% 0;
   }
+}
+
+/* ==========================================================================
+ * The editor (docs/design/design-editor-ux.md §2)
+ *
+ * Two columns at CAM's window and above: the halo on the left at the largest
+ * size the window allows, the layer rail on the right. Below 700 px the whole
+ * block is inert — a phone gets the remote, not half an editor (§5) — and the
+ * home screen keeps the single-column composition it has always had.
+ *
+ * ## The one number that matters
+ *
+ * Principle 1: **the halo is >= 400 px at 866x537**. The canvas is
+ * `min(the column, whatever the window has left)` — and "whatever the window
+ * has left" is a `minmax(0, 1fr)` grid row rather than a constant, because the
+ * constant this shipped with (130 px) was wrong by 69 px and nothing measured
+ * it. `tests/e2e/editor.spec.ts` measures the result instead.
+ *
+ * The other half of that budget is what does NOT take a row: the selection
+ * strip floats over the canvas (principle 3's "floating strip") and the status
+ * line sits in the rail column's own slack, so a Stats strip that renders 117 px
+ * of controls changes what is on the screen and never what size the halo is.
+ * ========================================================================== */
+
+/*
+ * The editor is a FIXED-HEIGHT screen, and this is where that starts.
+ *
+ * `1fr` is free space, and there is no free space to distribute in a box whose
+ * height is its content's. The shell is `min-height: 100dvh` — a floor, not a
+ * height — so every percentage and every `fr` below it resolved against
+ * "auto" and the canvas row collapsed to nothing. Giving the shell a definite
+ * height for THIS screen only is the whole of the chain: shell -> main
+ * (`flex: 1 1 auto; min-height: 0`, already) -> the grid -> the canvas row.
+ *
+ * Scoped with `:has()` rather than a class, because the shell is rendered by a
+ * component that knows nothing about which view is inside it, and every other
+ * screen — Library, About, the phone's single-column home — must keep growing
+ * past the fold and scrolling, which is what `min-height` is for.
+ */
+.kh-shell:has(> main > .kh-home[data-editor='true']) {
+  height: 100dvh;
+}
+
+.kh-home[data-editor='true'] {
+  --kh-ed-rail: 268px;
+  --kh-ed-gap: 14px;
+  /*
+   * The strip of the rail's column the status line occupies, reserved.
+   *
+   * Read twice, on purpose: the rail pads its foot by it and the line is
+   * exactly that tall, so the two cannot disagree about where the rail's
+   * footer stops and the status line starts. See the `.kh-status` rule below.
+   */
+  --kh-ed-status: 24px;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--kh-ed-rail);
+  grid-template-areas:
+    'top    top'
+    'canvas rail'
+    'strip  rail'
+    'loop   rail'
+    'flow   rail'
+    'notice rail'
+    'band   rail'
+    'starters rail'
+    'panel  panel'
+    'sheet  sheet';
+
+  /*
+   * The canvas row is the ONE row that grows, and it is `minmax(0, 1fr)` — the
+   * definite height the halo sizes itself against (round 9's 14 px canvas).
+   *
+   * Every other row is its content's height, so "what the window has left" is
+   * arithmetic the layout engine does rather than a constant this file writes
+   * down and then gets wrong: `--kh-ed-chrome` was 130 px against a real 199 px
+   * of chrome, and the halo it produced would have run 69 px past the fold if
+   * the percentage it was built on had resolved at all.
+   *
+   * `min-height: 0` is what lets the row shrink below its content: without it a
+   * grid item's automatic minimum size is its content, and a 640 px compositor
+   * inside the canvas would push the row — and the page — past the window.
+   */
+  grid-template-rows: auto minmax(0, 1fr) repeat(8, auto);
+  min-height: 0;
+  align-items: start;
+  justify-items: stretch;
+  column-gap: var(--kh-ed-gap);
+  row-gap: 0;
+  padding: 0;
+  position: relative;
+  width: 100%;
+}
+
+.kh-home[data-editor='true'] .kh-ed__top {
+  grid-area: top;
+}
+
+/*
+ * The one grid item that STRETCHES.
+ *
+ * `align-items: start` above is right for every other row — a notice does not
+ * want to be 400 px tall — and it was silently wrong for this one: the canvas
+ * row was 415 px and the mirror inside it was 14, because a start-aligned item
+ * is its content's height and the halo's height is a percentage of the item.
+ * That is the second half of round 9's 14 px canvas, and it is why this rule
+ * says `stretch` rather than leaving it to the container's default.
+ */
+.kh-home[data-editor='true'] .kh-home__mirror {
+  align-self: stretch;
+  grid-area: canvas;
+  min-height: 0;
+}
+
+.kh-home[data-editor='true'] .kh-ed-canvas {
+  flex: 1 1 auto;
+}
+
+.kh-home[data-editor='true'] .kh-ops {
+  grid-area: strip;
+}
+
+.kh-home[data-editor='true'] .kh-home__loop {
+  grid-area: loop;
+}
+
+.kh-home[data-editor='true'] .kh-flow {
+  grid-area: flow;
+}
+
+.kh-home[data-editor='true'] .kh-home__notice {
+  grid-area: notice;
+}
+
+.kh-home[data-editor='true'] .kh-setup {
+  grid-area: band;
+}
+
+/*
+ * The FIRST-RUN band gets the band row too — round 11's F-1.
+ *
+ * `CamSetupCard`'s two variants have two class names: the quiet About card is
+ * `.kh-setup` and the first-run band is `.kh-band`, and only the first of them
+ * was named here. So on a cold profile the band was AUTO-PLACED, and the cell
+ * auto-placement gave it was the `strip` row — whose one child is the floating
+ * strip, absolutely positioned against its grid area with `bottom: 0`. A grid
+ * row that holds an 85 px band is an 85 px containing block, so the strip
+ * stopped floating over the canvas and painted over the band's last line and
+ * the top half of both its buttons instead: measured 544 x 40 of overlap at
+ * 866x537 and again at 1280x800, with "…Frame" cut off mid-word.
+ *
+ * One line, and the two states become mutually exclusive by LAYOUT rather than
+ * by a branch: the strip's row collapses to nothing again (its only child is
+ * out of flow), the strip floats up over the canvas where §2.3 puts it, and the
+ * band takes the row that was always meant for it — under everything, over
+ * nothing. Overlap 0 at both windows.
+ */
+.kh-home[data-editor='true'] .kh-band {
+  grid-area: band;
+}
+
+/*
+ * The first-run template cards get a ROW of their own — round 11's M-h.
+ *
+ * Not the band's row: two items in one named area is exactly the overlap F-1
+ * was, and this row is empty on every window that has seen a display, so it
+ * costs the halo nothing the rest of the time. It sits under the band because
+ * the band is the errand and these are the alternative to doing it right now.
+ */
+.kh-home[data-editor='true'] .kh-firstlooks {
+  grid-area: starters;
+}
+
+.kh-firstlooks {
+  margin-top: 6px;
+}
+
+.kh-firstlooks__title {
+  color: var(--kh-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 0 3px;
+}
+
+/*
+ * Three across, not the sheet's two.
+ *
+ * `.kh-looks-grid` is two columns because it lives in the rail's 268 px column;
+ * this band has the CANVAS column, which is 544 px at CAM's window, so three
+ * cards fit in one row at the size the sheet's cards already are.
+ *
+ * Doubled up (`.kh-firstlooks .kh-firstlooks__grid`) on purpose: `looks.css` is
+ * a component stylesheet imported by the sheet and therefore lands AFTER this
+ * file, so a single class here ties on specificity and loses on order — which
+ * measured as three cards wrapping to two rows, 240 px tall, squeezing the halo
+ * this band exists not to displace.
+ */
+.kh-firstlooks .kh-firstlooks__grid {
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/*
+ * A THUMBNAIL band, not a second card grid — round 11's follow-up to M-h.
+ *
+ * Every row in the editor grid except the canvas is `auto`, and the canvas row
+ * is the `minmax(0, 1fr)` the halo squares itself against. So the trade between
+ * this band's height and the halo's diameter is exactly one pixel for one,
+ * measured: with the band removed the halo is 320 px at 866x537, at the band's
+ * first size (96 px thumbs, the sheet's card padding, 115 px of section) it was
+ * 199, and every pixel taken off the band came straight back to the halo.
+ *
+ * So this is the band cut to the smallest thing that is still three Looks: a
+ * 56 px picture with its name BESIDE it rather than under it (a name on its own
+ * line is 13 px of band for a word that fits in the space next to the thumb),
+ * no descriptions, the card's padding down to what keeps its border off the
+ * picture, and the sheet grid's 2 px inset gone. Label included, that is 84 px
+ * — and the card is 135 x 62 at CAM's window, well past the 44 px a thing you
+ * press has to be in both axes.
+ *
+ * This is also the FALLBACK: where the canvas column has gutters the whole band
+ * moves into one of them and costs the halo nothing at all (see below). These
+ * are the base rules and that is the override, which is the order the dead-media
+ * invariant wants anyway.
+ */
+.kh-firstlooks .kh-looks-item {
+  gap: 0;
+  padding: 2px;
+}
+
+.kh-firstlooks .kh-firstlooks__grid.kh-looks-grid {
+  padding: 0;
+}
+
+.kh-firstlooks .kh-looks-item__apply {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+/*
+ * 56 px is the smallest thumb on which a Look still reads as that Look — the
+ * ring, the base and the text block are all still separable.
+ *
+ * `flex: none` and the explicit width because the picture inside is exactly
+ * `--kh-lookprev-size` px wide (looks.css centres it against the box); in a row
+ * card a `width: 100%` box would stretch to whatever is left and leave the
+ * name floating a long way off its own thumbnail.
+ */
+.kh-firstlooks .kh-lookprev {
+  --kh-lookprev-size: 56;
+
+  flex: none;
+  width: calc(var(--kh-lookprev-size) * 1px);
+}
+
+.kh-firstlooks .kh-looks-item__apply b {
+  font-size: 0.68rem;
+  line-height: 1.2;
+  margin-top: 0;
+  min-width: 0;
+}
+
+/*
+ * ...and where the canvas column has GUTTERS, the band stands in one of them.
+ *
+ * ## Why the row under the card could never be big enough
+ *
+ * The editor grid gives the canvas `minmax(0, 1fr)` and every other row `auto`,
+ * and the halo is `min(100cqw, 100cqh)` of that row. So a row under the setup
+ * card trades one pixel of band for one pixel of halo, exactly: measured on a
+ * cold profile at 866x537, the halo is 320 px with no band at all, 254 with a
+ * 60 px band and 226 with an 88 px one. The editor spec's "the canvas is the
+ * biggest thing" wants >= 300, and 300 leaves 20 px for a label and three
+ * cards — which is to say there is no band that both exists and fits.
+ *
+ * ## The room that was already there
+ *
+ * The halo is SQUARE and its column is not. At 866x537 the canvas column is
+ * 544 px wide and the halo is 320, so 112 px of the column stands empty on each
+ * side of it — for the whole height of the row, every window, always. That is
+ * where the cards go: one column of three, in the left gutter, out of flow. The
+ * `starters` row collapses to nothing, the canvas row takes the height back,
+ * and the halo is the 320 px it is with no band at all.
+ *
+ * ## Why a container query and not a viewport one
+ *
+ * The gutter is a property of the canvas COLUMN, not of the window: it is
+ * `(column - halo) / 2`, and the column is the grid's inline size less the
+ * rail and the gap. `.kh-home[data-editor]` is the box that decides it, so it
+ * is the container. The band is a SIBLING of the canvas rather than a child of
+ * it, which is why the query cannot name `.kh-ed-canvas` itself — a container
+ * query only reaches descendants.
+ *
+ * 762px of grid is a 480 px column, which is a 320 px halo with 80 px of gutter
+ * each side: the floor at which a 68 px card column still clears the bezel by
+ * 12 px. Under it — a ~760 px window — the band falls back to the compact row
+ * above, which is why that row is the BASE rule and this is the override.
+ *
+ * ## …and why width alone is not the whole gate
+ *
+ * The gutter is `(column - halo) / 2` and the halo is `min(column, row)`, so it
+ * closes from BOTH ends: a narrow tall window makes the halo column-bound and
+ * the gutters vanish (820x1000 passes the width test and would put three cards
+ * on top of the halo), and a tall wide one grows the halo faster than the
+ * column, because the grid stops widening at its own max-width while the row
+ * keeps going. Measured: 112 px of gutter at 866x537 but only 81 at 1280x800,
+ * where the column has hit 670 and the halo has grown to 508.
+ *
+ * So the branch is gated on the two things that keep the halo row-bound with
+ * room to spare — a window half again as wide as it is tall, and no taller than
+ * 800 px. Worked through the four corners of that region against the two chrome
+ * heights (217 px under `max-height: 640px`, 292 px above it), the smallest
+ * gutter anywhere inside it is 80 px, at exactly 1280x800. That is the number
+ * the 68 px column and its 12 px bezel gap are cut to fit, and it is why the
+ * cards do NOT grow on a big window: at 1280x800 there is less room beside the
+ * halo than at CAM's size, not more.
+ */
+.kh-home[data-editor='true'] {
+  container: kh-editor / inline-size;
+}
+
+@container kh-editor (min-width: 762px) {
+  @media (min-aspect-ratio: 3 / 2) and (max-height: 800px) {
+    .kh-home[data-editor='true'] .kh-firstlooks {
+      /*
+       * The canvas area, out of flow — the same trick the selection strip
+       * plays two rules up: an abspos grid item's containing block IS its grid
+       * area, so `left: 0` here is the canvas COLUMN's left edge and nothing
+       * has to know where that is in page coordinates.
+       */
+      grid-area: canvas;
+      left: 0;
+      margin-top: 0;
+      position: absolute;
+      top: 0;
+      width: 68px;
+      z-index: 4; /* layer-order-ok: under the strip's 5, over the canvas */
+    }
+
+    /* One column of three, not three across. */
+    .kh-firstlooks .kh-firstlooks__grid {
+      gap: 6px;
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    /* …and the card goes back to a picture with its name UNDER it: a 68 px
+       column has no room beside the thumb, and it has all the room it needs
+       below one. */
+    .kh-firstlooks .kh-looks-item__apply {
+      display: block;
+    }
+
+    .kh-firstlooks .kh-lookprev {
+      width: 100%;
+    }
+
+    .kh-firstlooks .kh-looks-item__apply b {
+      margin-top: 2px;
+    }
+  }
+}
+
+/*
+ * The rail, and the ONE box inside it that scrolls — round 10's F2.
+ *
+ * The rail is a column of five things, four of which have to stay reachable
+ * whatever the look holds: the Add button, the BASE row with the module chips
+ * in it, the primary paste field and the nav. The fifth is the row LIST, and it
+ * is the only one that grows — one row per overlay, up to `MAX_LAYERS - 1`.
+ *
+ * With no scroller anywhere in the column the list simply made the rail taller
+ * than its grid area and the page grew under it. Measured at 866×537, adding
+ * layers one at a time: 0 px of page overflow at four rows, then 8, 48, 88 and
+ * 128 px at five, six, seven and eight — so from the fifth layer on, the BASE
+ * row and everything under it walked off the bottom of CAM's window, and at
+ * eight the base row's own bottom edge sat at y = 569 in a 537 px viewport.
+ *
+ * The fix is the treatment `.kh-sheet__body` already gets one rule above: the
+ * container is stretched to its area and told it may be shorter than its
+ * content (`min-height: 0`), and the growing child takes the leftover space and
+ * scrolls inside it. Nothing else in the column moves, and page overflow is 0
+ * at every layer count.
+ */
+.kh-home[data-editor='true'] .kh-rail {
+  align-self: stretch;
+  grid-area: rail;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kh-home[data-editor='true'] .kh-rail__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the scrollbar rather than under it. */
+  padding-right: 2px;
+}
+
+.kh-home[data-editor='true'] .kh-disclosure {
+  grid-area: panel;
+}
+
+/*
+ * With the options open, the panel takes the CANVAS column — not the page.
+ *
+ * The `panel panel` row spans both columns, which is right on the single-column
+ * home and wrong here for a reason that only shows up when the panel is tall:
+ * the rail spans rows 2–7, those rows collapse to almost nothing once a 352 px
+ * panel is in row 8, and a start-aligned grid item is its content's height — so
+ * the rail simply OVERFLOWED its area, downward, straight under a panel that
+ * paints after it. Measured: with Stats' options open the Image chip sat at
+ * y = 204 and the panel covered y = 144–496, so the app's oldest gesture —
+ * pressing a module chip — was unclickable, and Playwright reported the panel
+ * intercepting the pointer.
+ *
+ * Giving the rail its own column for the whole height is the fix, and it is
+ * also the better composition: the options open BESIDE the stack rather than
+ * under it, and nothing has to overlap anything.
+ */
+.kh-home[data-editor='true'][data-compact='true'] {
+  grid-template-areas:
+    'top    top'
+    'canvas rail'
+    'strip  rail'
+    'loop   rail'
+    'flow   rail'
+    'notice rail'
+    'band   rail'
+    'starters rail'
+    'panel  rail'
+    'sheet  sheet';
+}
+
+/*
+ * The sheet is OVER the rail, never under the page — §2.4, and the audit's F2.
+ *
+ * As a `sheet` row it was a block that lengthened the document: at 866x537 the
+ * add sheet's own top edge landed at y=544 in a 537 px window, so pressing
+ * "+ Add a layer" looked like it did nothing, and choosing a tile left the page
+ * scrolled with the editor's header off the top of the screen. It is the rail's
+ * own column now, exactly as tall as the canvas beside it, with its BODY the
+ * thing that scrolls (§2.4: "scrolls internally") — which is the one exemption
+ * both page-fit metrics already carry.
+ */
+.kh-home[data-editor='true'] .kh-sheet {
+  /*
+   * Opaque, and said HERE because `.kh-sheet`'s own `var(--kh-surface)` is a
+   * token this stylesheet never defines (five uses, no declaration) — which was
+   * invisible while the sheet was a block at the bottom of the page and is not
+   * invisible when it stands over the rail: the rail's chips read straight
+   * through it.
+   */
+  background: var(--kh-panel);
+  display: flex;
+  flex-direction: column;
+  grid-area: rail;
+  margin: 0;
+  max-height: 100%;
+  min-height: 0;
+  z-index: 10; /* layer-order-ok: a sheet over the rail, not a look's z-order */
+}
+
+.kh-home[data-editor='true'] .kh-sheet__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/*
+ * …and the phone's sheets keep the same promise — §9's "scrolls internally".
+ *
+ * On the remote they did not: measured at 390×844, opening the add sheet grew
+ * the page by 919 px, so choosing a layer meant scrolling a settings page that
+ * had a sheet stapled to the middle of it. The desktop rule above is scoped to
+ * `[data-editor]` and the phone editor is a different composition, so it needs
+ * saying twice — but only the SCOPE differs; the mechanism is one flex column
+ * with a bounded height and its body the thing that moves.
+ */
+@media (max-width: 700px) {
+  .kh-remote .kh-sheet {
+    display: flex;
+    flex-direction: column;
+    max-height: 60vh;
+    min-height: 0;
+  }
+
+  .kh-remote .kh-sheet__body {
+    min-height: 0;
+    overflow-y: auto;
+  }
+}
+
+/* -- the strip and the status line, which cost the canvas nothing ---------- */
+
+/*
+ * Both of these are out of flow, and that is the whole reason the halo can be
+ * 400 px in a 537 px window.
+ *
+ * In flow they were 75 px of the budget between them — and the strip's height
+ * is the SELECTION's, not the layout's: 26 px for a base layer, 60 for a clock,
+ * 117 for Stats. A canvas sized around a row that changes size when you click
+ * something is a canvas that resizes when you click something, which is exactly
+ * what §11's "selecting a layer changes the strip and nothing else" forbids.
+ *
+ * So the strip floats over the bottom of the canvas (principle 3 calls it a
+ * floating strip) and grows UPWARD, and the status line takes the slack under
+ * the rail — which has it, because the rail's content is shorter than the halo.
+ */
+.kh-home[data-editor='true'] .kh-ops {
+  background: color-mix(in srgb, var(--kh-panel) 88%, transparent);
+  border: 1px solid var(--kh-line);
+  border-radius: 12px;
+  bottom: 0;
+  left: 0;
+  margin: 0;
+  padding: 6px 10px;
+  position: absolute;
+  /* An abspos grid item's containing block IS its grid area, so `strip` here is
+     already the canvas column — `left`/`right` are the column's own edges. */
+  right: 0;
+  z-index: 5; /* layer-order-ok: the strip over the canvas, not a look's z-order */
+}
+
+/*
+ * The status line takes the slack under the rail — and the slack is RESERVED.
+ *
+ * The rule above assumed "the rail's content is shorter than the halo", which
+ * was true while the rail was a start-aligned box of four or five rows and stops
+ * being true the moment its list scrolls (F2): a stretched rail puts its footer
+ * — the paste field and the nav — against the bottom of the column, which is
+ * exactly where this absolutely-positioned line lives. Measured: the Library
+ * link sat at y = 476–496 with the status line's own `<b>` over it, and
+ * Playwright reported the mirror's subtree intercepting every click on the app's
+ * only navigation.
+ *
+ * So the height is a number both rules read. The rail keeps that much padding at
+ * its foot, the line is exactly that tall, and its text is one line — which it
+ * effectively already was: an absolutely-positioned box anchored at `bottom: 0`
+ * grows UPWARD, so a second line was never extra room, it was the line moving on
+ * top of whatever the rail had put there.
+ */
+.kh-home[data-editor='true'] .kh-rail {
+  padding-bottom: var(--kh-ed-status);
+}
+
+.kh-home[data-editor='true'] .kh-status {
+  bottom: 0;
+  height: var(--kh-ed-status);
+  left: auto;
+  margin: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  width: var(--kh-ed-rail);
+}
+
+.kh-home[data-editor='true'] .kh-status > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -- the header row ------------------------------------------------------- */
+
+.kh-ed__top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  position: relative;
+}
+
+.kh-ed__look,
+.kh-ed__name {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--kh-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+
+.kh-ed__name {
+  border-color: var(--kh-line);
+  cursor: text;
+  min-width: 10ch;
+}
+
+.kh-ed__hist {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.kh-ed__budget {
+  align-items: center;
+  color: var(--kh-muted);
+  display: flex;
+  flex: none;
+  font-size: 0.72rem;
+  gap: 8px;
+}
+
+.kh-ed__budget .kh-meter {
+  flex: none;
+}
+
+/*
+ * The bar has a WIDTH, said here, once (round 10's F6).
+ *
+ * `.kh-meter__track` is `flex: 1` — right everywhere else in the product, where
+ * a meter is the width of its card — and 0 px here, because the header row it
+ * sits in is `flex` with an `auto` margin pushing the history buttons over: the
+ * budget's own box was its content's width, its content was a track that wanted
+ * a share of nothing, and the meter rendered as a 0×4 px sliver next to a bare
+ * em-dash. A definite basis is the whole fix.
+ */
+.kh-ed__budget .kh-meter__track {
+  flex: 0 0 120px;
+}
+
+.kh-ed__budget .kh-meter__label {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kh-ed__budget[data-estimated='true'] .kh-meter__fill {
+  /* An estimate does not get the solid bar a reading gets. */
+  opacity: 0.6;
+}
+
+/*
+ * The VERDICT is what colours the bar — round 10's F3.
+ *
+ * The bar was the accent colour at every length, so the only way to know a look
+ * was heavy was to read the number, and the number was 100 % for a single video
+ * base. `budget.ts` now positions the fill against the governor's own headroom
+ * marks and hands the model's word through unchanged; this is the word made
+ * visible. Colour is never the only signal — the label and the figure both
+ * carry it too — so this adds a reading rather than being one.
+ */
+.kh-ed__budget[data-verdict='busy'] .kh-meter__fill {
+  background: var(--kh-warn);
+}
+
+.kh-ed__budget[data-verdict='rich'] .kh-meter__fill {
+  background: var(--kh-danger);
+}
+
+.kh-ed__budget[data-verdict='busy'] .kh-meter__label {
+  color: var(--kh-warn-ink);
+}
+
+.kh-ed__budget[data-verdict='rich'] .kh-meter__label {
+  color: var(--kh-danger);
+}
+
+.kh-looks {
+  background: var(--kh-surface);
+  border: 1px solid var(--kh-line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / 55%);
+  left: 0;
+  max-width: 280px;
+  padding: 6px;
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 20; /* layer-order-ok: a menu over the canvas, not a look's z-order */
+}
+
+.kh-looks__head {
+  color: var(--kh-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  margin: 8px 6px 4px;
+  text-transform: uppercase;
+}
+
+.kh-looks__item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--kh-ink);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.kh-looks__item small {
+  color: var(--kh-muted);
+  display: block;
+  font-size: 0.72rem;
+}
+
+/* -- the canvas ----------------------------------------------------------- */
+
+/*
+ * The box the halo is measured against: the whole canvas row, both axes.
+ *
+ * `.kh-home__mirror` is a CENTRING COLUMN flex container, so every child of it
+ * is shrink-to-fit unless it says otherwise — and a canvas whose width is its
+ * content's width, wrapping a halo whose width is a percentage of the canvas,
+ * is a circular definition that resolves to zero. Claiming the row outright is
+ * what turns both of the halo's percentages below into numbers.
+ */
+.kh-ed-canvas {
+  /*
+   * A SIZE container, so the halo below can ask this box how wide and how tall
+   * it is. `cqw`/`cqh` are the only way to write `min(the column, the row)` as
+   * one expression in CSS — `aspect-ratio` plus `max-width` looks like it says
+   * the same thing and does not: measured at 900x1000, a stretched halo took
+   * the 815 px row and kept it, 237 px wider than the 578 px column it was in.
+   */
+  container-type: size;
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  width: 100%;
+}
+
+/*
+ * The largest SQUARE that fits the row — round 9's 14 px canvas.
+ *
+ * This shipped as `height: min(100%, calc(100dvh - var(--kh-ed-chrome)))` with
+ * the same expression for `width`, and neither half held up: the `100%` in the
+ * height resolved against an auto-sized grid row (circular, so zero — the halo
+ * collapsed to its own two 7 px bezel walls, a 14 px canvas at every window
+ * size), and the constant it fell back on was 130 px against 199 px of real
+ * chrome, which would have pushed the page 69 px past CAM's fold.
+ *
+ * Both are gone, and the size is now the sentence the design doc writes:
+ *
+ *   the side = min(the column, the row)
+ *
+ * literally, once, for both axes — so the halo is square by construction rather
+ * than by two expressions agreeing. The column and the row are the canvas box's
+ * own dimensions (`container-type: size` above), and the row is the grid's
+ * `minmax(0, 1fr)`: what the window has left once the editor's header, the
+ * shell's header and footer and the padding have taken theirs, computed by the
+ * layout engine instead of written down as a constant that was wrong by 69 px.
+ *
+ * No percentage of an indefinite box, no constant to keep in sync with the
+ * chrome, and no JS measuring the base size. `tests/e2e/editor.spec.ts` asserts
+ * the result (>= 400 px at 866x537) rather than trusting any of it.
+ */
+.kh-ed-canvas .kh-halo {
+  height: min(100cqw, 100cqh);
+  margin: 0;
+  width: min(100cqw, 100cqh);
+}
+
+/*
+ * …and when the options take the floor, the canvas is a thumb like every other
+ * mirror on this screen (`data-compact`, the existing mechanism).
+ *
+ * The row it grew into is gone in that state — the panel has it — so the two
+ * rules that made the halo fill a row have to be unwound rather than left to
+ * resolve against nothing: a size container in an auto row reports zero, and
+ * `min(0, 0)` is the 10 px stump this state used to show. The compact thumb has
+ * a size of its own (`--kh-halo-size`), and here it uses it.
+ */
+.kh-home[data-editor='true'][data-compact='true'] .kh-ed-canvas {
+  container-type: normal;
+}
+
+.kh-home[data-editor='true'][data-compact='true'] .kh-ed-canvas .kh-halo {
+  height: calc(var(--kh-halo-size) * 1px);
+  width: calc(var(--kh-halo-size) * 1px);
+}
+
+.kh-ed-stage {
+  height: var(--kh-ed-panel-h);
+  inset: 0;
+  position: absolute;
+  transform: scale(var(--kh-ed-scale)) translate(var(--kh-ed-pan-x), var(--kh-ed-pan-y));
+  transform-origin: 0 0;
+  width: var(--kh-ed-panel-w);
+}
+
+.kh-ed-overlay {
+  inset: 0;
+  position: absolute;
+  touch-action: none;
+}
+
+.kh-ed-box {
+  fill: none;
+  stroke: var(--kh-accent);
+  stroke-dasharray: 6 4;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.kh-ed-sel--cut .kh-ed-box {
+  stroke: var(--kh-warn, #e0a93e);
+}
+
+/*
+ * A multi selection is one box per layer and one around the lot (F7).
+ *
+ * The members are drawn quieter than the group's own box: what the handles act
+ * on is the group, and four boxes at equal weight would read as four separate
+ * selections rather than as one.
+ */
+.kh-ed-box--member {
+  opacity: 0.55;
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+}
+
+.kh-ed-handle {
+  fill: var(--kh-ink);
+  pointer-events: none;
+  stroke: var(--kh-accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.kh-ed-hit {
+  cursor: grab;
+  fill: transparent;
+  stroke: none;
+}
+
+.kh-ed-stem {
+  stroke: var(--kh-accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.kh-ed-guide {
+  opacity: 0.75;
+  stroke: var(--kh-accent);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.kh-ed-marquee {
+  fill: color-mix(in srgb, var(--kh-accent) 12%, transparent);
+  stroke: var(--kh-accent);
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.kh-ed-hud {
+  background: rgb(0 0 0 / 55%);
+  border-radius: 6px;
+  bottom: 8%;
+  color: var(--kh-ink);
+  font-size: 0.7rem;
+  left: 50%;
+  margin: 0;
+  padding: 2px 8px;
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+/* The video stand-in: a poster and an arc, never a decoder. */
+.kh-standin {
+  display: grid;
+  inset: 0;
+  place-items: center;
+  position: absolute;
+}
+
+.kh-standin__poster {
+  background:
+    radial-gradient(120% 90% at 30% 20%, #123b4f 0%, transparent 55%),
+    radial-gradient(100% 90% at 75% 80%, #2b1550 0%, transparent 60%), #071019;
+  inset: 0;
+  position: absolute;
+}
+
+.kh-standin__name {
+  color: var(--kh-ink);
+  font-size: 0.8rem;
+  margin: 0;
+  max-width: 70%;
+  overflow: hidden;
+  position: relative;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-standin__arc {
+  fill: none;
+  inset: 0;
+  position: absolute;
+  transform: rotate(-90deg);
+}
+
+.kh-standin__arc circle {
+  fill: none;
+  stroke: var(--kh-accent);
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+/* -- the rail ------------------------------------------------------------- */
+
+.kh-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kh-rail__add {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--kh-line);
+  border-radius: 10px;
+  color: var(--kh-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  min-height: 34px;
+  padding: 6px;
+}
+
+.kh-rail__add:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* The count, and the cap's own sentence — round 10's F4. */
+.kh-rail__cap {
+  color: var(--kh-muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  margin: 0;
+  padding: 0 2px;
+}
+
+.kh-rail[data-full='true'] .kh-rail__cap {
+  color: var(--kh-warn-ink);
+}
+
+.kh-rail__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+ * 40 px, which is §2.2's row — round 10's M6.
+ *
+ * It measured 36. The row carries five controls at a 24 px minimum plus a name
+ * that has to stay on one line, and four of the five sat 2 px from the row's
+ * own border; the list scrolls inside the rail now (F2 above), so the height a
+ * row wants is no longer a height the page has to find.
+ */
+.kh-rail__row {
+  align-items: center;
+  background: var(--kh-surface);
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  display: flex;
+  gap: 2px;
+  min-height: 40px;
+  padding: 2px 4px;
+}
+
+.kh-rail__row[data-selected='true'] {
+  border-color: var(--kh-accent);
+}
+
+.kh-rail__row[data-heaviest='true'] .kh-rail__name::after {
+  color: var(--kh-muted);
+  content: ' · heaviest';
+  font-size: 0.7rem;
+}
+
+.kh-rail__pick {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--kh-ink);
+  cursor: pointer;
+  display: flex;
+  flex: 1;
+  font: inherit;
+  font-size: 0.78rem;
+  gap: 6px;
+  min-height: 30px;
+  min-width: 0;
+  padding: 0 2px;
+  text-align: left;
+}
+
+.kh-rail__glyph {
+  fill: var(--kh-accent);
+  flex: none;
+  height: 16px;
+  width: 16px;
+}
+
+.kh-rail__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-rail__rename {
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-accent);
+  border-radius: 6px;
+  color: var(--kh-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.kh-rail__eye,
+.kh-rail__lock,
+.kh-rail__step,
+.kh-rail__del {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--kh-muted);
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  font-size: 0.72rem;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0;
+  place-items: center;
+}
+
+/*
+ * The z-order arrows, at a size a person can hit — round 10's M2.
+ *
+ * They were stacked: 24 px wide and 18 px tall each, because two of them had to
+ * fit a 34 px row, which is 6 px under §2.1's floor on the two controls that
+ * restack a look. Side by side they are 24×24 with the row's height to spare,
+ * and a coarse pointer gets the 44 the same rule asks for.
+ */
+.kh-rail__order {
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+}
+
+.kh-rail__order .kh-rail__step {
+  min-height: 24px;
+  min-width: 24px;
+}
+
+.kh-rail__lockart {
+  fill: currentcolor;
+  height: 14px;
+  width: 14px;
+}
+
+.kh-rail__lockart .kh-rail__shackle {
+  stroke: currentcolor;
+  stroke-width: 2;
+}
+
+.kh-rail__lock[aria-pressed='true'] {
+  color: var(--kh-warn-ink);
+}
+
+/*
+ * A locked row says so at a glance, not only in its button's label.
+ */
+.kh-rail__row[data-locked='true'] .kh-rail__name {
+  color: var(--kh-muted);
+}
+
+@media (pointer: coarse) {
+  .kh-rail__eye,
+  .kh-rail__lock,
+  .kh-rail__del,
+  .kh-rail__order .kh-rail__step {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+.kh-rail__base {
+  align-items: center;
+  border-top: 1px solid var(--kh-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.kh-rail__lab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--kh-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  padding: 0;
+}
+
+.kh-rail__lab[aria-pressed='true'] {
+  color: var(--kh-accent);
+}
+
+/*
+ * The strip's one non-control: the lock's reason (M5).
+ *
+ * It sits in the same row as the controls so it cannot be mistaken for a
+ * heading, and it wraps rather than truncating — the whole point of it is the
+ * second half of the sentence, which says where to go and undo the lock.
+ */
+.kh-op--why .kh-op__lab {
+  color: var(--kh-warn-ink);
+  max-width: 32ch;
+  white-space: normal;
+}
+
+/* -- the strip's new controls --------------------------------------------- */
+
+.kh-swatches {
+  display: flex;
+  gap: 4px;
+}
+
+.kh-swatch {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  min-height: 26px;
+  min-width: 26px;
+  padding: 0;
+  place-items: center;
+}
+
+.kh-swatch[aria-checked='true'] {
+  border-color: var(--kh-accent);
+  box-shadow: inset 0 0 0 1px var(--kh-accent);
+}
+
+.kh-swatch__dot {
+  background: var(--kh-swatch);
+  border-radius: 50%;
+  display: block;
+  height: 12px;
+  width: 12px;
+}
+
+.kh-op__pair {
+  display: flex;
+  gap: 4px;
+}
+
+.kh-op__step {
+  appearance: none;
+  background: var(--kh-surface);
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  color: var(--kh-ink);
+  cursor: pointer;
+  font: inherit;
+  min-height: 26px;
+  min-width: 26px;
+}
+
+.kh-op__step:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.kh-op__text {
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  color: var(--kh-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  min-height: 26px;
+  min-width: 8ch;
+  padding: 2px 6px;
+}
+
+.kh-op__val {
+  color: var(--kh-ink);
+  font-size: 0.72rem;
+}
+
+/*
+ * A long choice scrolls sideways; it does not wrap — round 10's M5.
+ *
+ * Stats' Face declares seven options and Text's Font six, and `Segmented`'s
+ * `wrap` turned each of them into four rows: measured, the Stats strip was
+ * 131 px tall and Text 108, against §2.3's one row of three-to-five controls.
+ * That was survivable while the strip sat under the canvas and is not now that
+ * it floats OVER it — a 131 px strip covers the bottom third of the halo it is
+ * a caption for. One line, and the overflow is reachable by scrolling the row.
+ */
+.kh-op__scroll {
+  display: block;
+  max-width: 15rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.kh-op__scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.kh-op__scroll .kh-seg {
+  flex-wrap: nowrap;
+}
+
+/*
+ * …and the cap that makes the promise a fact rather than an intention.
+ *
+ * The strip is `flex-wrap: wrap`, so ONE control that is too tall is not the
+ * only way it grows: six of them on a narrow column wrap to a second row, and
+ * two rows is already 60 px of a halo. In the editor it is ONE row that scrolls
+ * sideways — the halo behind it is the object, and a caption that eats the
+ * object is not a caption. Nothing is hidden: everything past the right edge is
+ * one scroll away, which is the same bargain `.kh-op__scroll` makes one level
+ * down.
+ *
+ * `overflow-y: hidden` rather than `auto` on purpose: a vertical scroller here
+ * would be a box quietly holding content off the screen, which is exactly what
+ * `editor.spec.ts`'s `clipped` metric exists to catch.
+ */
+.kh-home[data-editor='true'] .kh-ops {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  /*
+   * The STRIP no longer scrolls; the box inside it does — round 11's F-3.
+   *
+   * With the whole row as the scroller, `More` — declared last by every kind —
+   * scrolled away with everything else: at 866x537 the row's box is 542 px and
+   * Stats' content is 975, so the one control that answers "where is the rest
+   * of this" sat at x = 957, off the window, with no affordance saying a row
+   * that ends mid-control could be pushed. The row is a two-part flex line now:
+   * a scroller that takes the slack and a pinned `More` that never moves.
+   */
+  overflow: hidden;
+  gap: 0 10px;
+}
+
+.kh-home[data-editor='true'] .kh-op {
+  flex: none;
+}
+
+/*
+ * The scroller, and the fade that says it is one.
+ *
+ * `mask-image` rather than a gradient overlay: the strip is translucent over a
+ * live canvas, so a painted fade would be a grey smear over whatever the halo
+ * is showing. A mask fades the CONTENT, which is the thing that is actually
+ * being cut off. The right-hand stop is dropped once the row is scrolled to its
+ * end (`data-end`), so a strip with nothing left to reveal does not sit there
+ * implying there is.
+ */
+.kh-home[data-editor='true'] .kh-ops__scroll {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 0 12px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.kh-home[data-editor='true'] .kh-ops__scroll[data-clipped='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+}
+
+.kh-home[data-editor='true'] .kh-ops__scroll[data-clipped='both'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent 100%
+  );
+}
+
+.kh-home[data-editor='true'] .kh-ops__scroll[data-clipped='start'] {
+  mask-image: linear-gradient(to right, transparent 0, #000 28px);
+}
+
+.kh-home[data-editor='true'] .kh-ops__scroll:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--kh-accent);
+  outline-offset: 2px;
+}
+
+/*
+ * `More`, at the right edge, always.
+ *
+ * A left rule rather than a gap, because the thing it separates is a row that
+ * may have been cut mid-control: the line is what turns "this text stops" into
+ * "this row continues over there".
+ */
+.kh-home[data-editor='true'] .kh-op--pin {
+  border-left: 1px solid var(--kh-line);
+  flex: none;
+  margin-left: 2px;
+  padding-left: 10px;
+}
+
+.kh-home[data-editor='true'] .kh-ops__scroll::-webkit-scrollbar,
+.kh-home[data-editor='true'] .kh-ops::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * Footprints, in the editor's 542 px — the other half of F-3.
+ *
+ * The strip is not allowed to grow (it floats over the halo), so the only way
+ * more of a kind's declaration fits is for each control to take less room.
+ * Measured at 866x537 before and after per kind; the LABELS are the modules'
+ * own words and are not this file's to shorten.
+ */
+.kh-home[data-editor='true'] .kh-op {
+  gap: 5px;
+}
+
+.kh-home[data-editor='true'] .kh-ops .kh-seg {
+  padding: 1px;
+}
+
+.kh-home[data-editor='true'] .kh-ops .kh-seg__opt {
+  padding: 3px 6px;
+}
+
+.kh-home[data-editor='true'] .kh-ops .kh-swatches {
+  gap: 2px;
+}
+
+.kh-home[data-editor='true'] .kh-ops .kh-swatch {
+  height: 20px;
+  width: 20px;
+}
+
+.kh-home[data-editor='true'] .kh-op__scroll {
+  max-width: 12rem;
+}
+
+/* -- the rail's BASE block, at CAM's height — round 11's F-2 ---------------
+ *
+ * The rail is a column of five things and only ONE of them grows: the row list
+ * (`.kh-rail__list`, the F2 scroller above). Everything under it — the base row
+ * with the module chips in it, the primary paste field, the nav and the status
+ * line — lays out FIRST, at its natural height, and the list gets the
+ * remainder. Measured at 866x537 with seven overlays on the panel: that block
+ * came to 286 px of a 380 px column, so `clientHeight` on the list was 47 — one
+ * row of seven, a porthole onto a stack the whole rail exists to show.
+ *
+ * The 286 was almost all chips: nine of them at 15 px of side padding in a
+ * 268 px column wrap to four rows. So at CAM's height the chip row becomes ONE
+ * row that scrolls sideways — the same bargain the strip makes one section up,
+ * and for the same reason: a background picker is a horizontal list of nine
+ * short words, and stacking it four deep to avoid a scroll gesture spends the
+ * stack's height on it.
+ *
+ * Only at `max-height: 640px`, which is the query the rest of this file already
+ * uses for CAM's window. A tall desktop has the room and keeps the wrapped row.
+ */
+@media (max-height: 640px) {
+  .kh-home[data-editor='true'] .kh-rail__base {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding-top: 5px;
+  }
+
+  .kh-home[data-editor='true'] .kh-rail__base .kh-mods {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    gap: 5px;
+    justify-content: flex-start;
+    margin: 0;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .kh-home[data-editor='true'] .kh-rail__base .kh-mods::-webkit-scrollbar {
+    display: none;
+  }
+
+  .kh-home[data-editor='true'] .kh-rail__base .kh-mod {
+    flex: none;
+    padding: 5px 9px;
+  }
+
+  /*
+   * The rail's own footer, tightened by the same proportion.
+   *
+   * The paste row keeps its full target height on the home screen — it is the
+   * primary action there — and gives back its margins here, where it is the
+   * fourth thing in a column whose first thing is the object being edited.
+   */
+  .kh-home[data-editor='true'] .kh-rail .kh-paste {
+    margin-top: 6px;
+  }
+
+  .kh-home[data-editor='true'] .kh-rail .kh-paste__input,
+  .kh-home[data-editor='true'] .kh-rail .kh-paste .kh-btn {
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+  }
+
+  .kh-home[data-editor='true'] .kh-rail .kh-more {
+    margin-top: 4px;
+  }
+
+  .kh-home[data-editor='true'] .kh-rail__add {
+    min-height: 30px;
+    padding: 4px 6px;
+  }
+}
+
+/* -- the sheets ----------------------------------------------------------- */
+
+.kh-sheet {
+  background: var(--kh-surface);
+  border: 1px solid var(--kh-line);
+  border-radius: 14px;
+  margin-top: 8px;
+  padding: 10px 12px 12px;
+}
+
+.kh-sheet__head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.kh-sheet__head h2 {
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+/*
+ * A sheet's close button, at a thumb's size — round 10's M3.
+ *
+ * `.kh-iconbtn` is 26×26, which is right for a mouse and 18 px under §2.1's
+ * floor for a finger. The phone's add sheet is the same `AddSheet` the desktop
+ * editor renders, so the ONE control that dismisses it measured 26×26 on a
+ * 390 px touch screen. Scoped to the sheet head rather than to every icon
+ * button: this is the control whose miss costs a person the whole surface.
+ */
+@media (pointer: coarse) {
+  .kh-sheet__head .kh-iconbtn {
+    height: 44px;
+    min-height: 44px;
+    min-width: 44px;
+    width: 44px;
+  }
+}
+
+.kh-sheet__group h3 {
+  color: var(--kh-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  margin: 10px 0 6px;
+  text-transform: uppercase;
+}
+
+.kh-sheet__why {
+  color: var(--kh-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.kh-tiles {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+}
+
+.kh-tile {
+  appearance: none;
+  background: var(--kh-ground);
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  color: var(--kh-ink);
+  cursor: pointer;
+  display: block;
+  font: inherit;
+  min-height: 44px;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.kh-tile b {
+  display: block;
+  font-size: 0.78rem;
+}
+
+/*
+ * A tile's summary gets the tile's WIDTH — round 11's M-j.
+ *
+ * `white-space: nowrap` put every one of these sentences on one line and cut
+ * it: measured in the add sheet at 866x537, the tiles are 242 px wide, the
+ * summary's box is 224 and its content is 325 to 389 px, so between a third and
+ * a half of every description was behind an ellipsis on a card that had a whole
+ * second line free under it. "A transparent picture, laid over what is behind
+ * it." became "A transparent picture, laid ove…", which is the half that says
+ * nothing.
+ *
+ * Two lines, then the ellipsis. `-webkit-line-clamp` is the only cross-engine
+ * way to ellipsize a WRAPPED block (it is implemented everywhere the app runs,
+ * prefix and all), and the explicit `max-height` is what keeps the tile's own
+ * height honest in an engine that ever stops honouring the clamp — the box
+ * cannot grow past two lines either way.
+ */
+.kh-tile small {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--kh-muted);
+  display: -webkit-box;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  max-height: 2.7em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kh-tile__art {
+  fill: var(--kh-accent);
+  height: 16px;
+  width: 16px;
+}
+
+.kh-tile--off,
+.kh-tile:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* -- the inspector (§2.4) -------------------------------------------------- */
+
+/*
+ * The inspector is the add sheet's twin: same class, same column, same internal
+ * scroll. Everything specific to it is layout INSIDE the body — the sheet's own
+ * placement is `.kh-home[data-editor] .kh-sheet`, said once, for both.
+ */
+.kh-num {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+}
+
+.kh-num__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kh-num__lab {
+  color: var(--kh-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.kh-num__field .kh-op__text {
+  min-width: 0;
+  width: 100%;
+}
+
+.kh-num__field .kh-op__text:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.kh-inspect__row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.kh-inspect__row .kh-tile[aria-pressed='true'] {
+  border-color: var(--kh-accent);
+}
+
+.kh-inspect__adv {
+  border-top: 1px solid var(--kh-line);
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.kh-inspect__adv summary {
+  color: var(--kh-muted);
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+/* -- touch ---------------------------------------------------------------- */
+
+/*
+ * The 44 px floor, on the surface that needs it (`tap-targets.spec.ts`).
+ *
+ * The editor itself does not render at phone width, but the SELECTION STRIP
+ * does — it replaced the branch-based ops strip on every surface — so its new
+ * controls are held to the same floor everything else on a phone is.
+ */
+@media (max-width: 700px) {
+  .kh-swatch,
+  .kh-op__step,
+  .kh-op__text {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* -- the phone editor (§8: the ring is the canvas) ------------------------- */
+
+/*
+ * `RemoteEditor`. Everything here is layout for a surface that already exists:
+ * the ring is `.kh-minihalo` at 300 px, the overlay is `.kh-ed-overlay`, the
+ * strip is `.kh-ops` and the sheets are `.kh-sheet`. What this block adds is
+ * the column they sit in and the wireframe ghosts, which is the one thing the
+ * phone draws that the halo does not need — see `RemoteEditor.tsx` for why a
+ * replica ring has no compositor to paint a drag onto.
+ */
+.kh-redit {
+  display: block;
+  margin: 0 0 0.75rem;
+}
+
+.kh-redit__head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.kh-redit__acts {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.kh-redit__looks {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--kh-line);
+  border-radius: 10px;
+  color: var(--kh-ink);
+  font: inherit;
+  min-height: 44px;
+  overflow: hidden;
+  padding: 0 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The canvas. `position: relative` is load-bearing: the overlay and the ghosts
+ * are both `inset: 0` inside it, and the gesture maths reads THIS element's
+ * rectangle to turn a touch into panel pixels.
+ */
+.kh-redit__stage {
+  margin: 0 auto;
+  position: relative;
+  touch-action: none;
+}
+
+/* The ring keeps rendering underneath; editing never re-styles the replica. */
+.kh-redit__stage .kh-minihalo {
+  margin: 0;
+}
+
+.kh-redit__ghosts {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transform-origin: 0 0;
+}
+
+/*
+ * A ghost is a WIREFRAME, and that is the honest part.
+ *
+ * The phone cannot composite the look — pixels never cross the wire — so this
+ * shows where each layer sits and never pretends to show what it contains.
+ */
+.kh-redit__ghost {
+  border: 2px dashed color-mix(in srgb, var(--kh-accent) 55%, transparent);
+  border-radius: 6px;
+}
+
+.kh-redit__ghost[data-selected='true'] {
+  background: color-mix(in srgb, var(--kh-accent) 10%, transparent);
+}
+
+.kh-redit__claim {
+  color: var(--kh-muted);
+  display: block;
+  margin: 8px 0;
+  text-align: center;
+}
+
+.kh-redit__bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.kh-redit__bar .kh-btn {
+  flex: 1;
+  min-height: 44px;
+}
+
+.kh-redit__sheet {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.kh-redit__notice {
+  margin-top: 8px;
+}
+
+/* The Edit affordance sits beside the ring, not inside it. */
+.kh-remote__editrow {
+  margin: 0 0 0.5rem;
+  text-align: center;
+}
+
+.kh-remote__editrow .kh-btn {
+  min-height: 44px;
+}
+
+/*
+ * The rail was a DESKTOP column, and it is a sheet on a phone now.
+ *
+ * Its rows are 30–34 px, which is right beside a 400 px halo with a mouse and
+ * wrong under a thumb — and `tap-targets.spec.ts` enumerates what the page
+ * paints rather than what somebody remembered to list, so the floor is applied
+ * where the rail is reached by touch rather than argued about. Scoped to
+ * `.kh-redit`, so CAM's column is untouched.
+ */
+.kh-redit .kh-rail__add,
+.kh-redit .kh-rail__row,
+.kh-redit .kh-rail__pick,
+.kh-redit .kh-looks__item,
+.kh-redit .kh-tile {
+  min-height: 44px;
+}
+
+.kh-redit .kh-op__btn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.kh-redit .kh-rail__eye,
+.kh-redit .kh-rail__step,
+.kh-redit .kh-rail__del,
+.kh-redit .kh-rail__lab {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* The looks menu is a sheet here, not a 280 px dropdown beside a wordmark. */
+.kh-redit .kh-looks {
+  max-height: 50vh;
+  max-width: none;
+  overflow-y: auto;
 }

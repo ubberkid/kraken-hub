@@ -98,9 +98,41 @@ has to look deliberate at 1 FPS, not broken:
   early when it is identical — `frame()` is called up to 40 times a second and
   will be called with nothing to do most of those times.
 
-If your module has no per-frame work at all (Stats is driven by the 1 Hz
-monitoring feed, not by frames), simply do not implement `frame()` and set
-`needsFrameLoop: false`.
+If your module has no per-frame work at all (Clock's analog face is a function
+of the current second and nothing else), simply do not implement `frame()` and
+set `needsFrameLoop: false`.
+
+Stats is the instructive counter-example, because it used to be in that
+paragraph and no longer is. Its feed really is 1 Hz — but it paints a **glide**
+toward each sample rather than the sample itself (`src/modules/stats/tween.ts`:
+one exponential per metric, ~420 ms, frame-rate independent), so between samples
+there genuinely is a different pixel. That is not a licence to be expensive: its
+`frame()` returns on a boolean while no tween is moving, which is most frames,
+and it still declares `cadence: 'tick'` because the change it can produce is
+still capped by the feed. A once-a-second STEP moves every arc and every digit
+at once, which is the most expensive thing a static face can hand the
+compressor; spreading the same change over 400 ms and then writing nothing is
+cheaper as well as calmer.
+
+Two of Stats' rules are worth stating as rules, because both were broken in ways
+no unit test could see (audit 10):
+
+- **Every face has a mark, because a colour has to live somewhere.** The
+  text-first `grid` face had `ring: 0`, which wrote `--kh-stats-dial: 0px` and
+  drew six SVGs of 0 × 0 while the renderer went on writing a fresh
+  `stroke-dasharray` into them once a frame. Six numbers with no meter is a
+  table, and the module's whole threshold contract — the arc moves AND the word
+  appears — has nothing to act on in a table. Its dial is sized against a TILE
+  rather than against the box, and `layout.test.ts` asserts both that it exists
+  at every preset and that it still fits the tile it is inside.
+- **Every word carries its own scrim.** A stats layer over a video or an effect
+  is the composition the layer system exists for, and the near-white ink over a
+  bright base measured 1.1:1. The scrim used to belong to the `strip` FACE; it
+  belongs to the type, so the readout, the label, the sub-line and the chip each
+  sit on a flat opaque plate. Over the black stage the plate is not merely
+  subtle, it is invisible — the other faces look exactly as they did — and over
+  the brightest pixel a base can produce it is still black, which measures
+  18.9:1 for the hero and 5.0:1 for the smallest type.
 
 ### Geometry is a value, never a number you wrote down
 
@@ -433,10 +465,11 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
 ```
 
 `ModuleOptions` is how every module builds its panel, and it is what stops a
-door opening onto an empty room: pass `primary={null}` — which Stats does on its
-default layout, where the one primary control does not apply — and the advanced
-controls are promoted into the panel itself rather than sitting behind a
-disclosure with nothing in front of it.
+door opening onto an empty room: pass `primary={null}` and the advanced controls
+are promoted into the panel itself rather than sitting behind a disclosure with
+nothing in front of it. (Stats was the module that rule was written for, and no
+longer needs it: since the face redesign its panel always has the face picker,
+the metric slot choosers and the sparkline switch in front of the door.)
 
 Note what is **not** here. The home screen's options strip already carries the
 handful of settings that are worth seeing without opening anything (Face, Hours
@@ -526,10 +559,143 @@ id pattern (`^[a-z][a-z0-9-]{1,23}$`), that `configVersion >= 1`, that a
 | `substrate`       | `'dom' \| 'canvas' \| 'mixed'`                                                   |
 | `audio`           | `'none' \| 'optional'` — the display is muted-only unless the user opts in       |
 | `remoteCommands`  | the ops you accept on the sync `cmd` channel                                     |
+| `layer`           | where your module may sit in a look, and what it costs (**Placement**, below)    |
 
 Getting `motionLevel` wrong is user-visible: a Clock declaring `'full'` would
 put a "raise your frame rate" card over a module that is perfectly happy at
 1 FPS.
+
+### Placement — where your module may sit in a look
+
+The panel shows a **look**: a stack of layers, bottom first, with `layers[0]` as
+the base and everything above it an overlay. One more block on the manifest says
+where your module is allowed to be, and what it costs to put it there:
+
+```ts
+layer: {
+  roles: ['base', 'overlay'],   // where it may sit
+  maxInstances: MAX_LAYERS,     // how many of it may be on at once
+  resize: 'frame',              // what a resize gesture commits to
+  minFrame: 0.4,                // smallest legible DIAMETER, in units
+  overlayDefault: {             // where a fresh overlay lands
+    frame: { w: 1, h: 0.5, shape: 'square' },
+    t: { ...IDENTITY, y: 0.55 },
+    cfg: { /* optional: the config that makes it an overlay */ },
+  },
+  cost: () => ({ cadence: 'tick', coverage: 0.15, entropy: 'low', decoders: 0, gl: 0 }),
+},
+```
+
+| Field            | What it decides                                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `roles`          | which positions the editor offers. `['base']` = bottom layer only                                                 |
+| `maxInstances`   | how many may be ON at once; the rest are switched off with a note                                                 |
+| `resize`         | `'frame'` re-lays out at the new size (text, SVG — stays crisp); `'scale'` is one style write (rasters, canvases) |
+| `minFrame`       | the editor clamps a resize to it, in DIAMETER units (`2` is the full panel)                                       |
+| `overlayDefault` | the frame, transform and optional config a freshly added overlay starts with                                      |
+| `cost()`         | the declared cost of one layer: pure, tiny, called on every keystroke in the editor                               |
+
+Two rules follow from being one of several things on the panel rather than the
+only one:
+
+- **No module-scope singletons.** `createRenderer()` is a factory and two
+  renderers must share nothing. Anything that used to be keyed by "the current
+  module" is keyed by layer instead — `setReplicaThumb(ctx.layer?.id ?? 'base', blob)`.
+- **Lay out from `ctx.geometry()`, never from the panel.** A layer's geometry IS
+  its own box, with its own `--kh-safe` and `--kh-inscribed`; a renderer that
+  already obeys this is already an overlay with no further edit.
+
+`cost()` is an ESTIMATE, and the UI says the word — the page cannot measure CAM's
+capture and compressor. Declare what you actually do: a `cadence: 'frame'` you do
+not need makes every look containing you look expensive.
+
+The registry conformance suite checks the two halves against each other: it
+asserts `motionLevel` and `cost().cadence` tell the same story, and it mounts two
+of every overlay-capable module at once to prove they do not touch.
+
+### The selection strip — declared in `editor.ts`, loaded lazily
+
+Selecting a layer changes exactly one thing on the screen: the strip under the
+canvas. It shows **your kind's** three to five essential controls, and it is
+DATA — the editor renders it generically and knows no module by name.
+
+The declaration does **not** live in the manifest. The manifest is eager (the
+registry validates stored config before anything renders), and a strip is
+config-only data that the LCD downloads and never reads: there is no editor on
+the display. So the manifest carries a loader, and the controls live in their
+own file:
+
+```ts
+// src/modules/clock/index.ts — the manifest
+editor: { loadStrip: () => import('./editor') },
+```
+
+```ts
+// src/modules/clock/editor.ts — the declaration, and any table only it reads
+import { INK_SWATCHES } from '../swatches';
+import type { StripDeclaration } from '../types';
+
+export const strip: StripDeclaration['strip'] = [
+  {
+    id: 'face',
+    label: 'Face',
+    control: 'segmented',
+    target: 'cfg',
+    path: 'face',
+    options: [
+      { value: 'digital', label: 'Digital' },
+      { value: 'analog', label: 'Analog' },
+    ],
+  },
+  {
+    id: 'colour',
+    label: 'Colour',
+    control: 'swatches',
+    target: 'cfg',
+    path: 'theme',
+    options: INK_SWATCHES,
+  },
+  { id: 'more', label: 'More', control: 'more' },
+];
+```
+
+Rules, all of them enforced by `defineModule()` in DEV and by the registry
+conformance suite in CI — which **awaits every registered kind's loader**, so a
+declaration cannot slip the cap by being behind a dynamic import:
+
+- **At most five controls, and `More` is the last one.** `More` opens the
+  inspector, where everything else lives. The question your kind answers is only
+  ever "which four matter most".
+- **Unique `id`s.** The id is also the control's `data-testid` suffix
+  (`ops-face`, `ops-colour`).
+- **Every `'cfg'` path resolves against your `defaults`**, or the control renders
+  empty on a fresh layer.
+- **A `'layer'` control may only address `t.*`.** `frame` belongs to the resize
+  gesture; `id`/`kind`/`on` are not things a strip may quietly rewrite.
+- **A choice control must offer the value it is currently showing**, so its
+  `options` and your `validate()` cannot disagree.
+
+Two things follow from the file being lazy:
+
+- **Put the option tables here too.** A swatch row, a font list, the labels for a
+  segmented control — if only the strip reads it, it belongs in `editor.ts` and
+  not in the manifest. Colours come from `src/modules/swatches.ts`
+  (`INK_SWATCHES`, or `INKS.white` and friends), so every kind offers the same
+  five inks and a look can be made to agree without matching hex by eye.
+- **The editor loads it on first selection** and caches it per kind
+  (`src/app/config/editor/strip.ts`); the row reserves its height meanwhile, so
+  the controls appear without moving anything. Nothing else has to be done —
+  `SelectionStrip` does it for you. Your `editor.ts` does not ride your module's
+  display chunk: the `module-editors` group in `vite.config.ts` claims every
+  kind's `editor.ts` and the shared `swatches.ts`, so all nine declarations
+  arrive together in one lazily fetched chunk of about 1.35 kB gzip. Selecting a
+  video layer to find out which five controls to draw does not download the
+  24 kB player, and a person who selects layers of several kinds in a row pays
+  one round trip, not nine.
+
+Something that OPENS rather than sets — a media picker, an effect catalog, a
+provider-dependent quality ladder — is `{ control: 'action', action: … }`. The
+module declares it wants the affordance; the editor owns what it opens.
 
 ---
 
@@ -689,6 +855,31 @@ Beyond that, e2e for whatever is genuinely stateful: Image's slideshow advance
 (driven with Playwright's `page.clock` so a 10-second interval does not cost ten
 seconds), Stats' placeholder rendering under `?monitor=missing`.
 
+Stats also shows the shape a module's unit suite wants once it has motion in it:
+`format.test.ts` and `thresholds.test.ts` for the pure decisions (a missing
+reading is `--` and never a zero; a warm colour never travels without its word),
+`tween.test.ts` for the glide as arithmetic (monotone, no overshoot, settled
+inside 600 ms of simulated frames, identical at 1 fps and 60), `layout.test.ts`
+for the proportions at three device presets, and `faces.dom.test.ts` for what
+each of the eight faces actually builds — at the full panel, at a 0.6 overlay
+frame and at the smallest preset, with `frame()` driven by hand so the glide and
+the governor tiers are tested without a clock.
+
+Two of those assertions are worth copying into any module that has both a frame
+loop and a timer of its own, because they pin the bug that had the stats faces
+stepping once a second on a panel showing nothing else:
+
+- **The glide has to be visible.** Given one sample and the frames a real host
+  delivers, the arc takes at least eight distinct values inside one `TWEEN_MS`.
+  A test that only checks the START and the END of a tween passes just as
+  happily on a step function.
+- **The timer must not settle what the clock is driving.** A module keeps a 1 Hz
+  interval so a host that never calls `frame()` still paints — and if that
+  interval integrates a whole second the instant a sample lands, it snaps every
+  tween before a frame can run. Stats now settles from the interval only when no
+  frame has arrived recently, and the test fakes the timers while leaving
+  `performance` real so it exercises that branch rather than its opposite.
+
 Run `npm run check` (typecheck, lint, invariants, format, unit, companion,
 build, budgets) and `npm run test:e2e` before you open a PR.
 
@@ -737,6 +928,9 @@ verbatim, so a fork's module config survives a round trip through this build.
 - [ ] Every `undefined` from the monitoring feed renders as `--`
 - [ ] `ConfigPanel.tsx` built from `src/ui/`, validating its props first
 - [ ] `index.ts` manifest with accurate `capabilities`
+- [ ] `layer` placement: honest `roles`, `resize`, `minFrame`, `overlayDefault`,
+      and a `cost()` that agrees with `motionLevel`
+- [ ] Nothing module-scope: two instances mounted at once must not touch
 - [ ] Registered in `registry.ts`
 - [ ] Chunk group in `vite.config.ts`; `npm run size` under 25 kB gzip
 - [ ] URL params in `KNOWN_KEYS` and covered by a test, if you added any
@@ -750,6 +944,13 @@ verbatim, so a fork's module config survives a round trip through this build.
 
 - [`src/modules/types.ts`](../src/modules/types.ts) — the contract, commented
 - [`src/modules/_template/`](../src/modules/_template/) — a copyable skeleton
+- [`docs/modules-text-shape.md`](modules-text-shape.md) — what is particular to
+  `text` and `shape`, the two overlay-first layer kinds
+- [`docs/modules-icon-date.md`](modules-icon-date.md) — `icon` and `date`, the
+  two §10 parity overlays, and `SOLID_BASE_CFG` — the solid base, which is a
+  shape config rather than a kind of its own
+- [`docs/effects.md`](effects.md) — the `effect` kind: the twelve programs, the
+  preset/colour split, and why the palettes and the GLSL are both lazy
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — dev setup and the platform invariants
 - [`docs/design/design-architecture.md`](design/design-architecture.md) — why the
   module system is shaped this way

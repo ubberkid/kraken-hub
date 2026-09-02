@@ -10,7 +10,10 @@
 
 import { isPlainObject } from '../lib/clamp';
 
+import { DEFAULT_MODULE_ID } from './defaults';
+import { baseLook } from './look/types';
 import { SCHEMA_VERSION } from './schema';
+import { MODULE_ID_RE } from './validate';
 
 export type MigrationNote =
   'missing-schema' | 'future-schema' | 'not-an-object' | `no-migration-from-${string}`;
@@ -66,6 +69,37 @@ type Migration = (s: Record<string, unknown>) => Record<string, unknown>;
  * that has no control, no default and no way back. Each key is either dropped
  * (the validator refills it from the default) or pinned to the one answer the
  * audit named. See `docs/design` and the panel headers for the reasoning.
+ *
+ * 6 → 7: looks. The document gains a `look` — the arrangement every window
+ * shares — and the single module a v6 document could name becomes its one
+ * layer: the base, whole panel, identity transform, no `cfg` (the base wears
+ * `modules[kind].cfg`, which this step does not touch: the `modules` map stays
+ * the per-kind bank it always was).
+ *
+ * It is DETERMINISTIC on purpose, down to the layer id. Both CAM browsers
+ * migrate the same retained v6 snapshot independently, and if the two results
+ * differed by so much as a generated id, last-writer-wins would pick one
+ * browser's stack at random. Hence `BASE_LAYER_ID` rather than a fresh id, and
+ * hence `baseLook()` — the same function the fresh-install defaults and
+ * `lookOf`'s legacy projection call, so all three agree byte for byte.
+ *
+ * 7 → nothing, and the carousel is the field that explains the rule. `carousel`
+ * (§4) was added to `AppState` WITHOUT moving the version, which is the first
+ * additive field in this file's history not to. The bumps above each protected a
+ * value an older reader would have destroyed — a fit mode, a transport, a pinned
+ * resolution. `carousel` is a pointer into `kraken-hub:v1:looks`, a key an older
+ * build neither reads nor writes; dropping it stops a rotation and loses no
+ * user data, because the Looks it names are still on disk. `schema.ts` carries
+ * the full argument on the field, including what would change it. If the
+ * carousel ever grows something the display itself reads, that wave adds
+ * `7: (s) => ({ ...s, schema: 8 })` here and a `SCHEMA_HISTORY` line, and
+ * nothing else — the step is a bump, like `1 → 2` and `4 → 5` before it.
+ *
+ * `activeModuleId` is deliberately KEPT rather than dropped (§1.2 removes it).
+ * It is still the only base kind on the wire, and every writer in the app still
+ * commits it; `validateAppState` keeps it in lockstep with the base. The wave
+ * that moves the writers is the wave that deletes the field — and deleting it
+ * needs no migration, because the value is recoverable from the base.
  */
 const MIGRATIONS: Readonly<Record<number, Migration>> = {
   1: (s) => ({ ...s, schema: 2 }),
@@ -73,7 +107,32 @@ const MIGRATIONS: Readonly<Record<number, Migration>> = {
   3: (s) => renameClockLite({ ...s, schema: 4 }),
   4: (s) => ({ ...s, schema: 5 }),
   5: (s) => settingsCensus({ ...s, schema: 6 }),
+  6: (s) => toLook({ ...s, schema: 7 }),
 };
+
+/** The versions `MIGRATIONS` can step FROM. Read by the `SCHEMA_HISTORY` completeness test. */
+export const MIGRATION_VERSIONS: readonly number[] = Object.keys(MIGRATIONS)
+  .map(Number)
+  .sort((a, b) => a - b);
+
+/**
+ * 6 → 7 — the single active module becomes a one-layer look.
+ *
+ * Total over garbage: an `activeModuleId` that is missing, not a string, or not
+ * a module id falls back to `DEFAULT_MODULE_ID`, which is exactly what
+ * `validateAppState` would have done with it anyway. A document that somehow
+ * already carries a plausible `look` keeps it — the validator, not the
+ * migration, is what repairs a look, and overwriting one here would throw away
+ * a stack written by a newer peer whose envelope arrived before its schema did.
+ */
+function toLook(s: Record<string, unknown>): Record<string, unknown> {
+  const existing = s['look'];
+  if (isPlainObject(existing) && Array.isArray(existing['layers'])) return s;
+
+  const active = s['activeModuleId'];
+  const kind = typeof active === 'string' && MODULE_ID_RE.test(active) ? active : DEFAULT_MODULE_ID;
+  return { ...s, look: baseLook(kind) };
+}
 
 /**
  * The three aspect values the shape override still offers.

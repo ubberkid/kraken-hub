@@ -1,0 +1,72 @@
+[
+  {
+    "id": "tpl-single",
+    "name": "Single",
+    "author": "kraken-hub",
+    "description": "One reading, as large as the panel will draw it, inside a thin arc.",
+    "file": "tpl-single.krakenlook"
+  },
+  {
+    "id": "tpl-dual",
+    "name": "Dual",
+    "author": "kraken-hub",
+    "description": "Two readings on one ring, as mirrored half-arcs.",
+    "file": "tpl-dual.krakenlook"
+  },
+  {
+    "id": "tpl-triple",
+    "name": "Triple",
+    "author": "kraken-hub",
+    "description": "Three concentric rings around a small centre reading.",
+    "file": "tpl-triple.krakenlook"
+  },
+  {
+    "id": "tpl-overlay",
+    "name": "Overlay",
+    "author": "kraken-hub",
+    "description": "A strip of three compact meters along the bottom of a moving background.",
+    "file": "tpl-overlay.krakenlook"
+  },
+  {
+    "id": "tpl-lava-temps",
+    "name": "Lava lamp + temps",
+    "author": "kraken-hub",
+    "description": "A lava lamp that warms with the loop, with the temperatures over it.",
+    "file": "tpl-lava-temps.krakenlook"
+  },
+  {
+    "id": "tpl-nebula-clock",
+    "name": "Nebula clock",
+    "author": "kraken-hub",
+    "description": "A slow nebula behind the time.",
+    "file": "tpl-nebula-clock.krakenlook"
+  },
+  {
+    "id": "tpl-minimal-clock",
+    "name": "Minimal clock",
+    "author": "kraken-hub",
+    "description": "The time, and nothing else.",
+    "file": "tpl-minimal-clock.krakenlook"
+  },
+  {
+    "id": "tpl-sunset-clock",
+    "name": "Sunset loop + clock",
+    "author": "kraken-hub",
+    "description": "A looping clip with the time over it. The clip is yours to pick — none ships.",
+    "file": "tpl-sunset-clock.krakenlook"
+  },
+  {
+    "id": "tpl-photo-date",
+    "name": "Photo + date",
+    "author": "kraken-hub",
+    "description": "A picture with the date and time along the bottom. The picture is yours to pick.",
+    "file": "tpl-photo-date.krakenlook"
+  },
+  {
+    "id": "tpl-focus",
+    "name": "Focus",
+    "author": "kraken-hub",
+    "description": "One word inside a ring, on a gradient that barely moves.",
+    "file": "tpl-focus.krakenlook"
+  }
+]

@@ -1,0 +1,95 @@
+{
+  "id": "plasma",
+  "displayName": "Lava lamp",
+  "colourSlots": [
+    "Lava",
+    "Glow",
+    "Background",
+    "Background 2"
+  ],
+  "presets": [
+    {
+      "name": "Classic",
+      "colors": [
+        "#D6B700",
+        "#F0FF00",
+        "#00FFAF",
+        "#A900FF"
+      ]
+    },
+    {
+      "name": "Graphite",
+      "colors": [
+        "#C0C0C0",
+        "#FFFFFF",
+        "#666666",
+        "#808080"
+      ]
+    },
+    {
+      "name": "Ice",
+      "colors": [
+        "#C9C9C9",
+        "#00FFF2",
+        "#0070B0",
+        "#009DFF"
+      ]
+    },
+    {
+      "name": "Lime",
+      "colors": [
+        "#BDBDBD",
+        "#FFFF00",
+        "#00A15C",
+        "#E1FF00"
+      ]
+    },
+    {
+      "name": "Bubblegum",
+      "colors": [
+        "#C3C3C3",
+        "#0067FF",
+        "#FF00EB",
+        "#DC00FF"
+      ]
+    },
+    {
+      "name": "Amethyst",
+      "colors": [
+        "#C3C3C3",
+        "#FF00E9",
+        "#D800FF",
+        "#B400FF"
+      ]
+    },
+    {
+      "name": "Ember",
+      "colors": [
+        "#C6C6C6",
+        "#000000",
+        "#C60074",
+        "#FF0000"
+      ]
+    },
+    {
+      "name": "Snow",
+      "colors": [
+        "#CFCFCF",
+        "#FFACEC",
+        "#FFFFFF",
+        "#BDBDBD"
+      ]
+    },
+    {
+      "name": "Sunburst",
+      "colors": [
+        "#FF9500",
+        "#FFFF00",
+        "#FFFF00",
+        "#FFD200"
+      ]
+    }
+  ],
+  "costClass": "low-motion",
+  "sourcePath": "/Users/ubberkid/bingo/Assets/Banners/plasma/Plasma.shader"
+}

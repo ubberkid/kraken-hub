@@ -113,6 +113,11 @@ Open **Configure** on the card. With no configuration at all you already have a
 picture: a cold boot with no stored state plays the bundled demo clip, offline,
 with no network involved. That is the "is this thing on?" test.
 
+For its first fifteen seconds the panel says so, on a small card: **Nothing
+chosen yet**, then _Pick a video in CAM_, and underneath — on a panel with room
+for it — the menu route to this card's **Configure** button. Then the card gets
+out of the way and leaves the clip playing.
+
 ### Play a video
 
 **Home → paste a link**, or **Library → Add → paste a link**. Both go the same
@@ -136,11 +141,14 @@ The full ingestion story, including manual upload, storage quota,
 
 ### Or pick a different module
 
-The four chips under the halo — **Video · Clock · Stats · Image** — are what is
-on the screen. Tap one and the panel changes immediately; only the active
-module's code is ever downloaded by the display.
+The chips — beside the halo in CAM's window, under it on a phone — are every
+module the app ships: **Video · Image · Clock · Stats · Effect · Text · Shape ·
+Icon · Date**. Tap one and the panel cross-fades to it immediately; only the
+active module's code is ever downloaded by the display. What you pick this way
+is the **base**, the layer that fills the panel — stacking things on top of it
+is the editor's job, and it has [its own page](editor.md).
 
-Under the chips is a strip of **real controls** for whatever is on the panel —
+Under the halo is a strip of **real controls** for whatever is selected —
 Fit and Loop for video, Face/Hours/Seconds for the clock, and so on. Each one
 resolves where it stands: Fit is a segmented control, and Loop opens an A/B
 scrubber under the strip rather than sending you anywhere.
@@ -270,7 +278,7 @@ a bug report you want somebody else to reproduce exactly.
 
 | Parameter                                  | Effect                                             |
 | ------------------------------------------ | -------------------------------------------------- |
-| `module=video\|image\|clock\|stats`        | force the active module                            |
+| `module=<any registered id>`               | force the base layer's kind                        |
 | `src=<url>`                                | force the source                                   |
 | `fit=cover\|contain\|contain-circle\|fill` | force the framing                                  |
 | `loop=<start>-<end>`                       | force an A‑B loop, in seconds                      |
