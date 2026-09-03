@@ -201,12 +201,16 @@ export interface SyncServiceOptions {
     map: Record<string, StampTuple>;
     clock: StampTuple;
     /**
-     * Which of `map`'s paths the ROOM has not heard yet, newest first.
+     * Which of `map`'s paths the ROOM has not heard yet, OLDEST WAIT FIRST.
      *
      * `fitStateEnvelope`'s rotating rung takes these before anything else, so a
      * write nobody else has seen cannot be rotated off the wire behind a burst
-     * of newer stamps. Absent (the live smoke test, `SyncService.test.ts`) the
-     * rung behaves exactly as it did: reserved head, then rotation.
+     * of newer stamps — and it reserves both ends of this list, so the write
+     * that has waited longest is on the frame as well as the one just made. The
+     * ORDER is load-bearing and is the caller's to get right; see
+     * `appSync.ts`'s `unshippedSeq`. Absent (the live smoke test,
+     * `SyncService.test.ts`) the rung behaves exactly as it did: reserved head,
+     * then rotation.
      */
     unshipped?: readonly string[];
   };
@@ -940,7 +944,7 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
      * different failures need three different answers and this rung gives all
      * three:
      *
-     *  - **the newest UNSHIPPED stamps, reserved.** A write the room has not heard
+     *  - **the OLDEST and NEWEST unshipped stamps, reserved.** A write the room has not heard
      *    is the one stamp nobody else can supply, and until it travels the room
      *    holds a value nobody chose. `RESERVED_NEWEST_STAMPS` used to be the
      *    whole answer and it answers the wrong question — it is a RECENCY
@@ -966,20 +970,35 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
      *    written for.
      *
      * `wireStamps` hands the map in `stampedNewestFirst()` order, so "the
-     * newest" is the front of `entries` and needs no second sort, and the
-     * unshipped paths arrive in that same order.
+     * newest" is the front of `entries` and needs no second sort. The unshipped
+     * paths arrive in a DIFFERENT order — by how long each write has waited,
+     * oldest first — because "which stamp is newest?" and "which write has been
+     * waiting longest to travel?" are different questions and the head is
+     * answering the second one.
      *
      * If the unshipped head ALONE does not fit, it rotates within itself — the
      * loss is bounded rather than permanent — and the page says so through
      * `WIRE_TOO_LARGE_CLAIM`, exactly as the slot does when its own unshipped
      * pass overflows. That is a fact about the arrangement, not a hiccup.
      *
-     * The bound: with `n` stamps, `u` unshipped, `r` reserved and `k` rotating
-     * entries per frame, every stamped leaf carries its stamp within
-     * `ceil((n - u - r) / k)` frames, and the unshipped and the newest `r`
-     * within ONE. This rung is NOT rare — measured on a full look plus tuned
-     * settings it fires on 96-101 % of frames. `lookWireBudget.test.ts` pins
-     * both halves.
+     * The bound, stated so that it is true rather than tidy. With `n` stamps,
+     * `u` unshipped, `r` reserved and `k` rotating entries per frame:
+     *
+     *  - the newest `r` stamps the room HAS heard travel on EVERY frame;
+     *  - the oldest `r` and the newest `r` of the unshipped head travel on EVERY
+     *    frame — so a write that has waited longest is on the first frame back,
+     *    which is the guarantee a reconnecting phone actually needs;
+     *  - the `u - 2r` unshipped writes in the MIDDLE rotate, ahead of everything
+     *    the room has heard;
+     *  - every remaining stamped leaf carries its stamp within
+     *    `ceil((n - u - r) / k)` frames.
+     *
+     * It used to say "the unshipped and the newest `r` within ONE", which was
+     * true only while `u ≤ r`. A peer that wrote while it was offline has a head
+     * hundreds of entries long the moment its radio returns, and the claim was
+     * false for every one of them past the reserve. This rung is NOT rare —
+     * measured on a full look plus tuned settings it fires on 96-101 % of
+     * frames. `lookWireBudget.test.ts` pins the reserves.
      */
     const rotateStamps = (e: Envelope<SyncStateBody>): Envelope<SyncStateBody> | null => {
       const entries = Object.entries(e.stamps ?? {});
@@ -993,31 +1012,77 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
       const costOf = (path: string, stamp: [number, number, string]): number =>
         JSON.stringify(path).length + JSON.stringify(stamp).length + 2;
 
-      const unheard = new Set(pendingUnshipped);
-      const head = entries.filter(([path]) => unheard.has(path));
+      /*
+       * The unshipped head, in WAIT ORDER — oldest first.
+       *
+       * `entries` is `stampedNewestFirst()` order, which is the right order for
+       * everything the room has already heard and the wrong one here:
+       * `wireStamps` hands `unshipped` over sorted by how long each write has
+       * waited, and that order is the whole of round 10's wire fix. Rebuilt from
+       * `pendingUnshipped` rather than filtered out of `entries`, so the order
+       * survives; a path with no stamp on this frame (the trim rung dropped its
+       * leaf) simply is not in the head.
+       */
+      const byPath = new Map(entries);
+      const unheard = new Set<string>();
+      const head: [string, [number, number, string]][] = [];
+      for (const path of pendingUnshipped) {
+        if (unheard.has(path)) continue;
+        const stamp = byPath.get(path);
+        if (stamp === undefined) continue;
+        unheard.add(path);
+        head.push([path, stamp]);
+      }
       const rest = entries.filter(([path]) => !unheard.has(path));
 
       /*
-       * Pass 1: every unshipped stamp, before anything else.
+       * Pass 1: the unshipped stamps, before anything else — the OLDEST few and
+       * the NEWEST few, unconditionally, taken oldest first.
        *
-       * Newest-first, and the newest few UNCONDITIONALLY — the same two-part
-       * shape as passes 2 and 3, for the same reason and one more. A cursor
-       * walking a list whose length changes every frame (each shipped stamp
-       * leaves the head) does not stay pointed at anything, so a rotation over
-       * the whole head skipped the leaf that had just been tapped: measured, the
-       * tap's own stamp missed eleven consecutive frames while 300 freshly-tuned
-       * knobs took their turn, and the display sat on the old value for 8.2 s.
-       * The newest unshipped write is the one the room most urgently cannot
-       * supply for itself, so it never rotates.
+       * Both ends, because the two ends fail differently and each is measured:
+       *
+       *  - the OLDEST unshipped write is the one at greatest risk of never
+       *    travelling at all. An offline tap made BEFORE a multi-leaf config
+       *    commit is the oldest entry in its own head, and reserving the newest
+       *    end alone rotated it to the back of a 400-entry queue: 29 frames left
+       *    a reconnecting phone in six seconds and not one carried the tap's
+       *    stamp, so the value travelled BARE, read as EPOCH, and was reverted
+       *    room-wide with the status line reading online.
+       *  - the NEWEST unshipped write is the one the room most urgently cannot
+       *    supply for itself — the leaf somebody just touched — and it is why
+       *    this reserve exists at all rather than a rotation over the whole
+       *    head. A cursor walking a list whose length changes every frame (each
+       *    shipped stamp leaves the head) does not stay pointed at anything:
+       *    measured, the tap's own stamp missed eleven consecutive frames while
+       *    300 freshly-tuned knobs took their turn, and the display sat on the
+       *    old value for 8.2 s.
+       *
+       * Oldest FIRST when the budget is too small for both ends — at 470 knobs a
+       * frame fits three or four stamps — because a newly-tapped leaf is about
+       * to be republished anyway and a write that has already waited hundreds of
+       * frames has no such second chance.
+       *
+       * `RESERVED_NEWEST_STAMPS` is SPLIT between the two ends rather than spent
+       * twice, and that is not a saving, it is a correctness constraint. The
+       * three reserves share one 8 kB frame, and taking sixteen here starved
+       * pass 2 outright: measured on the round-8 script (tap 270, then tune 400
+       * knobs, then a display rejoins), a frame fitting sixteen stamps spent
+       * every one of them on the head, the just-shipped tap fell off the wire,
+       * and the returning display never learned 270 at all.
        */
-      const headReserved = Math.min(RESERVED_NEWEST_STAMPS, head.length);
+      const headReserve = Math.min(RESERVED_NEWEST_STAMPS, head.length);
+      const oldestReserved = Math.min(Math.ceil(RESERVED_NEWEST_STAMPS / 2), head.length);
+      const newestReservedFrom =
+        head.length - Math.min(headReserve - oldestReserved, head.length - oldestReserved);
+      const headReserved = [...head.slice(0, oldestReserved), ...head.slice(newestReservedFrom)];
+      const headRotating = head.slice(oldestReserved, newestReservedFrom);
       let refusedUnshipped = 0;
-      for (let i = 0; i < headReserved; i += 1) {
-        const entry = head[i];
+      for (let i = 0; i < headReserved.length; i += 1) {
+        const entry = headReserved[i];
         if (entry === undefined) break;
         const cost = costOf(entry[0], entry[1]);
         if (cost > budget) {
-          refusedUnshipped = head.length - i;
+          refusedUnshipped = headReserved.length - i + headRotating.length;
           break;
         }
         budget -= cost;
@@ -1046,9 +1111,8 @@ export function createSyncService(o: SyncServiceOptions): SyncService {
         kept[entry[0]] = entry[1];
       }
 
-      // Pass 3: the rest of the unshipped head rotates, ahead of anything the
+      // Pass 3: the MIDDLE of the unshipped head rotates, ahead of anything the
       // room has already heard.
-      const headRotating = head.slice(headReserved);
       let headTaken = 0;
       if (refusedUnshipped === 0) {
         for (let i = 0; i < headRotating.length; i += 1) {

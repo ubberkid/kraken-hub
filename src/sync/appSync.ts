@@ -72,6 +72,39 @@ const log = createLogger('sync/app');
 export const PERSIST_REMOTE_THROTTLE_MS = 2000;
 
 /**
+ * How long a page may hear NOTHING before it treats itself as out of touch.
+ *
+ * ## Why a page needs this at all
+ *
+ * The intent layer's question is "have I heard the room since I went dark?",
+ * and the two honest answers a page can compute are the transport's own status
+ * and the age of the last frame it folded. The status is exact and it is not
+ * enough on its own: a screen lock, a lift, a backgrounded tab and a
+ * `pagehide`/`visibilitychange` suspension all stop frames arriving without
+ * necessarily producing a status EVENT, and the one moment that matters — the
+ * tap the instant the screen comes back — happens after the link reads online
+ * again. So the age of the last inbound frame is the second reading, and it is
+ * the only one available at that instant.
+ *
+ * ## Where the number comes from, and what it costs
+ *
+ * A room with a Kraken in it beats continuously: the display's replica monitor
+ * is 2.5 s (`MONITOR_PERIOD_MS`) and video telemetry is faster. Five seconds is
+ * twice the slowest of those and well inside the shortest outage a person
+ * notices, so a connected room never trips it and a locked screen always does.
+ *
+ * It is a heuristic, and the cost is stated rather than hidden: in a room with
+ * NO telemetry — `publishTelemetry` off, or no display at all — a quiet stretch
+ * longer than this makes the next local write an intent, so if somebody else
+ * taps the same leaf inside the following round trip, the re-stamp hands the
+ * contest to this page rather than to whichever clock read later. That is the
+ * "genuinely simultaneous" case `docs/remote-control.md` already says is
+ * decided arbitrarily, widened by one round trip. The alternative — leaving the
+ * write stamped in the page's own past — loses the tap outright, which is worse.
+ */
+export const ROOM_SILENCE_MS = 5000;
+
+/**
  * What travels. Blobs and settings deliberately do not — and neither do `sync`,
  * `platform` or `diagnostics`: a remote peer must not be able to change which
  * broker a display talks to, whether its watchdog may reload it, or whether
@@ -321,15 +354,29 @@ function localStorageClockSlot(role: Role): ClockSlot {
  *  - a peer more than the clamp BEHIND loses its first tap back after every
  *    outage. Its room time is capped a day short of the room's, so `tick` floors
  *    at its own pre-outage stamp, under everything written while it was away.
+ *    The intent layer does not save it and cannot: a returning peer's write IS
+ *    re-stamped now (see below), but the re-stamp is `tick(clock, roomNow())`
+ *    and this peer's `roomNow()` is the thing that is a day short. INSIDE the
+ *    clamp the re-stamp lands the tap, which is what the clamp buys.
  *  - one far-future stamp PINS every peer's floor at its own `t` until real time
  *    catches up — three days, for a peer three days fast — and while `t` is
- *    frozen the total order degrades to `(c, s)`. `c` is a per-peer counter and
- *    is not comparable across an outage, so the tie falls through to the
- *    writer's client id in STRING order: measured, the last finger lost to
- *    alphabetical order, with the bad peer's process, slot and clock all gone
- *    from the room, and neither correcting the clock nor reloading the page
- *    unsticks it. The poison is in the register the room agreed on, not in the
- *    peer.
+ *    frozen the total order degrades to `(c, s)`, where `c` is a per-peer
+ *    counter and `s` is the writer's client id in STRING order. The poison is in
+ *    the register the room agreed on, not in the peer: neither correcting the
+ *    clock nor reloading the page unsticks it, and the bad peer's process, slot
+ *    and clock can all be gone from the room.
+ *
+ *    What this costs is now narrower than it was, and the difference is the
+ *    intent layer's re-arm. A peer coming back from an outage re-stamps its
+ *    first write against the frame that greeted it, so its `c` is one past the
+ *    clock it just folded and its LATER TAP WINS even under a pinned `t` — the
+ *    case that used to be measured as "the last finger lost to alphabetical
+ *    order". What remains is two peers that were BOTH connected the whole time
+ *    tapping the same leaf inside one round trip: neither is holding an intent,
+ *    so neither re-stamps, `t` is frozen for both, and the tie really is decided
+ *    by `(c, s)`. That is the same simultaneity `docs/remote-control.md` already
+ *    says the room resolves arbitrarily — with a pinned `t` it resolves
+ *    arbitrarily by client id rather than by clock.
  *
  * There is no cap that fixes the second one here, and it is worth writing down
  * which two were tried, because both are plausible:
@@ -598,9 +645,54 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * So it is a fact that is REMEMBERED rather than inferred: `heard` in the
    * clock slot, set the first time any frame — state, cmd or telemetry — is
    * folded, and read as false when the key is missing.
+   *
+   * ## What arms it, in full: a write the room has not heard is an INTENT
+   *
+   * "Have I ever heard the room?" is the question this layer was written for and
+   * it is the wrong one on its own, because it is only ever asked once per
+   * device. The question a page actually needs answered before every write is
+   * "have I heard the room SINCE I went dark?", and there are three ways to be
+   * dark, all of which lose the write the same way:
+   *
+   *  - a page that has never heard the room at all (the original case);
+   *  - a page whose PREVIOUS SESSION never heard the room, restored below — the
+   *    intents set used to be in-memory only, so a phone that opened with no
+   *    connectivity, tapped, and reloaded came back holding its offline write
+   *    stamped against a clock it had no reason to trust. Measured: lost at
+   *    three seconds of skew, permanently, across every subsequent reload;
+   *  - a page whose LINK IS DOWN, or that is back up and has not yet folded a
+   *    frame. Measured with every clock in the room correct: phoneB taps, locks
+   *    its screen, phoneA's clock steps forward ten seconds (an NTP correction),
+   *    phoneA taps, and the room moves on; phoneB unlocks and taps at once and
+   *    its tap is reverted on every screen. Its `roomNow()` was frozen at its
+   *    last fold plus monotonic elapsed and the ROOM had moved forward — so the
+   *    boundary was never the clamp, it was the room's forward clock motion
+   *    during the deaf window, which any in-clamp skew on ANOTHER device
+   *    produces.
+   *
+   * All three are the same fact — this write is one the room has not heard — and
+   * all three now hold the write as an intent: it takes effect locally at once,
+   * and it is re-stamped against the FIRST frame folded after the link is (back)
+   * up, which by construction is after everything that sender had accounted for.
+   * `outOfTouch()` is the test; `ROOM_SILENCE_MS` says what "dark" means for the
+   * case a status flag cannot see.
    */
   const intents = new Set<string>();
   let heardFromRoom = restored?.heard ?? false;
+  /*
+   * A page whose previous session heard NOTHING has, by construction, only its
+   * OWN writes in the restored table: `heard` is set by the first inbound frame
+   * on any channel, so a restored register cannot have come from a merge. Every
+   * one of them was stamped against a clock this device had no reason to trust,
+   * and re-stamping exactly those is the intent layer's whole job.
+   *
+   * Derived from `heard` plus the restored paths, both of which the v2 slot
+   * already carries — no new slot key, no version bump.
+   */
+  if (!heardFromRoom) for (const path of registers.keys()) intents.add(path);
+
+  /** On the MONOTONIC clock. `null` until the first frame of any kind lands. */
+  let lastFoldAt: number | null = null;
 
   /** Set whenever the slot's contents have moved on from what is written. */
   let clockDirty = false;
@@ -635,12 +727,71 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * "says nothing" has to mean "assume none of it shipped".
    */
   const unshipped = new Set<string>();
+  /**
+   * ── How long each unshipped write has WAITED ───────────────────────────────
+   *
+   * A monotonic counter, recorded when a path ENTERS the unshipped set and
+   * dropped with it, so `wireStamps` can hand the paths over oldest-wait-first.
+   *
+   * It exists because the wire budget was evicting exactly the wrong stamp, in
+   * the mirror image of the slot bug `unshipped` itself was written for.
+   * `fitStateEnvelope` takes the unshipped head before anything else — but it
+   * took the NEWEST of that head, in `stampedNewestFirst()` order, and rotated
+   * the rest. An offline tap made BEFORE a multi-leaf config commit is therefore
+   * the OLDEST entry in its own head and rotates to the back of a queue hundreds
+   * long. Round 8 closed the tap-then-tune order for an ONLINE peer, whose head
+   * drains a few stamps per frame as they ship; a peer that is offline while
+   * writing has nothing draining, so the head is the whole write set when the
+   * radio returns. Measured on an eight-layer look: the phone taps 90 offline,
+   * tunes 400 knobs, and reconnects for six seconds — 29 state frames leave it
+   * and NOT ONE carries `render.rotate`'s stamp. Every one carries the value
+   * BARE, which reads as EPOCH and loses to the room's stamped 270, so the tap
+   * is reverted on the Kraken and on CAM permanently, with `lastError` null and
+   * the status line reading online. At 470 knobs the same room took 32 s to
+   * converge even when the tap was the write that should have won.
+   *
+   * The oldest unshipped register is by construction the one at greatest risk of
+   * never travelling, and this is `saveClock`'s slot invariant restated for the
+   * wire: a budget may only drop a stamp the room already holds, and among the
+   * stamps the room does NOT hold, the one that has waited longest goes first.
+   */
+  const unshippedSeq = new Map<string, number>();
+  let unshippedCounter = 0;
+
+  function markUnshipped(path: string): void {
+    if (unshipped.has(path)) return;
+    unshipped.add(path);
+    unshippedCounter += 1;
+    unshippedSeq.set(path, unshippedCounter);
+  }
+
+  function clearUnshipped(path: string): boolean {
+    unshippedSeq.delete(path);
+    return unshipped.delete(path);
+  }
+
+  /** The unshipped paths, oldest wait first — the order the wire ships them in. */
+  function unshippedOldestFirst(paths: Iterable<string>): string[] {
+    return [...paths].sort((a, b) => (unshippedSeq.get(a) ?? 0) - (unshippedSeq.get(b) ?? 0));
+  }
+
   if (restored !== null) {
-    if (restored.unshipped === undefined) for (const path of registers.keys()) unshipped.add(path);
+    /*
+     * Seeded IN WAIT ORDER, so the counter means the same thing across a reload.
+     *
+     * `saveClock` writes the array oldest-wait-first for exactly this. A slot
+     * from a build that predates the key says nothing at all, and "says nothing"
+     * has to mean "assume none of it shipped" — so every restored register is
+     * unshipped, ordered by its stamp, which is the only proxy for wait order a
+     * silent slot leaves behind.
+     */
+    if (restored.unshipped === undefined)
+      for (const [path] of [...registers].sort((a, b) => compareStamps(a[1].stamp, b[1].stamp)))
+        markUnshipped(path);
     // Intersected with what actually restored: a path the slot named but whose
     // register was dropped (an unparseable stamp, a half register) has nothing
     // left to defend.
-    else for (const path of restored.unshipped) if (registers.has(path)) unshipped.add(path);
+    else for (const path of restored.unshipped) if (registers.has(path)) markUnshipped(path);
   }
 
   /** Stamped in ROOM time, not device time. See `MAX_ROOM_OFFSET_MS`. */
@@ -669,19 +820,56 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * Draining the intent layer belongs here for the same reason: the question the
    * intent layer asks is "do I know what time the room thinks it is yet?", and a
    * telemetry packet answers it.
+   *
+   * ORDER MATTERS inside this function, and it is the whole of why the re-arm
+   * works: the room-time samples are folded FIRST, so the re-stamp below is
+   * taken against a `roomNow()` that already knows what time this frame says it
+   * is. A phone whose room clock was frozen at its last fold plus monotonic
+   * elapsed learns the room's forward motion here, one line before it uses it.
    */
   function foldRoomFrame(meta: RecvMeta): void {
     noteRoomTime(meta.ts);
     if (meta.clock !== null) noteRoomTime(meta.clock.t);
-    if (heardFromRoom) return;
-    heardFromRoom = true;
-    clockDirty = true;
+    lastFoldAt = monotonicNow();
+    if (!heardFromRoom) {
+      heardFromRoom = true;
+      clockDirty = true;
+    }
+    if (intents.size === 0) return;
     for (const path of intents) {
       const held = registers.get(path);
       if (held === undefined) continue;
       registers.set(path, { value: held.value, stamp: nextStamp() });
+      /*
+       * The room has not heard THIS stamp — it may well have heard the value
+       * under the old one — so the write goes back to the front of the wire's
+       * unshipped queue. `onStateShipped` can only ever be too conservative, and
+       * this is the direction that costs a little budget rather than an edit.
+       */
+      markUnshipped(path);
     }
     intents.clear();
+    clockDirty = true;
+  }
+
+  /**
+   * "Has this page heard the room since it went dark?" — the intent layer's arm.
+   *
+   * Two readings, because neither alone can answer it. See `ROOM_SILENCE_MS`.
+   */
+  function outOfTouch(): boolean {
+    const status = service.status();
+    /*
+     * The room's transport, by the same rule `roomTransports()` uses on the far
+     * side of the wire: the network slot when the room has one, the zero-network
+     * slot only when it has not. A page with a network transport that is offline
+     * has not heard the room, however happily its localStorage echo resolves.
+     */
+    const linkUp =
+      status.network === 'online' || (status.network === 'idle' && status.local === 'online');
+    if (!linkUp) return true;
+    if (lastFoldAt === null) return true;
+    return monotonicNow() - lastFoldAt > ROOM_SILENCE_MS;
   }
 
   /**
@@ -784,9 +972,17 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
           base,
           baseAt: Date.now(),
           heard: heardFromRoom,
-          // Exactly the pass-1 paths that actually made it into `stamps`, so the
-          // next page load gives them the same priority this one did.
-          unshipped: unshippedFirst.map(([path]) => path).filter((path) => path in stamps),
+          /*
+           * Exactly the pass-1 paths that actually made it into `stamps`, so the
+           * next page load gives them the same priority this one did — written
+           * OLDEST WAIT FIRST, which is the order the restore seeds the counter
+           * in and the order the wire ships them in. The packing above is
+           * newest-first (what survives a full slot) and this is wait order
+           * (what leaves first); they are different questions about the same set.
+           */
+          unshipped: unshippedOldestFirst(
+            unshippedFirst.map(([path]) => path).filter((path) => path in stamps),
+          ),
           stamps,
         }),
       );
@@ -826,7 +1022,7 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
      */
     onStateShipped: (paths) => {
       let changed = false;
-      for (const path of paths) changed = unshipped.delete(path) || changed;
+      for (const path of paths) changed = clearUnshipped(path) || changed;
       if (changed) clockDirty = true;
     },
     /*
@@ -873,9 +1069,14 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
        * display showed the wrong value for 20.2 s at 300 knobs and 96.2 s at
        * 400, on a plain sequential edit with no race and no skew.
        *
-       * So the paths the room has not heard travel with the map, newest-first
-       * among themselves, and `fitStateEnvelope` takes them before anything
-       * else. This is the only place that knows both halves.
+       * So the paths the room has not heard travel with the map, and
+       * `fitStateEnvelope` takes them before anything else. This is the only
+       * place that knows both halves.
+       *
+       * OLDEST WAIT FIRST, not newest-stamp-first: among the stamps the room
+       * does not hold, the one that has waited longest is the one at greatest
+       * risk of never travelling at all. See `unshippedSeq` for the measured
+       * loss that order was hiding.
        */
       const unshippedPaths: string[] = [];
       const leaves = enumerateLeaves(body);
@@ -893,7 +1094,11 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
         log.warn(
           `dropped ${String(mismatched)} stamp(s) whose value the outgoing body does not carry`,
         );
-      return { map, clock: encodeStamp(clock), unshipped: unshippedPaths };
+      return {
+        map,
+        clock: encodeStamp(clock),
+        unshipped: unshippedOldestFirst(unshippedPaths),
+      };
     },
     ...(o.factories === undefined ? {} : { factories: o.factories }),
   });
@@ -1001,13 +1206,19 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     if (origin !== 'local') return;
     const was = enumerateLeaves(stateToSyncBody(before));
     const now = enumerateLeaves(stateToSyncBody(next));
+    /*
+     * Asked ONCE per commit, and asked here rather than at the drain: this is
+     * the moment the write is made, and "was the room reachable when I tapped?"
+     * is a fact about that moment. See the intent layer above.
+     */
+    const asIntent = !heardFromRoom || outOfTouch();
     let wrote = false;
     for (const [path, value] of now) {
       if (deepEqual(was.get(path), value)) continue;
       registers.set(path, { value, stamp: nextStamp() });
-      if (!heardFromRoom) intents.add(path);
+      if (asIntent) intents.add(path);
       // The room has not heard this yet, so no cap may evict it. See `unshipped`.
-      unshipped.add(path);
+      markUnshipped(path);
       wrote = true;
     }
     /*
@@ -1024,7 +1235,7 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
       if (now.has(path) || !was.has(path)) continue;
       registers.delete(path);
       intents.delete(path);
-      unshipped.delete(path);
+      clearUnshipped(path);
       wrote = true;
     }
     if (!wrote) return;

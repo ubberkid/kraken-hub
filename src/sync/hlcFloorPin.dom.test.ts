@@ -16,15 +16,31 @@
  *    short of the room's and `tick`'s floor is then its own pre-outage stamp;
  *  - a peer far AHEAD pins every peer's HLC at its own stamp for as long as it
  *    takes real time to catch up, and while `t` is frozen the total order
- *    degrades to `(c, s)` — a per-peer counter that is not comparable across an
- *    outage, then the writer's client id in string order. Measured: the last
- *    finger lost to alphabetical order of client ids, with the bad peer's
- *    process, slot and clock all long gone from the room.
+ *    degrades to `(c, s)` — a per-peer counter, then the writer's client id in
+ *    string order.
  *
- * These three tests assert what the code ACTUALLY does. Two of them assert a
- * loss, and that is deliberate: the residue is real, it is not removable at
- * this layer (see the note below and `docs/remote-control.md`), and a test that
- * pretended otherwise would be the fourth version of the same wrong claim.
+ * ## What round 10 changed here, and it is A3 that changed
+ *
+ * A3 used to assert that the LAST FINGER LOST to alphabetical order of client
+ * ids, and its own comment said: "if a future change makes the later tap win,
+ * this test is the thing that should be rewritten, loudly." This is that
+ * rewrite. Round 10 arms the intent layer on RECONNECTION — a write made while
+ * the link is down, or between reconnect and the first folded frame, is held as
+ * an intent and re-stamped against that first frame — and a re-stamp under a
+ * pinned `t` is `(t, c + 1)`, one past the clock the returning peer has just
+ * folded. So the returning device's tap now wins, and the sentence "a change
+ * made after something you did not see wins" is true for it.
+ *
+ * The pin is NOT gone and A2 still measures it: `c` is a per-peer counter, so
+ * two peers that were both connected the whole time and tap the same leaf inside
+ * one round trip are still ordered by `(c, s)` rather than by any clock, and
+ * neither correcting the clock nor reloading the page unsticks the poisoned
+ * register. What is gone is the special punishment for having been away.
+ *
+ * These three tests assert what the code ACTUALLY does, including where that is
+ * a loss: the residue is real, it is not removable at this layer (see the note
+ * below and `docs/remote-control.md`), and a test that pretended otherwise would
+ * be the fourth version of the same wrong claim.
  *
  * ## Why the obvious fix is not in the code
  *
@@ -101,25 +117,35 @@ describe('a room that has heard a stamp from a badly-wrong clock', () => {
     restoreDeviceClocks();
   });
 
-  it('A3: a far-future peer that has LEFT still decides who wins for days', async () => {
+  it('A3: a peer coming back from an outage lands its tap even under a far-future pin', async () => {
     /*
-     * Skeptic 2's A3, verbatim, and it is the general form of the defect: the
-     * bad peer taps once and leaves, so its process, its slot and its clock are
-     * all irrelevant by the time the contested writes happen.
+     * Skeptic 2's A3, verbatim — and the row that ROUND 10 FLIPPED.
      *
-     * Instrumented stamps on the winning leaf, both peers agreeing:
+     * The bad peer taps once and leaves, so its process, its slot and its clock
+     * are all irrelevant by the time the contested writes happen; what it left
+     * behind is a register stamped three days out, which pins every peer's `t`
+     * and drops the total order to `(c, s)`. Instrumented stamps on the winning
+     * leaf before round 10, both peers agreeing:
      *
      *     STAMP good render.rotate t-now=259179s c=1 s=phonepeergood
      *     STAMP CAM  render.rotate t-now=259179s c=1 s=configpeer01
      *
-     * `t` is three days out on both, so `compareStamps` fell through to `s`,
-     * and 'configpeer01' < 'phonepeergood' ranked CAM's LATER tap as the
-     * earlier write.
+     * `t` was three days out on both, so `compareStamps` fell through to `s`,
+     * and 'configpeer01' < 'phonepeergood' ranked CAM's LATER tap as the earlier
+     * write. The old version of this test asserted exactly that — 180 — and
+     * said, in as many words, that if a future change made the later tap win,
+     * this test should be rewritten loudly along with `docs/remote-control.md`.
      *
-     * This test asserts the RESIDUE — CAM's later tap losing — because that is
-     * what the code does and there is no fix for it at this layer. If a future
-     * change makes the later tap win, this test is the thing that should be
-     * rewritten, loudly, along with `docs/remote-control.md`.
+     * The change is round 10's intent re-arm. CAM was deaf for 6.5 s, so its tap
+     * on return is held as an INTENT and re-stamped against the first frame it
+     * folds afterwards — `tick` under a pinned `t` is `(t, c + 1)`, one past the
+     * clock CAM has just brought up to date. So CAM's 270 now outranks good's
+     * 180 by the counter rather than losing to it by client id, and the later
+     * finger wins. Measured: `good=270 CAM=270 display=270`.
+     *
+     * The pin itself is untouched and A2 below still measures it: two peers that
+     * were BOTH connected the whole time hold no intents, neither re-stamps, and
+     * `t` is frozen for both — that contest is still decided by `(c, s)`.
      */
     const broker = createBroker();
     seedEarlierSession(broker, 'video');
@@ -162,12 +188,10 @@ describe('a room that has heard a stamp from a badly-wrong clock', () => {
         12_000,
       );
       /*
-       * The residue: the room converges (it always does — the merge is a
-       * lattice) but on the write the total order ranked higher, which with `t`
-       * frozen is the one whose client id sorts later, not the one somebody
-       * tapped last.
+       * The room converges (it always does — the merge is a lattice) and it
+       * converges on the LAST FINGER, because the returning peer re-stamped.
        */
-      const want = peers.map((p) => `${p.name}=180`).join(' ');
+      const want = peers.map((p) => `${p.name}=270`).join(' ');
       expect(withStory(readings.join(' '), want)).toBe(want);
     } finally {
       await good.stop();
@@ -224,8 +248,18 @@ describe('a room that has heard a stamp from a badly-wrong clock', () => {
         () => peers.map((p) => `${p.name}=${rotateOn(p)}`),
         12_000,
       );
-      // The residue again: 'configpeer01' sorts before 'phonepeer001', so with
-      // `t` pinned three days out CAM's LATER tap is ranked as the earlier one.
+      /*
+       * The residue, and the row round 10 did NOT flip: measured, the room still
+       * lands on the phone's 270 rather than on CAM's later 180.
+       *
+       * With `t` pinned three days out the order is decided by counters, and
+       * which of two peers' counters is higher is not a fact about who tapped
+       * last — the re-arm gives a returning peer one increment (A3 above), which
+       * is enough there and is not a general repair. That is exactly why the
+       * mitigation in `docs/remote-control.md` is "set the clock" rather than
+       * "be careful": nothing in the room can order these two writes correctly
+       * until real time catches up with the poisoned stamp.
+       */
       const want = peers.map((p) => `${p.name}=270`).join(' ');
       expect(withStory(readings.join(' '), want)).toBe(want);
     } finally {

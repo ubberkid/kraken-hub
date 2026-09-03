@@ -1678,6 +1678,86 @@ since the last save)`), while the identical script with any local commit
   skewed phone a correct one for the one write where it matters — and
   `readClockSlot` lets a test model a slot written by an older build.
 
+  **Round 10 — one class, three ways: a write made while the device was
+  OFFLINE.** Every one of the nine rounds before this had measured the room with
+  the writer connected, or connected to something. The remaining hole was the
+  other case, and it produced the settings-revert report verbatim on a build
+  sealed against it twice. All three are now the same sentence — **a write the
+  room has not heard is an INTENT**: it takes effect locally at once, it is
+  re-stamped against the first frame folded after the link is back up, it
+  survives a reload, and it ships oldest-first.
+
+  - **The wire shipped the NEWEST unheard write first, so an offline tap made
+    before a config edit never travelled at all.** Round 8 gave
+    `fitStateEnvelope` an unshipped head that rides ahead of everything else and
+    ordered it by stamp RECENCY — which is the same mistake `RESERVED_NEWEST_
+STAMPS` made one round earlier, one level down. An ONLINE peer never noticed,
+    because its head drains a few stamps per frame as they ship; a peer that is
+    offline while writing has nothing draining, so when the radio returns the
+    head is the whole write set and a tap made BEFORE a multi-leaf config commit
+    is at the very back of it. Measured on the shipped eight-layer look, the
+    phone taps 90 offline, tunes 400 knobs, and reconnects for six seconds:
+    **28-29 state frames leave it and NOT ONE carries `render.rotate`'s stamp**,
+    so the value travels BARE, reads as `EPOCH`, loses to the room's stamped 270,
+    and the tap is reverted on the Kraken and on CAM permanently — `lastError`
+    null, status line reading online. As convergence time, with the phone tapping
+    last so it must win the merge: **300 knobs 2.7 s, 350 → 5.1 s, 400 → 11.0 s,
+    450 → 13.9 s, 470 → 32.5 s** (above 500 the frame is refused whole and the
+    transport re-asserts the pre-tune frame, which did carry the stamp, so the
+    room converges in ~100 ms — the failure peaks exactly where the frame still
+    fits but the stamp does not). **`appSync` now records an `unshippedSeq`** when
+    a path enters the unshipped set, `wireStamps` hands the head over oldest-wait
+    first, and pass 1 reserves BOTH ENDS of it — the oldest few because they are
+    at greatest risk of never travelling, the newest few because that is the leaf
+    somebody just touched. The reserve is SPLIT rather than doubled, which is a
+    correctness constraint and not a saving: taking sixteen starved the reserve
+    for what the room HAS heard and cost round 8's own script its convergence.
+    The claim at `SyncService.ts` that "the unshipped and the newest `r`" travel
+    "within ONE" frame was true only while `u ≤ r`; the bound is now stated in
+    the four parts it actually has. `offlineWireOrder.dom.test.ts` — the stamp on
+    the FIRST frame back at 400 and 470 knobs, and the six convergence rows.
+  - **Intents did not survive a reload, so a phone that opened with no signal lost
+    its tap forever.** `heard` is persisted in the v2 slot and so is the register
+    table, but the `intents` SET was in-memory only: the restore rebuilt the
+    registers, seeded `unshipped`, and seeded nothing into `intents`. So a session
+    that ended having heard nothing came back holding its offline writes with the
+    skewed stamps they were born with, and `foldRoomFrame` had an empty set to
+    drain — the write ordered by the phone's own wrong clock, permanently, across
+    every subsequent reload. **This is not the documented residue**, which needs a
+    peer more than a day out: measured over both value orders, it fires at
+    **−3 s, −10 s, −90 s and −1 h** and passes only at −1 s. The seeding needs no
+    new slot key and no version bump, because a page whose previous session heard
+    NOTHING has by construction only its own writes in the table — `heard` is set
+    by the first inbound frame on any channel, so a restored register cannot have
+    come from a merge. `intentReloadSkew.dom.test.ts`, 14 rows including the
+    skew-0 and heard-first controls.
+  - **The intent layer armed on "have I ever heard the room?", and the question is
+    "have I heard it since I went dark?"** Measured with EVERY clock in the room
+    correct: phoneB taps and locks its screen, phoneA's wall clock steps forward
+    (an NTP correction, a timezone fix), phoneA taps, and 6.5 s later phoneB
+    unlocks and taps at once — **at +10 s and +1 h phoneB's tap is reverted on
+    every screen**, at 0 and +1 s it lands. So the boundary was never the clamp
+    the code and the docs both named; it is the ROOM's forward clock motion
+    during the deaf window, which any in-clamp skew on ANOTHER device produces.
+    A local write is now an intent whenever the room's transport is not online,
+    or nothing has arrived for `ROOM_SILENCE_MS` — five seconds, twice the
+    display's 2.5 s monitor beat and well inside the shortest outage a person
+    notices. The heuristic half is documented rather than hidden: in a room with
+    no telemetry at all, a quiet stretch makes the next tap an intent too, which
+    widens the "genuinely simultaneous" case by one round trip and is the cheaper
+    of the two errors. `intentReconnect.dom.test.ts` at steps 0/+1 s/+10 s/+1 h
+    plus the static +1 h control that pins the mechanism.
+  - **One shipped assertion flipped, and it is `hlcFloorPin`'s A3.** That test
+    pinned "the last finger lost to alphabetical order of client ids" under a
+    far-future pin, and said in as many words that if a future change made the
+    later tap win it should be rewritten loudly. A re-stamp under a pinned `t` is
+    `(t, c + 1)`, one past the clock the returning peer has just folded, so
+    **CAM's later tap now wins: `good=270 CAM=270 display=270`.** The pin itself
+    is untouched and A2 still measures it — two peers that were both connected
+    the whole time hold no intents, neither re-stamps, and that contest is still
+    decided by counters and then by client id. `docs/remote-control.md` and
+    `appSync.ts`'s residue note say so.
+
 - **"I had to click things twice on my phone."** Reported against the remote's
   Library, investigated with real touch emulation, and it is two separate
   things — one reproducible here, one structurally impossible to reproduce in

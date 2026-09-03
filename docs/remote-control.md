@@ -541,6 +541,21 @@ consequences, both worth knowing:
   nothing at all for a whole session. Room time is kept across a reload, and so
   is the fact of having heard it: a page whose previous session genuinely learned
   nothing holds its first tap until a frame arrives and then re-stamps it.
+
+  Room time alone was not quite enough, and the gap was measured with every
+  clock in the room **correct**. Room time is a reading, and a locked phone
+  takes no readings — so if the ROOM's clock moves forward while you are away
+  (somebody else's phone corrects itself by ten seconds, a Kraken with no
+  battery clock reaches a time server), your phone comes back stamping against
+  what the room read before you locked it, and its first tap is under
+  everything written in between. So the rule is now the one sentence rather
+  than three special cases: **a write the room has not heard is held as an
+  intent.** It takes effect on your screen the instant you make it, and it is
+  re-stamped the moment a frame arrives — whether you have never heard the room,
+  heard it only in a previous session that has since been closed and reopened,
+  or simply had no signal for the last few seconds. What you tapped last is what
+  the room lands on.
+
 - **And a change made after your own clock jumps wins too.** Room time is
   projected forward on a clock that cannot go backwards, so a device that
   corrects its clock — an NTP step, a Kraken with no RTC reaching a time server,
@@ -563,11 +578,24 @@ Different keys never contend at all. One person changing the fit while another
 rotates the panel is two independent writes, and both survive.
 
 If a device's clock is wrong by minutes or hours, the only thing that degrades
-is that tie-break, and only until it has heard one frame. A change it makes
-after seeing yours still wins over yours; a change it makes after coming back
-from an outage still wins, because it stamps in room time; only a change made at
-the same instant as yours, by a device that has never heard the room, is decided
+is that tie-break. A change it makes after seeing yours still wins over yours; a
+change it makes after coming back from an outage still wins, because a write the
+room has not heard is re-stamped against the first frame back rather than
+against a reading taken before the outage. Only a change made at the same
+instant as yours, by a device that has not heard the room recently, is decided
 by the wrong clock.
+
+That last clause is wider than "a device that has never heard the room", and the
+cost is worth naming: a page treats itself as out of touch when its link is down
+**or** when nothing at all has arrived for five seconds. A room with a Kraken in
+it beats far faster than that, so the second test only fires during a genuine
+outage — but in a room with telemetry switched off, or with no display in it at
+all, a quiet stretch makes the next tap an intent too, and two people tapping
+the same setting within a round trip of each other are then resolved in favour
+of whoever hears the other first rather than by whichever clock read later. That
+is the same simultaneity this section already says the room resolves
+arbitrarily. Losing the tap outright, which is what the alternative costs, is
+worse.
 
 Readings more than a day out are **clamped to a day** rather than ignored, and
 the difference is worth stating, because ignoring them was worse: a peer past
@@ -580,17 +608,26 @@ real things. All three of these are measured, in
 
 - **A device more than a day SLOW loses its first tap after every outage** — a
   lift, a tunnel, a screen lock — until somebody corrects its clock. Its room
-  time is capped a day short of the room's, so its tap stamps under everything
-  written while it was away: the setting goes green on its screen and reverts a
-  moment later. At 23 hours slow the same script lands the tap; the boundary is
-  exactly the clamp.
+  time is capped a day short of the room's, so even the re-stamp its returning
+  tap gets lands under everything written while it was away: the setting goes
+  green on its screen and reverts a moment later. At 23 hours slow the same
+  script lands the tap, and the boundary really is exactly the clamp — it used
+  to be measurably narrower than that, because a phone with a **perfect** clock
+  lost its first tap back whenever anybody else's clock stepped forward while it
+  was locked. That one is fixed; this one is arithmetic, not a rule that can be
+  patched: a device that thinks it is two days ago cannot stamp a write into the
+  present.
 - **One device far in the FUTURE poisons the settings it touched, for as long as
   it is wrong.** A stamp three days out pins the ordering clock of every device
   in the room at that reading for three days of real time, and while it is
-  pinned the room can no longer tell which of two taps came second if the two
-  people were not connected to each other at the time. It falls back to
-  comparing the devices' internal ids, which is arbitrary — measured, the later
-  tap lost.
+  pinned the room can no longer tell which of two taps came second by any clock
+  at all. It falls back to internal counters and, failing those, to the devices'
+  internal ids, which is arbitrary. A device coming back from an outage is no
+  longer the one that loses — its tap is re-stamped one step past the clock it
+  has just caught up with, and measured, it now wins where it used to lose to
+  alphabetical order. What is left is two people who were both connected the
+  whole time touching the same setting at once: the room still lands on ONE
+  value everywhere, and which one is not a fact about who moved first.
 - **Correcting the clock does not undo it, and neither does reloading the page.**
   The bad reading now lives in the value the room agreed on, not in the device.
   What clears it is somebody changing that setting again from a device that is
