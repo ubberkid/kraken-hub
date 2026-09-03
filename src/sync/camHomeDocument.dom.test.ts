@@ -43,6 +43,7 @@ import {
   createBroker,
   documentState,
   firstDeviation,
+  meterStateFrames,
   moduleOn,
   note,
   resetClockSlots,
@@ -141,9 +142,13 @@ async function displayAndPhone(): Promise<{
   broker: ReturnType<typeof createBroker>;
   display: Peer;
   phone: Peer;
+  /** Every `state` frame that has crossed this broker. See `meterStateFrames`. */
+  meter: ReturnType<typeof meterStateFrames>;
   stop: () => Promise<void>;
 }> {
   const broker = createBroker();
+  // Installed before any peer connects, so the transports capture the wrapper.
+  const meter = meterStateFrames(broker);
   const display = await startDisplayPeer(broker);
   const phone = await startPhonePeer(broker);
   await sleep(HANDSHAKE_MS * 2);
@@ -154,6 +159,7 @@ async function displayAndPhone(): Promise<{
     broker,
     display,
     phone,
+    meter,
     stop: async () => {
       await phone.stop();
       await display.stop();
@@ -188,6 +194,43 @@ describe("CAM's Home screen, in a room that has heard a phone", () => {
       // frame the display put on the wire.
       const settled = await settleOn(() => [moduleOn(room.display), moduleOn(room.phone)], 'clock');
       expect(withStory(settled, 'clock clock')).toBe('clock clock');
+    } finally {
+      await room.stop();
+    }
+  }, 40_000);
+
+  it('says nothing at all when the document write changes nothing', async () => {
+    /*
+     * The display is the room's one relay for CAM's Home screen, and a relay
+     * that repeats itself is a peer that never goes quiet.
+     *
+     * `drainPendingDocument` adopts a leaf only when it differs from the one
+     * this page already holds, and publishes only when something was adopted —
+     * but nothing tested it, and the same document is written over and over in
+     * normal use: `persistRemote` re-saves the resolved state about twice a
+     * second, and every one of those was a candidate. Each publish provoked a
+     * frame back, which re-resolved every peer's snapshot, which rebuilt the
+     * editor's compositor. So: a save that decided nothing is not a frame.
+     */
+    const room = await displayAndPhone();
+    try {
+      note('CAM clicks Clock on Home');
+      camHomeWrites((s) => ({ ...s, activeModuleId: 'clock' }));
+      const settled = await settleOn(() => [moduleOn(room.display), moduleOn(room.phone)], 'clock');
+      expect(withStory(settled, 'clock clock')).toBe('clock clock');
+      await sleep(AFTER_A_DOCUMENT_WRITE);
+
+      note('---- and now writes the very same document again ----');
+      room.meter.reset();
+      camHomeWrites((s) => ({ ...s, activeModuleId: 'clock' }));
+      await sleep(AFTER_A_DOCUMENT_WRITE + 1500);
+
+      const frames = room.meter.total();
+      note(`state frames after a no-op document write: ${String(frames)}`);
+      expect(withStory(String(frames), '0')).toBe('0');
+      // …and the room still holds the value, so "silent" is not "asleep".
+      expect(withStory(moduleOn(room.display), 'clock')).toBe('clock');
+      expect(withStory(moduleOn(room.phone), 'clock')).toBe('clock');
     } finally {
       await room.stop();
     }

@@ -177,8 +177,21 @@ export type StripControl =
    * declares that it wants the affordance; the editor owns what it opens.
    */
   | (StripControlBase & { readonly control: 'action'; readonly action: StripAction })
-  /** Always last, always present. Opens the inspector sheet (§2.4). */
-  | (StripControlBase & { readonly control: 'more' });
+  /**
+   * Always last, always present. Opens the inspector sheet (§2.4).
+   *
+   * `label` is the kind's, not the house's: a kind whose strip is nothing BUT
+   * this control names its one door after what is behind it ("Effect…"), and a
+   * kind with four controls in front of it still calls it "More".
+   *
+   * `reveal: 'options'` says the sheet should open AT the kind's own panel
+   * rather than at the top. Without it More means "the sheet", and the sheet
+   * opens where it always opens — Layout. With it, the one button a kind
+   * offers lands on the picker/presets/colours the button is named after,
+   * which is the same destination the `'effect'`/`'preset'`/`'colours'`
+   * actions used to reach.
+   */
+  | (StripControlBase & { readonly control: 'more'; readonly reveal?: 'options' });
 
 export type StripAction = 'source' | 'loop' | 'colours' | 'preset' | 'effect' | 'quality';
 

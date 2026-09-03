@@ -20,9 +20,12 @@
  *  - **Warmth glides.** The monitoring feed is 1 Hz; writing a reading straight
  *    into the uniform would step every pixel once a second, which is precisely
  *    what CAM's frame compressor charges most for. `motion.ts` does the easing.
- *  - **The GL context is a resource, so it is released.** Hidden means freed
- *    (`WEBGL_lose_context`), visible means rebuilt, and a driver-initiated loss
- *    is the same path. The display page runs for weeks.
+ *  - **The GL context is a resource, so it is released — but not on a switch.**
+ *    Hidden means freed (`WEBGL_lose_context`), visible means rebuilt on a FRESH
+ *    canvas element, and a driver-initiated loss takes the same path. Changing
+ *    effect is the other verb entirely: the program is deleted and relinked on
+ *    the SAME live context, because a canvas whose context was lost through the
+ *    extension hands the same dead context back to `getContext` forever.
  *  - **Which of the three paths ran is written on the host.** `data-gl` on the
  *    root is `webgl2`, `webgl1` or `none`, and `data-gl-lost` is present while a
  *    context is gone. The fallback ladder was invisible before: the diagnostics
@@ -170,9 +173,38 @@ export type GlKind = 'webgl2' | 'webgl1' | 'none';
 export const GL_ATTR = 'data-gl';
 /** Present (`"true"`) only between `webglcontextlost` and its restore. */
 export const GL_LOST_ATTR = 'data-gl-lost';
+/**
+ * Which of the twelve is on the panel, by id.
+ *
+ * The same argument as `data-gl`: the element is the only place that can say
+ * what is actually running, and a browser test that has to prove a runtime
+ * SWITCH landed has nothing else to wait on — the picture changes every frame
+ * anyway, so pixels alone cannot tell "switched" from "moved".
+ */
+export const EFFECT_ATTR = 'data-effect';
 
-interface GlState {
+/**
+ * The context and the program are two lifetimes, not one.
+ *
+ * They used to be one record, and freeing it took the context down with the
+ * program — including on an effect SWITCH, which needs a new program and the
+ * same context. `WEBGL_lose_context.loseContext()` is not undone by asking the
+ * canvas for a context again: per the spec `getContext` hands back the SAME
+ * object, still lost, until the page calls `restoreContext()`, and a browser
+ * does not restore an extension-induced loss on its own. So the switch linked
+ * against a dead context, `draw()` bailed on `isContextLost()`, and the panel
+ * presented its lost drawing buffer — white on ANGLE/D3D11, which is what a real
+ * Kraken showed. (Headless SwiftShader tolerated it, which is why an audit of
+ * twelve switches passed.) Splitting the record splits the two verbs:
+ * `releaseProgram()` for a switch, `dropContext()` for hidden/unmount/loss.
+ */
+interface GlContext {
   gl: WebGLRenderingContext | WebGL2RenderingContext;
+  /** WebGL2 — decides the vertex stage and whether the source is transpiled. */
+  es3: boolean;
+}
+
+interface GlProgram {
   prog: WebGLProgram;
   buffer: WebGLBuffer | null;
   uTime: WebGLUniformLocation | null;
@@ -189,7 +221,14 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
   let ctxRef: ModuleContext | null = null;
   let cfg: EffectConfig = EFFECT_DEFAULTS;
 
-  let glState: GlState | null = null;
+  let glCtx: GlContext | null = null;
+  let glProg: GlProgram | null = null;
+  /**
+   * True once this canvas's context has been lost — by us (`dropContext`) or by
+   * the driver. A poisoned canvas can never grant a working context again, so
+   * the next build replaces the ELEMENT rather than asking it twice.
+   */
+  let canvasPoisoned = false;
   let fragSource: string | null = null;
   /** Bumped on every load so a late `import()` for a stale effect is dropped. */
   let loadToken = 0;
@@ -250,6 +289,7 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
     const last = cfg.colors[cfg.colors.length - 1] ?? first;
     root.style.setProperty('--kh-effect-a', first);
     root.style.setProperty('--kh-effect-b', last);
+    root.setAttribute(EFFECT_ATTR, cfg.effect);
   };
 
   const sizeCanvas = (): void => {
@@ -264,48 +304,164 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
     if (canvas.height !== h) canvas.height = h;
   };
 
-  const freeGl = (): void => {
-    // Unconditional: a failed build leaves `glState` null with the attribute
-    // already correct, and a freed context is the still frame either way.
+  const onContextLost = (e: Event): void => {
+    // Without preventDefault the context is never restorable and the panel
+    // stays on its still frame until the next reload — which, on a display that
+    // runs for weeks, means forever.
+    e.preventDefault();
+    glProg = null;
+    glCtx = null;
+    // The element carries the loss: asking THIS canvas for a context again
+    // returns the same dead one, which is the bug this whole split exists for.
+    canvasPoisoned = true;
+    lastDrawAt = null;
     setGlKind('none');
-    if (glState === null) return;
-    const { gl, prog, buffer } = glState;
-    gl.deleteProgram(prog);
-    if (buffer !== null) gl.deleteBuffer(buffer);
-    // The context itself is the expensive thing to hold: a hidden display with
-    // a live GL context still owns driver memory.
-    const lose: WEBGL_lose_context | null = gl.getExtension('WEBGL_lose_context');
-    lose?.loseContext();
-    glState = null;
+    root?.setAttribute(GL_LOST_ATTR, 'true');
+    log.warn('GL context lost — rebuilding');
+  };
+
+  const onContextRestored = (): void => {
+    root?.removeAttribute(GL_LOST_ATTR);
+    // The driver restored THIS canvas, so it is usable again; `ensureContext()`
+    // re-checks `isContextLost()` anyway and falls back to a fresh element if
+    // the restore did not really take.
+    canvasPoisoned = false;
+    buildGl();
+    draw();
+  };
+
+  /**
+   * Delete the program and its buffer. **Keeps the context.**
+   *
+   * This is the effect-switch verb: the next program compiles against the same
+   * live context, and the canvas keeps showing the last frame of the outgoing
+   * effect for the ~1 frame it takes the new fragment source to arrive.
+   */
+  const releaseProgram = (): void => {
+    if (glProg === null || glCtx === null) return;
+    const { gl } = glCtx;
+    if (!gl.isContextLost()) {
+      gl.deleteProgram(glProg.prog);
+      if (glProg.buffer !== null) gl.deleteBuffer(glProg.buffer);
+    }
+    glProg = null;
     lastDrawAt = null;
   };
 
-  const buildGl = (): void => {
-    if (canvas === null || fragSource === null || glState !== null || hidden) return;
+  /**
+   * Give the context back to the driver: hidden, unmounted, or already lost.
+   *
+   * A hidden display with a live GL context still owns driver memory, and this
+   * page runs for weeks. The canvas is poisoned by the call — `getContext` on it
+   * would return the same lost object forever — so the next build starts from a
+   * fresh element.
+   */
+  const dropContext = (): void => {
+    setGlKind('none');
+    releaseProgram();
+    if (glCtx === null) return;
+    const lose: WEBGL_lose_context | null = glCtx.gl.getExtension('WEBGL_lose_context');
+    lose?.loseContext();
+    glCtx = null;
+    canvasPoisoned = true;
+    lastDrawAt = null;
+  };
 
-    const attrs: WebGLContextAttributes = {
-      alpha: ctxRef?.layer?.role === 'overlay',
-      antialias: false,
-      depth: false,
-      stencil: false,
-      premultipliedAlpha: true,
-      // Nothing reads the buffer back except the 1 Hz thumbnail, which reads it
-      // inside the same task as the draw. Preserving it would cost a copy per
-      // frame for the other 39.
-      preserveDrawingBuffer: false,
-      powerPreference: 'low-power',
-    };
+  /**
+   * Swap in a brand new `<canvas>` in the same place, with the same classes and
+   * the same two listeners.
+   *
+   * The only way back from a lost context that the page itself caused: the
+   * element carries the loss, not the renderer.
+   */
+  const replaceCanvas = (): void => {
+    if (canvas === null || root === null) return;
+    const next = document.createElement('canvas');
+    next.className = canvas.className;
+    canvas.replaceWith(next);
+    canvas = next;
+    canvasPoisoned = false;
+    if (ctxRef !== null) {
+      canvas.addEventListener('webglcontextlost', onContextLost, { signal: ctxRef.signal });
+      canvas.addEventListener('webglcontextrestored', onContextRestored, { signal: ctxRef.signal });
+    }
+    sizeCanvas();
+  };
 
+  const CONTEXT_ATTRS = (): WebGLContextAttributes => ({
+    alpha: ctxRef?.layer?.role === 'overlay',
+    antialias: false,
+    depth: false,
+    stencil: false,
+    premultipliedAlpha: true,
+    // Nothing reads the buffer back except the 1 Hz thumbnail, which reads it
+    // inside the same task as the draw. Preserving it would cost a copy per
+    // frame for the other 39.
+    preserveDrawingBuffer: false,
+    powerPreference: 'low-power',
+  });
+
+  const createContext = (): GlContext | null => {
+    if (canvas === null) return null;
+    const attrs = CONTEXT_ATTRS();
     const gl2 = canvas.getContext('webgl2', attrs);
     const gl: WebGLRenderingContext | WebGL2RenderingContext | null =
       gl2 ?? canvas.getContext('webgl', attrs);
-    if (gl === null) {
-      setGlKind('none');
+    if (gl === null) return null;
+    return { gl, es3: gl2 !== null };
+  };
+
+  /**
+   * A LIVE context on the current canvas, or `null`.
+   *
+   * Reuses the one already in hand — that is the whole point of the split — and
+   * only when it is genuinely gone does it go through a fresh element. The
+   * second `isContextLost()` check is the belt to the poison flag's braces: it
+   * catches the spec behaviour directly (a canvas handing back its own lost
+   * context) without depending on this file having recorded the loss.
+   */
+  const ensureContext = (): GlContext | null => {
+    if (glCtx !== null && !glCtx.gl.isContextLost()) return glCtx;
+    if (glCtx !== null) {
+      glProg = null;
+      glCtx = null;
+      canvasPoisoned = true;
+    }
+    if (canvas === null) return null;
+    if (canvasPoisoned) replaceCanvas();
+
+    let made = createContext();
+    if (made?.gl.isContextLost() === true) {
+      replaceCanvas();
+      made = createContext();
+      if (made?.gl.isContextLost() === true) made = null;
+    }
+    if (made === null) {
       log.warn('no WebGL context — the effect stays on its still frame');
+      return null;
+    }
+    glCtx = made;
+    return made;
+  };
+
+  /**
+   * Compile and link the CURRENT fragment source against the current context,
+   * and fetch every uniform location FROM THE NEW PROGRAM.
+   *
+   * Locations are per program and are never carried across a switch — a location
+   * from the outgoing program is meaningless to the incoming one even when the
+   * uniform has the same name.
+   */
+  const buildGl = (): void => {
+    if (canvas === null || fragSource === null || glProg !== null || hidden) return;
+
+    const ctx = ensureContext();
+    if (ctx === null) {
+      setGlKind('none');
       return;
     }
+    const { gl, es3 } = ctx;
 
-    const es3 = gl2 !== null;
     const prog = link(gl, es3 ? VS_ES3 : VS_ES1, es3 ? fragSource : toEs1(fragSource));
     // A granted context whose program will not compile is still the still
     // frame, so the attribute says `none` rather than naming a renderer that
@@ -332,8 +488,7 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
       uColors.push(gl.getUniformLocation(prog, `uColor${String(i)}`));
     }
 
-    glState = {
-      gl,
+    glProg = {
       prog,
       buffer,
       uTime: gl.getUniformLocation(prog, 'uTime'),
@@ -347,12 +502,21 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
     lastDrawAt = null;
   };
 
+  /**
+   * Switch effect: drop the PROGRAM, keep the context, link the new source onto
+   * it when the lazy import lands.
+   *
+   * `data-gl` is deliberately left alone across the gap. The context that is
+   * running has not changed, and the canvas is still presenting the last frame
+   * the outgoing program drew, so writing `none` here would claim a still frame
+   * that is not what is on screen.
+   */
   const loadProgram = (): void => {
     if (ctxRef === null) return;
     loadToken += 1;
     const token = loadToken;
     const wanted = cfg.effect;
-    freeGl();
+    releaseProgram();
     fragSource = null;
     loadFragment(wanted).then(
       (src) => {
@@ -382,21 +546,21 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
   };
 
   function draw(): void {
-    if (glState === null || canvas === null) return;
-    const { gl } = glState;
+    if (glProg === null || glCtx === null || canvas === null) return;
+    const { gl } = glCtx;
     if (gl.isContextLost()) return;
 
     gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.useProgram(glState.prog);
-    gl.uniform1f(glState.uTime, time);
-    gl.uniform2f(glState.uResolution, canvas.width, canvas.height);
-    gl.uniform1f(glState.uTemp, cfg.reactsToTemp ? warmth : 0);
-    gl.uniform1f(glState.uScale, cfg.scale);
-    gl.uniform1f(glState.uBright, cfg.brightness);
-    for (let i = 0; i < glState.uColors.length; i += 1) {
+    gl.useProgram(glProg.prog);
+    gl.uniform1f(glProg.uTime, time);
+    gl.uniform2f(glProg.uResolution, canvas.width, canvas.height);
+    gl.uniform1f(glProg.uTemp, cfg.reactsToTemp ? warmth : 0);
+    gl.uniform1f(glProg.uScale, cfg.scale);
+    gl.uniform1f(glProg.uBright, cfg.brightness);
+    for (let i = 0; i < glProg.uColors.length; i += 1) {
       const base = i * COLOUR_COMPONENTS;
       gl.uniform3f(
-        glState.uColors[i] ?? null,
+        glProg.uColors[i] ?? null,
         colours[base] ?? 0,
         colours[base + 1] ?? 0,
         colours[base + PAIR] ?? 0,
@@ -404,23 +568,6 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
     }
     gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
   }
-
-  const onContextLost = (e: Event): void => {
-    // Without preventDefault the context is never restorable and the panel
-    // stays on its still frame until the next reload — which, on a display that
-    // runs for weeks, means forever.
-    e.preventDefault();
-    glState = null;
-    setGlKind('none');
-    root?.setAttribute(GL_LOST_ATTR, 'true');
-    log.warn('GL context lost — rebuilding');
-  };
-
-  const onContextRestored = (): void => {
-    root?.removeAttribute(GL_LOST_ATTR);
-    buildGl();
-    draw();
-  };
 
   return {
     mount(host: HTMLElement, ctx: ModuleContext, config: EffectConfig) {
@@ -432,6 +579,7 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
       // frame, which is also exactly what is painted at this instant.
       root.setAttribute(GL_ATTR, 'none');
       glKind = 'none';
+      canvasPoisoned = false;
       canvas = document.createElement('canvas');
       canvas.className = 'kh-effect__canvas';
       root.append(canvas);
@@ -495,7 +643,10 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
 
     visibility(v) {
       hidden = v === 'hidden';
-      if (hidden) freeGl();
+      // Hidden gives the context back; un-hidden goes through `ensureContext()`,
+      // which sees the poisoned canvas and builds on a fresh element rather than
+      // asking the dead one twice.
+      if (hidden) dropContext();
       else {
         buildGl();
         draw();
@@ -515,7 +666,7 @@ export function createRenderer(): DisplayRenderer<EffectConfig> {
     unmount() {
       loadToken += 1;
       const key = thumbKey();
-      freeGl();
+      dropContext();
       setReplicaThumb(key, null);
       root?.remove();
       root = null;

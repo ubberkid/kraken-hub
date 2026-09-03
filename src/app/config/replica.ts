@@ -44,7 +44,7 @@ import { snapshotToMonitoring, type MonitorSnapshot } from '../../sync/monitorSn
 
 import type { DisplayRenderer, ModuleContext } from '../../modules/types';
 import type { FrameClock, FrameInfo } from '../../platform/fpsGovernor';
-import type { Geometry } from '../../platform/geometry';
+import type { Geometry, GeometryRender } from '../../platform/geometry';
 import type { MonitoringSource, NormalizedMonitoring } from '../../platform/monitoring';
 import type { RenderSettings } from '../../state/schema';
 
@@ -161,8 +161,17 @@ function wiredMonitoringSource(read: () => { norm: NormalizedMonitoring; at: num
   };
 }
 
-/** The replica's fixed `Geometry`, derived from what the display reported. */
-export function replicaGeometry(info: ReplicaDisplayInfo | null, render: RenderSettings): Geometry {
+/**
+ * The replica's fixed `Geometry`, derived from what the display reported.
+ *
+ * `render` is the two safe-area fractions and nothing else — `GeometryRender`,
+ * not the whole `RenderSettings`. A caller memoising this has to key on what it
+ * passes, and keying on a whole `RenderSettings` object means keying on an
+ * identity `resolveState` rebuilds on every state delivery. Narrowing the type
+ * is what lets `HomeView` key on two numbers instead, and a `RenderSettings`
+ * still satisfies it, so every existing caller is unchanged.
+ */
+export function replicaGeometry(info: ReplicaDisplayInfo | null, render: GeometryRender): Geometry {
   return deriveGeometry(
     {
       width: info?.w ?? 0,

@@ -50,7 +50,7 @@ Appears under the halo for the selected layer; ≤ 5 controls; the last is alway
 - Shape: shape (Rect/Circle/Line) · fill · stroke · More
 - Image/Sticker: source · fit · opacity · More
 - Video (base): source · fit · loop · quality · More
-- Effect (base): effect · preset · custom colours · reacts-to-temp · More
+- Effect (base): **Effect…** — one control, a `More` that carries its own label and `reveal: 'options'`, so it opens the inspector AT the kind's panel. It was `effect · preset · custom colours · reacts-to-temp · More`, and four of those five opened the same panel: the picker, the preset chips and the colour wells live together in it, and the warmth switch sits beside the temperature source it depends on. Five labels for two destinations is a menu, not a strip.
 - Picture (base): source · fit · slideshow · More
 - Audio visualizer: style · bands · colour · More; Now playing: fields · size · More; Album cover: size · corner · More
 ✓ enumeration test: every registered kind declares its strip; count ≤ 5.

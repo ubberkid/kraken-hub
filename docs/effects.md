@@ -16,6 +16,13 @@ because an effect fills every pixel of its box, and a fresh overlay the size of
 the disc would simply be a lid over the look you already had. Drag it, resize it
 and take the opacity back to 100 % whenever a lid is what you wanted.
 
+**Where the settings are.** An effect layer's strip carries exactly one button —
+**Effect…** — and it opens the effect panel with the picker, the preset chips,
+the four colour wells, the temperature switch and Advanced all in one place,
+scrolled to the picker. It used to be five buttons (Effect, Preset, Colours,
+Warmth, More) and four of them opened that same panel, which is four labels for
+one door.
+
 **Contents**
 
 1. [The twelve](#the-twelve)
@@ -185,6 +192,22 @@ you can inspect), find the `div.kh-effect` an effect layer owns, and read
 | `webgl2`  | The modern context. The ES 3.00 source, drawn from `gl_VertexID`                                                                  |
 | `webgl1`  | The fallback context, running the same effect translated to ES 1.00                                                               |
 | `none`    | The still gradient — no context was granted, the program would not compile, or the display is hidden and has released the context |
+
+**Switching effects keeps the same WebGL context.** Choosing a second effect
+deletes the old shader program and compiles the new one onto the context that is
+already running — it does not take the context down and ask for another. It
+cannot: a canvas whose context has been released through `WEBGL_lose_context`
+hands the same, still-dead context back to every later request, so a rebuild on
+that canvas would link against nothing and the panel would present its lost
+drawing buffer — **white**, on the Direct3D backend a Kraken's webview uses. The
+context is released only when the display is hidden, when the layer goes away, or
+when the driver takes it, and coming back from any of those builds on a **fresh
+canvas element** rather than on the one that carries the loss. The element also
+says which effect is drawing, as `data-effect`.
+
+`data-gl` therefore stays `webgl2` (or `webgl1`) straight through a switch —
+seeing it flip to `none` when somebody picks an effect is the signature of the
+old bug.
 
 It records the renderer that is **running**, not the one that was asked for: a
 context that is granted but whose program will not link reads `none`, because a

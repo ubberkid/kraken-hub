@@ -46,6 +46,7 @@ import {
   resetClockSlots,
   resetTrace,
   retainedAuthoredBy,
+  retainedSaying,
   rotateOn,
   seedEarlierSession,
   settleWithin,
@@ -879,9 +880,20 @@ describe('the schedules that defeated the acknowledgement design', () => {
       expect(withStory(fitOn(display), 'cover')).toBe('cover');
       expect(withStory(fitOn(phoneA), 'contain')).toBe('contain');
 
-      // The retained slot, pinned to CAM — so the replay phoneA is handed is a
-      // fact rather than a race, and it carries CAM's account of the room.
-      await retainedAuthoredBy(broker, 'configpeer01');
+      /*
+       * The retained slot, pinned by CONTENT — so the replay phoneA is handed
+       * is a fact rather than a race.
+       *
+       * It used to be pinned to CAM as the author, which worked because every
+       * page republished its snapshot on every notification and CAM therefore
+       * had the last word sooner or later. `store.replace` is value-gated now
+       * (`src/state/store.ts`, and `quiescence.dom.test.ts` for why), so a peer
+       * with nothing new to say is silent and the slot belongs to whoever ended
+       * the exchange. What this test actually needs is that the bootstrap
+       * phoneA inherits SAYS cover, which is the room's account of the room
+       * whichever peer wrote it down.
+       */
+      await retainedSaying(broker, 'fit: cover', (body) => body.render.fit === 'cover');
 
       note('---- phoneA comes back and commits something of its own ----');
       phoneA.unmute();

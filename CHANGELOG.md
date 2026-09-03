@@ -29,6 +29,16 @@ in [`docs/BEFORE-PUBLISHING.md`](docs/BEFORE-PUBLISHING.md).
 
 ### Changed
 
+- **An effect layer offered five buttons that led to two places.** Effect,
+  Preset, Colours and More all opened the same panel — the picker, the preset
+  chips and the colour wells live together in it — so four of the five labels
+  were four names for one door, and the fifth (Warmth) was a switch that also
+  sits in that panel, next to the temperature source it only means anything
+  with. The strip is one button now, **Effect…**, and it opens that panel
+  scrolled to the picker rather than to the layer's X/Y numbers. A kind's `More`
+  can carry its own label and name its destination (`reveal: 'options'`), which
+  is what lets one control be honest about where it goes; the strip's rules —
+  at most five controls, `More` last — are untouched.
 - **The low-frame-rate advisory card hung off the edge of every panel that
   showed it.** The card's type was sized `--kh-inscribed / 14` with a title,
   body and footer stacked on top of that, which built a box taller than the safe
@@ -1121,6 +1131,73 @@ end }` through the existing `applyUrlParams` seam. The END is deliberately not
   have never existed.
 
 ### Fixed
+
+- **The live picture in the hub flickered and restarted five to ten times a
+  second.** Reported from a real machine: the halo in the configuration window
+  kept jumping back to the beginning, over and over, with nobody touching
+  anything.
+
+  Two things were happening, and each was enough on its own.
+
+  The pages were talking in a circle. Every snapshot that arrived from another
+  device was written into this page's state as though it were new — even when it
+  said exactly what the page already believed — and writing it down was what
+  made the page announce itself to everyone else, who then announced themselves
+  back. With the PC's main screen joining the conversation for the first time,
+  the loop closed: fifty announcements in five seconds, forever, in a room where
+  nothing had changed. State written down is now compared with the state already
+  held, and an announcement that says nothing new changes nothing and starts
+  nothing. Fifty in five seconds became thirteen — the rest are the display's
+  routine half-second save, and they no longer cost anything on screen.
+
+  And every one of those arrivals threw the picture away and built it again from
+  scratch — every layer torn down, the drawing surface replaced, animations back
+  to their first frame. The mirror was being rebuilt because the panel's
+  dimensions arrived as a _new description_ of the same panel, and the picture's
+  lifetime was tied to the description rather than to what it said. It is tied to
+  the numbers now: the same panel is the same panel, a genuinely different one is
+  passed to the picture that already exists, and nothing is rebuilt for a saved
+  setting. Ten rebuilds per ten saves became none.
+
+  One thing the flicker had been hiding, now fixed with it: a layer you tried to
+  drag but were not allowed to move — a locked one, or one the editor pulled back
+  inside the panel — stayed where your finger left it, because only the constant
+  rebuilding had been putting it back. The editor now hands the layer's position
+  back explicitly when a gesture ends, whether the move was accepted or refused.
+
+- **Choosing a second effect turned the Kraken's screen white.** Reported from a
+  real cooler: the first effect drew perfectly, and every effect picked after it
+  showed a blank white panel. Switching to another module and back fixed it —
+  until the next effect was chosen.
+
+  Changing effect used to free the whole graphics resource, the graphics context
+  included, and then ask the same canvas for a context again. A browser will not
+  give one: a canvas whose context has been released that way hands the same,
+  now-dead context back to every later request, for good. So the new effect's
+  program was compiled against nothing, the drawing step gave up before it drew,
+  and what the panel presented was the dead canvas — white on the graphics
+  backend a Kraken's webview runs.
+
+  Switching now keeps the context and rebuilds only the program on it, which is
+  both correct and the cheaper of the two paths; the context is released only
+  when the display is hidden, when the layer goes away, or when the driver takes
+  it, and every return from one of those builds on a brand new canvas element
+  instead of the one carrying the loss. The panel's element keeps saying which
+  renderer is running (`data-gl`) and now also which effect is drawing
+  (`data-effect`), and a canvas that is not drawing is hidden so the documented
+  fallback — a still gradient of your own colours — is genuinely what is on
+  screen rather than whatever was left in the buffer.
+
+  It shipped because nothing available to test could see it. The unit rig's fake
+  context handed out a fresh object per request, and headless SwiftShader in the
+  end-to-end suite kept painting; a twelve-switch audit therefore passed. Both
+  now model the browser's actual rule: the jsdom suite asserts that two runtime
+  switches ask the canvas for a context exactly once and never release it, and a
+  browser test switches effect three times through the real configuration channel
+  and reads the pixels — measured before the fix on this machine's own GPU
+  (ANGLE Metal, Apple M3 Pro), the panel froze on one picture through all three
+  switches with the element reporting a lost context; after it, three different
+  pictures and a live `webgl2` throughout.
 
 - **Changes made in CAM's configuration window stopped reaching the display once
   a phone had joined the room.** Reported as "clicking on stuff on the PC doesn't

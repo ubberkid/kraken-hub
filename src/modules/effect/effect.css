@@ -31,3 +31,14 @@
   width: 100%;
   height: 100%;
 }
+
+/*
+ * `data-gl="none"` means nothing is drawing: no context, a program that would
+ * not link, or a context that has been lost. A canvas in that state does not go
+ * blank — it presents whatever is left in its drawing buffer, and on a lost
+ * context that is WHITE on ANGLE/D3D11. Hiding it is what makes the documented
+ * fallback (the gradient on the element underneath) genuinely what is on screen.
+ */
+.kh-effect[data-gl='none'] .kh-effect__canvas {
+  display: none;
+}

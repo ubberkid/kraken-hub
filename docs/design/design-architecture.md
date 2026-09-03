@@ -688,6 +688,45 @@ The **remote layer is in-memory**, so a reload drops it — recovered from the M
 > Pinned by `src/sync/camHomeDocument.dom.test.ts` and
 > `tests/e2e/cam-home-after-a-room-frame.spec.ts`.
 
+> **Added on 2026-09-03: `store.replace` is value-gated, and quiescence is a
+> tested invariant.**
+> `resolveState` builds a brand-new object graph on every call, so the identity
+> guard in `Store.replace` could never fire: every inbound frame notified,
+> whether or not one byte had changed. `src/app/config/useSync.ts` publishes on
+> every notification, the peer answered with a frame of its own, and once
+> `ConfigApp` gave CAM's Home screen a sync layer (the repair above) there were
+> two such surfaces in the room. Measured on the room harness: **50 state frames
+> in five seconds at rest**, a sustained 10 Hz with nobody touching anything.
+>
+> It reached the screen as well as the wire. The editor's halo panel was derived
+> from `state.render` and `EditorCanvas` keyed the compositor's whole lifetime on
+> that object's identity, so every delivery destroyed the `LayerHost` and built
+> a new one — every layer unmounted, a fresh WebGL context, `uTime` back to zero.
+> Reported as "the live display in the hub is flickering and starting over from
+> the beginning constantly, like 5–10 times a second".
+>
+> Three rules now, each with a test:
+>
+> - **A snapshot that is EQUAL is not a change.** `replace()` and the
+>   `watchState` handler compare by value (`deepEqual`, `src/sync/leaves.ts`)
+>   and keep the OLD object, because the identity is what React memos and the
+>   compositor's lifetime hang off. `src/state/store.dom.test.ts`.
+> - **A compositor's lifetime is a value, not an identity.** `EditorCanvas`
+>   depends on the panel's nine scalars; a geometry that changed arrives through
+>   `setPanel`, and one that did not is not an event.
+>   `src/app/config/views/editor/EditorCanvas.dom.test.tsx` and
+>   `tests/e2e/mirror-stability.spec.ts`.
+> - **Quiescence has a number.** `src/sync/quiescence.dom.test.ts` counts state
+>   frames on the wire at rest and after one change. 50 → 13 in five seconds.
+>
+> The remaining thirteen are the display's routine `persistRemote` save bumping
+> `rev` on a document nobody edited — a real change of state, so a real
+> notification and a real publish. An idempotent publish gate closes it (0 at
+> rest, measured) and was **removed**: it breaks the phone, whose resolved
+> snapshot depends on being re-notified, and ten cases in
+> `tests/e2e/remote-editor.spec.ts` fail with it in. That dependency is a defect
+> of its own and is not fixed behind a performance change.
+
 ### 4.2 Parameter table (`src/state/urlParams.ts` + per-module `urlParams.ts`)
 
 **Reserved / global**

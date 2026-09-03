@@ -5,14 +5,15 @@
  * can never reach the display graph (invariant I8), so this file is free to use
  * the UI kit, React, and the whole twelve-palette catalogue.
  *
- * ## The first row is the editor's strip
+ * ## This panel IS the strip
  *
- * `docs/design/design-editor-ux.md` §2.3 fixes what an Effect layer shows on the
- * selection strip: **effect · preset · custom colours · reacts-to-temp · More**,
- * five controls, the last of which is the door. This panel is that row, in that
- * order, so the two surfaces are one set of options rather than two that can
- * drift. Speed, scale, brightness and which sensor drives the warmth are behind
- * the single `Advanced` disclosure `ModuleOptions` owns.
+ * `docs/design/design-editor-ux.md` §2.3 used to give an Effect layer five
+ * controls — effect · preset · custom colours · reacts-to-temp · More — and four
+ * of them opened this panel. So the strip is one control now (`Effect…`), and
+ * everything it used to name is here in that same order: the picker, the preset
+ * chips, the four wells, the temperature switch. Speed, scale, brightness and
+ * which sensor drives the warmth are behind the single `Advanced` disclosure
+ * `ModuleOptions` owns. One surface, so there is nothing to keep in step.
  *
  * ## Two shapes that are not `Segmented`
  *

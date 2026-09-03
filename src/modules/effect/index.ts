@@ -121,8 +121,9 @@ export const effectModule: KrakenModule<EffectConfig> = defineModule<EffectConfi
   },
 
   /**
-   * §2.3: effect · preset · custom colours · reacts-to-temp · More —
-   * declared in `./editor`, which the config page fetches on first selection.
+   * §2.3: one control — `Effect…`, a `More` that opens the inspector at this
+   * kind's own panel — declared in `./editor`, which the config page fetches on
+   * first selection.
    */
   editor: { loadStrip: () => import('./editor') },
 

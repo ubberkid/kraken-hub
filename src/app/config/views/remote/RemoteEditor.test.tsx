@@ -292,26 +292,29 @@ describe('the strip’s deeper controls land somewhere', () => {
   /**
    * The finding, as a test.
    *
-   * On the effect module — the default background of half the templates —
-   * `Effect`, `Preset` and `Colours` are `control: 'action'`, and on the phone
-   * every one of them called `escape('more')`, which closed the editor and
+   * On the effect module — the default background of half the templates — the
+   * deeper controls used to call `escape('more')`, which closed the editor and
    * opened nothing. The catalogue, the preset chips and the colour wells were
    * unreachable at any number of presses. The property is stated in both
    * directions: the inspector is up, AND the editor was not asked to leave.
+   *
+   * The strip is one control now (`Effect…`, a `More` that names its
+   * destination), so the press is `ops-more` — but the property is the one the
+   * finding was about, and it is asserted on the same kind.
    */
   it('opens the inspector instead of closing the editor', async () => {
     await baseKind('effect');
-    expect(host.querySelector('[data-testid="ops-preset-button"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="ops-more"]')).not.toBeNull();
 
-    click('ops-preset-button');
+    click('ops-more');
     expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
-    expect(escapes, 'a preset must not close the editor').toEqual([]);
+    expect(escapes, "the effect kind's one control must not close the editor").toEqual([]);
   });
 
-  it('opens it from Effect and Colours too, and Done gives the canvas back', async () => {
+  it('gives the canvas back when the sheet is done', async () => {
     await baseKind('effect');
-    for (const id of ['ops-effect-button', 'ops-colours-button']) {
-      click(id);
+    for (let i = 0; i < 2; i += 1) {
+      click('ops-more');
       expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
       click('remote-inspect-done');
       expect(host.querySelector('[data-testid="remote-inspect"]')).toBeNull();
@@ -330,7 +333,7 @@ describe('the strip’s deeper controls land somewhere', () => {
     const { loadConfigPanel } = await import('../configPanels');
     await baseKind('effect');
     await loadConfigPanel('effect');
-    click('ops-preset-button');
+    click('ops-more');
     draw();
 
     expect(host.querySelector('[data-testid="inspect-layout"]')).not.toBeNull();
@@ -356,8 +359,18 @@ describe('the strip’s deeper controls land somewhere', () => {
     expect(host.querySelector('[data-testid="remote-inspect"]')).toBeNull();
   });
 
-  it('opens at the top for More, and at the panel for an action', async () => {
+  /**
+   * A kind that names its one door is opened AT what the door is named after —
+   * a kind that does not still gets the sheet's own top.
+   */
+  it('opens at the panel for a named More, and at the top for a plain one', async () => {
     await baseKind('effect');
+    click('ops-more');
+    expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
+    expect(escapes).toEqual([]);
+    click('remote-inspect-done');
+
+    await baseKind('clock');
     click('ops-more');
     expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
     expect(escapes).toEqual([]);

@@ -317,7 +317,7 @@ export function EditorOverlay({
   render,
   k,
   rectOf,
-  preview,
+  preview: paintHost,
   clockOf,
   coarsePointer,
   touch = false,
@@ -357,10 +357,47 @@ export function EditorOverlay({
     starts: { id: LayerId; t: Transform }[];
   } | null>(null);
 
+  /** Which layer hosts this gesture has borrowed. See the hand-back below. */
+  const borrowedRef = useRef<LayerId[]>([]);
+
+  /** Paint one frame of a gesture, and remember whose host we borrowed. */
+  const preview = (id: LayerId, t: Transform): void => {
+    if (!borrowedRef.current.includes(id)) borrowedRef.current.push(id);
+    paintHost(id, t);
+  };
+
+  /**
+   * ── Putting the overlay's transform down, and giving the host's back ───────
+   *
+   * The first two lines are the overlay's own attribute, stripped on the render
+   * the commit causes so the box never lags the layer.
+   *
+   * The loop is the layer host's, and it is not symmetry for its own sake.
+   * `preview` borrows the host's `transform` for the length of the gesture on
+   * the understanding that the commit hands it back — `LayerHost.setLook`
+   * writes the string from the document. That holds for a gesture the model
+   * ACCEPTED and fails for one it refused: a locked layer, or a drag
+   * `endGesture` clamped back to its start, commits a look identical to the one
+   * already there, `setLook` finds nothing changed, `applyStyle` never runs,
+   * and the finger's last position stays on the element for good.
+   *
+   * Nothing caught it because the compositor was being destroyed and rebuilt
+   * several times a second, which put every host back where the document said
+   * it was. Repairing that flicker removed the accident that was hiding this,
+   * so the hand-back is written down: every host this gesture borrowed is
+   * restored from the look this render is holding, before the browser paints.
+   */
   useLayoutEffect(() => {
     if (paintingRef.current) return;
     selRef.current?.removeAttribute('transform');
     multiRef.current?.removeAttribute('transform');
+    const borrowed = borrowedRef.current;
+    if (borrowed.length === 0) return;
+    borrowedRef.current = [];
+    for (const id of borrowed) {
+      const layer = editor.look.layers.find((l) => l.id === id);
+      if (layer !== undefined) paintHost(id, layer.t);
+    }
   });
 
   /*
@@ -1093,20 +1130,66 @@ export function EditorCanvas({
 
   // -- the compositor -------------------------------------------------------
 
+  /**
+   * ── The compositor's lifetime is a VALUE, not an object identity ───────────
+   *
+   * This effect used to depend on `panel` itself. `panel` is derived from
+   * `state.render`, and `resolveState` rebuilds `state.render` from scratch on
+   * every state delivery — so every routine document write and every peer
+   * snapshot, changed or not, handed this component a new `panel` object with
+   * identical fields, and the cleanup below tore the whole compositor down:
+   * every layer unmounted, the effect canvas replaced, a fresh WebGL context,
+   * `uTime` back to zero. Measured at ten deliveries a second on the build the
+   * user reported, which is exactly the display "starting over from the
+   * beginning constantly" — and it was already wrong at one delivery every two
+   * seconds, which is what a plain `persistRemote` save costs.
+   *
+   * `Geometry` is nine scalars, so its VALUE is a string, and that string is
+   * what the host's life is keyed on. A geometry that genuinely changed still
+   * arrives through `setPanel` below, which is what the original comment
+   * promised and what keeps a window resize from resetting every module.
+   */
+  const panelKey = [
+    panel.width,
+    panel.height,
+    panel.shape,
+    panel.targetFps,
+    panel.dpr,
+    panel.source,
+    panel.safeInsetPx,
+    panel.inscribedSquarePx,
+    panel.radiusPx,
+  ].join('|');
+
+  /*
+   * The live reads the effect below needs.
+   *
+   * With the effect no longer re-running per delivery, a closure over `panel`
+   * or `state` would freeze at the value they held when the host was built.
+   * These refs are updated in a layout effect declared BEFORE it, so the host
+   * is always constructed against the current render's values.
+   */
+  const panelRef = useRef(panel);
+  const stateRef = useRef(state);
+  useLayoutEffect(() => {
+    panelRef.current = panel;
+    stateRef.current = state;
+  });
+
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (stage === null) return undefined;
 
     const monitoring = createPreviewMonitoring({ snapshot: monitor, at: monitorAt });
     monitoringRef.current = monitoring;
-    const clock = createFrameClock(() => panel.targetFps);
+    const clock = createFrameClock(() => panelRef.current.targetFps);
     clockRef.current = clock;
 
     const host = new LayerHost(stage, {
       registry,
-      panel,
+      panel: panelRef.current,
       clock,
-      render: () => state.render,
+      render: () => stateRef.current.render,
       monitoring: monitoring.source,
     });
     hostRef.current = host;
@@ -1123,14 +1206,17 @@ export function EditorCanvas({
       clockRef.current = null;
       monitoringRef.current = null;
     };
-    // The host is created once per panel: a geometry change is `setPanel`, not
-    // a remount, or every module would lose its state when the window resized.
+    // The host is created once per panel GEOMETRY: a geometry change is
+    // `setPanel`, not a remount, or every module would lose its state when the
+    // window resized — and an unchanged geometry is not an event at all.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel, registry]);
+  }, [panelKey, registry]);
 
   useEffect(() => {
-    hostRef.current?.setPanel(panel);
-  }, [panel]);
+    // Keyed on the VALUE: telling the host about a geometry it already has is
+    // work for every mounted layer, several times a second, for nothing.
+    hostRef.current?.setPanel(panelRef.current);
+  }, [panelKey]);
 
   useEffect(() => {
     monitoringRef.current?.push({ snapshot: monitor, at: monitorAt });
@@ -1150,8 +1236,8 @@ export function EditorCanvas({
    * The preview channel: ONE style write, no React (§2.6, I4).
    *
    * The compositor owns the host element; this borrows its `transform` for the
-   * duration of the drag and hands it back by committing, at which point
-   * `setLook` writes the same string from the document.
+   * duration of the drag, and `EditorOverlay` hands it back when the gesture
+   * ends — see the hand-back layout effect there.
    */
   const preview = (id: LayerId, t: Transform): void => {
     const host = stageRef.current?.querySelector<HTMLElement>(`[data-layer="${id}"]`);

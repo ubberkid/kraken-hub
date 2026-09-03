@@ -9,6 +9,7 @@
 
 import { createLogger } from '../lib/log';
 import { isInFrame } from '../platform/fpsGovernor';
+import { deepEqual } from '../sync/leaves';
 
 import { resolveState } from './precedence';
 import { type AppState, type DeepPartial, type Role } from './schema';
@@ -152,6 +153,34 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
     (next: AppState, origin: CommitOrigin, before: AppState) => void
   >();
 
+  /**
+   * ── Why a notification is gated by VALUE, not by identity ──────────────────
+   *
+   * `replace()` is how the sync layer hands this page a freshly resolved
+   * snapshot, and `resolveState` (`src/state/precedence.ts`) builds a brand-new
+   * object graph on every call. An identity comparison there is therefore a
+   * guard that can never fire: every inbound frame notified, whether or not one
+   * byte of the document had changed.
+   *
+   * That is not a wasted render, it is a feedback loop. `src/app/config/useSync.ts`
+   * publishes this page's whole snapshot on every notification, so a frame that
+   * changed nothing provoked a frame back; with two publishing surfaces in the
+   * room (CAM's configuration window and the phone) each answered the other and
+   * the wire sat at ten state frames a second, forever, with nobody touching
+   * anything. Measured on the room harness: 50 frames in 5 s at rest.
+   *
+   * It also reached the screen. The editor's halo panel is memoised on
+   * `state.render`'s identity, and a new identity destroys and rebuilds the
+   * whole compositor — a new `LayerHost`, a new WebGL context, `uTime` back to
+   * zero. Five to ten times a second that is the "it keeps starting over"
+   * flicker the user reported.
+   *
+   * So: an equal snapshot is not a change. We keep the OLD object rather than
+   * adopting the equal new one, because the identity itself is what React memos
+   * and the compositor's lifetime hang off.
+   */
+  const sameState = (a: AppState, b: AppState): boolean => a === b || deepEqual(a, b);
+
   const notify = (): void => {
     if (import.meta.env.DEV && isInFrame()) {
       log.error(
@@ -198,7 +227,10 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
 
   const stopWatching = watchState((next) => {
     const resolved = fromStorage(next);
-    if (resolved === snapshot) return;
+    // By value: a document write that re-resolves to the state this page is
+    // already showing is not news, and `fromStorage` never returns the object
+    // it was handed. See `sameState`.
+    if (sameState(resolved, snapshot)) return;
     snapshot = resolved;
     if (committing) return;
     notify();
@@ -258,7 +290,9 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
       return snapshot;
     },
     replace(next) {
-      if (next === snapshot) return;
+      // The identity fast path first — it is the common case and it is free —
+      // then the value comparison that makes the guard real. See `sameState`.
+      if (sameState(next, snapshot)) return;
       snapshot = next;
       notify();
     },

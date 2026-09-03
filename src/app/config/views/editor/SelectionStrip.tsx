@@ -50,7 +50,12 @@ export interface SelectionStripProps {
   /** Grow or shrink by a factor — the resize gesture, as two buttons (§3.2). */
   onResize: (factor: number) => void;
   onAction: (action: StripAction) => void;
-  onMore: () => void;
+  /**
+   * Open the inspector. `reveal` is what the kind's `More` asked for: `'options'`
+   * means "at the kind's own panel", `undefined` means the sheet's own top —
+   * which is what `More` has always meant when it is the last of five.
+   */
+  onMore: (reveal?: 'options') => void;
   /** Whether the loop scrubber is open, for `aria-expanded` on its button. */
   loopOpen?: boolean;
 }
@@ -290,7 +295,14 @@ function Control({
      */
     return (
       <span className="kh-op kh-op--pin">
-        <button type="button" className="kh-op__btn" data-testid="ops-more" onClick={onMore}>
+        <button
+          type="button"
+          className="kh-op__btn"
+          data-testid="ops-more"
+          onClick={() => {
+            onMore(control.reveal);
+          }}
+        >
           <span className="kh-op__lab">{control.label}</span>
         </button>
       </span>

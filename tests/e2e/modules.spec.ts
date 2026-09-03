@@ -646,6 +646,160 @@ for (const preset of PRESETS) {
 }
 
 // ---------------------------------------------------------------------------
+// Switching effect at runtime — the regression guard for the white panel
+// ---------------------------------------------------------------------------
+
+/**
+ * Picking a second effect painted the panel WHITE on a real Kraken.
+ *
+ * The switch used to free the whole GL resource — `WEBGL_lose_context.
+ * loseContext()` included — and then ask the SAME canvas for a context again.
+ * Per the WebGL spec that hands back the same context, still lost: the new
+ * program linked against a dead context, `draw()` bailed, and the canvas
+ * presented its lost drawing buffer, which is white on ANGLE/D3D11. Switching
+ * module and back "fixed" it because the layer remounted onto a fresh canvas.
+ *
+ * Nothing in jsdom could see it, and headless SwiftShader tolerated the lost
+ * context outright — so this asserts on the two things that cannot be faked:
+ * the renderer named on the element, and the pixels the panel is showing.
+ */
+const EFFECT_SWITCHES = ['voronoi', 'twisted-nebula', 'satin-swirl'] as const;
+
+/** Read-modify-write of the state document, from a second same-origin page. */
+async function commitEffect(page: Page, id: string): Promise<void> {
+  await page.evaluate(
+    ([key, effect]) => {
+      const raw = localStorage.getItem(key);
+      const state: Record<string, unknown> =
+        raw === null ? {} : (JSON.parse(raw) as Record<string, unknown>);
+      const modules = (state['modules'] ?? {}) as Record<string, { v?: number; cfg?: object }>;
+      const entry = modules['effect'] ?? { v: 1, cfg: {} };
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          ...state,
+          schema: state['schema'] ?? 4,
+          rev: typeof state['rev'] === 'number' ? state['rev'] + 1 : 1,
+          updatedAt: Date.now(),
+          writerId: 'e2e-effect-switch',
+          writerRole: 'config',
+          activeModuleId: 'effect',
+          modules: { ...modules, effect: { ...entry, cfg: { ...(entry.cfg ?? {}), effect } } },
+        }),
+      );
+    },
+    [STATE_KEY, id] as const,
+  );
+}
+
+/**
+ * What the panel is SHOWING, decoded from a screenshot.
+ *
+ * A screenshot rather than `toDataURL()`: the context is created with
+ * `preserveDrawingBuffer: false`, so reading the canvas back outside the draw
+ * task returns a blank buffer — and blank is precisely the answer a broken
+ * switch would give, which would make the instrument agree with the bug. The
+ * composited image is what the user's eyes get.
+ */
+interface Pixels {
+  /** Mean of R, G and B over the panel, 0–255. */
+  mean: number;
+  /** An 8 × 8 luminance grid, as a string — "is this a different picture". */
+  signature: string;
+}
+
+async function readPanel(page: Page): Promise<Pixels> {
+  const shot = await page.locator('.kh-effect').screenshot();
+  return page.evaluate(async (b64: string) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const GRID = 8;
+    const c = document.createElement('canvas');
+    c.width = GRID;
+    c.height = GRID;
+    const ctx = c.getContext('2d');
+    if (ctx === null) throw new Error('no 2d context in the test harness');
+    ctx.drawImage(img, 0, 0, GRID, GRID);
+    const { data } = ctx.getImageData(0, 0, GRID, GRID);
+    let total = 0;
+    const cells: string[] = [];
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] ?? 0;
+      const g = data[i + 1] ?? 0;
+      const b = data[i + 2] ?? 0;
+      total += (r + g + b) / 3;
+      cells.push(`${String(r)}.${String(g)}.${String(b)}`);
+    }
+    return { mean: total / (GRID * GRID), signature: cells.join(',') };
+  }, shot.toString('base64'));
+}
+
+const WHITE = 240;
+const BLACK = 8;
+
+test('choosing a second effect keeps the context and keeps painting', async ({ context }) => {
+  const display = await context.newPage();
+  const errors = collectErrors(display);
+  // Seeded rather than `&effect=plasma`: a URL parameter is the TOP precedence
+  // layer, so it would keep winning over every runtime change the test makes.
+  await seed(display, 'effect', { effect: 'plasma' });
+  await display.goto('/?kraken=1&sim=elite&module=effect');
+
+  const panel = display.locator('.kh-effect');
+  await expect(panel).toBeVisible();
+  // SwiftShader still grants a real context, so this is a genuine assertion on
+  // both the CI runner and a GPU machine.
+  await expect(panel).toHaveAttribute('data-gl', /^webgl[12]$/, { timeout: 10_000 });
+  await expect(panel).toHaveAttribute('data-effect', 'plasma');
+
+  let previous = await readPanel(display);
+  expect(previous.mean).toBeLessThan(WHITE);
+  expect(previous.mean).toBeGreaterThan(BLACK);
+
+  // A second same-origin page is the config side of the sanctioned channel, so
+  // the switch happens the way a user's does: a write, a `storage` event, and
+  // the display's own `update()`.
+  const config = await context.newPage();
+  await config.goto('/');
+  await expect(config.locator('.kh-app')).toBeVisible();
+
+  for (const id of EFFECT_SWITCHES) {
+    await commitEffect(config, id);
+    await expect(panel).toHaveAttribute('data-effect', id, { timeout: 5000 });
+
+    /*
+     * The picture has to CHANGE — a dead context leaves the last frame (or a
+     * white one) sitting there — so the wait is on the pixels rather than on a
+     * duration. `expect.poll` owns the loop, so there is no conditional here.
+     */
+    const before = previous.signature;
+    let now = previous;
+    await expect
+      .poll(
+        async () => {
+          now = await readPanel(display);
+          return now.signature;
+        },
+        { timeout: 10_000 },
+      )
+      .not.toBe(before);
+
+    // The element still names a live renderer: the switch reused the context.
+    await expect(panel).toHaveAttribute('data-gl', /^webgl[12]$/);
+    await expect(panel).not.toHaveAttribute('data-gl-lost', 'true');
+    expect(now.mean, `${id} is white`).toBeLessThan(WHITE);
+    expect(now.mean, `${id} is black`).toBeGreaterThan(BLACK);
+    expect(now.signature, `${id} painted the same pixels as the effect before it`).not.toBe(
+      previous.signature,
+    );
+    previous = now;
+  }
+
+  expect(errors).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
 // Chunk isolation
 // ---------------------------------------------------------------------------
 

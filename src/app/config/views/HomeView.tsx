@@ -451,6 +451,15 @@ export function HomeView({
    * had to answer "what geometry is the panel", and two answers to that question
    * is how a layer ends up 4 px out on one surface and nobody can say which one
    * is lying.
+   *
+   * Memoised on the two numbers the geometry actually reads out of `state.render`
+   * rather than on `state.render` itself. That object is rebuilt from scratch by
+   * `resolveState` on every state delivery, so keying on it gave the halo a new
+   * panel identity several times a second — and `EditorCanvas` used to key the
+   * compositor's whole lifetime on that identity, so the mirror was destroyed and
+   * rebuilt (new WebGL context, `uTime` back to zero) on every routine save. The
+   * canvas is value-gated at its own end now; this is the same fact stated where
+   * the value is derived, so the identity never churns in the first place.
    */
   const haloPanel = useMemo(
     () =>
@@ -461,9 +470,12 @@ export function HomeView({
           shape: preset.shape,
           targetFps: facts?.targetFps ?? preset.targetFps,
         },
-        state.render,
+        {
+          safeRadiusPct: state.render.safeRadiusPct,
+          safeAreaPct: state.render.safeAreaPct,
+        },
       ),
-    [preset, facts?.targetFps, state.render],
+    [preset, facts?.targetFps, state.render.safeRadiusPct, state.render.safeAreaPct],
   );
 
   const editor = useEditor({
@@ -1220,9 +1232,15 @@ export function HomeView({
           editor.commitLook(resizeLayer(state.look, stripLayer.id, factor, editor.registry));
         }}
         onAction={runStripAction}
-        onMore={() => {
+        onMore={(wanted) => {
           if (editorMode) {
-            setReveal(null);
+            // A kind whose ONE control is `More` names a destination with it —
+            // the effect kind's "Effect…" opens on the picker, not on Layout.
+            if (wanted === 'options') {
+              setReveal((prev) => ({ section: 'options', nonce: (prev?.nonce ?? 0) + 1 }));
+            } else {
+              setReveal(null);
+            }
             openSheet('inspect');
           } else {
             showOps(true);

@@ -540,6 +540,19 @@ test('a locked layer cannot be dragged, and Escape puts the selection down', asy
   await page.getByTestId(`layer-lock-${id}`).click();
   await expect(page.getByTestId(`layer-lock-${id}`)).toHaveAttribute('aria-pressed', 'true');
 
+  /*
+   * Settle BEFORE the reading, not only after it.
+   *
+   * §7's entrance — "a layer arrives, it does not blink into existence" — is a
+   * real animation on this host now, so a `centre()` taken straight after the
+   * add is a centre measured mid-scale. This used to be invisible: the halo's
+   * compositor was destroyed and rebuilt several times a second (the flicker in
+   * `mirror-stability.spec.ts`), and every rebuild killed the animation and
+   * dropped the layer at its final size. With that repaired the entrance plays,
+   * and a `from` read while it is playing differs from `to` by about 6 px —
+   * which this test then read as a locked layer moving.
+   */
+  await settle(page);
   const from = await centre();
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -855,14 +868,20 @@ test('the rail’s chips and the sheet’s Background row are the same list', as
 /**
  * The inspector opens ON what the strip asked for — round 11's F-7.
  *
- * Effect, Preset and Colours are three doors into one room: the kind's own
+ * The effect strip's controls were three doors into one room: the kind's own
  * panel. The inspector opened at the top of its body, which is Layout, and the
  * body scrolls — 365 px of window over 1,651 px of content on an effect layer
- * at 866x537 — so pressing **Effect** showed 0 of the 12 effect tiles and left
- * a person looking at an X/Y readout. `More` still opens at the top, because
- * `More` asks for the sheet rather than for anything in it.
+ * at 866x537 — so the press showed 0 of the 12 effect tiles and left a person
+ * looking at an X/Y readout.
+ *
+ * The three doors are ONE now: the effect kind's whole strip is `Effect…`, a
+ * `More` that names its destination (`reveal: 'options'`). So the property is
+ * unchanged and the press moved: the one control lands on the picker, and a
+ * kind that names nothing still opens where the sheet always opens.
  */
-test('pressing Effect opens the inspector on the effect picker', async ({ page }) => {
+test('pressing the effect strip’s one control opens the inspector on the picker', async ({
+  page,
+}) => {
   await cam(page);
   await page.goto('/');
   await addLayer(page, 'effect');
@@ -878,12 +897,19 @@ test('pressing Effect opens the inspector on the effect picker', async ({ page }
       }).length;
     });
 
-  await page.getByTestId('ops-effect-button').click();
+  // The whole strip: one control, named after the room it opens.
+  await expect(page.getByTestId('ops-more')).toHaveText('Effect…');
+  await expect(page.getByTestId('ops-effect-button')).toHaveCount(0);
+  await expect(page.getByTestId('ops-preset-button')).toHaveCount(0);
+  await expect(page.getByTestId('ops-colours-button')).toHaveCount(0);
+
+  await page.getByTestId('ops-more').click();
   await expect(page.getByTestId('inspector-sheet')).toBeVisible();
   await expect.poll(tilesInView, { timeout: 5000 }).toBeGreaterThanOrEqual(6);
 
-  // …and `More` is still the door with no destination: it opens at the top.
+  // …and a kind that names no destination still opens at the top.
   await page.getByTestId('inspector-close').click();
+  await addLayer(page, 'clock');
   await page.getByTestId('ops-more').click();
   await expect(page.getByTestId('inspector-sheet')).toBeVisible();
   await expect(page.getByTestId('inspect-layout')).toBeInViewport();

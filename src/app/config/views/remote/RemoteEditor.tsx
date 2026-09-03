@@ -815,8 +815,11 @@ export function RemoteEditor({
               }
               openInspector();
             }}
-            onMore={() => {
-              escape('more');
+            onMore={(wanted) => {
+              // Same rule as the desktop: a kind that named its one door gets
+              // opened at what the door is named after.
+              if (wanted === 'options') openInspector();
+              else escape('more');
             }}
           />
         )}

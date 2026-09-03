@@ -31,7 +31,7 @@ import { startAppSync, stateToSyncBody, type AppSync } from './appSync';
 import { decodeEnvelope, encodeEnvelope } from './envelope';
 import { PROTOCOL_VERSION } from './types';
 
-import type { Channel, FrameHandler, SyncTransport, TransportStatus } from './types';
+import type { Channel, FrameHandler, SyncStateBody, SyncTransport, TransportStatus } from './types';
 import type { AppState } from '../state/schema';
 import type { CommitOrigin, Store } from '../state/store';
 
@@ -244,6 +244,34 @@ export interface Broker {
    */
   publish(ch: Channel, frame: Uint8Array, as?: { ts?: number; retained?: boolean }): void;
   seedRetained(frame: Uint8Array, ts?: number): void;
+}
+
+/**
+ * How much a room had to SAY — the reading no convergence suite was taking.
+ *
+ * Every test in this directory asserts what the peers agree on; none of them
+ * asked how many frames it cost, and the answer on the build the user reported
+ * was ten a second, at rest, forever. Wrapping `publish` is the whole of it:
+ * this is the wire, and a frame that crosses it is a frame somebody sent.
+ *
+ * Wrap the broker BEFORE the peers are started — the transports capture it.
+ */
+export function meterStateFrames(broker: Broker): {
+  total: () => number;
+  reset: () => void;
+} {
+  let count = 0;
+  const publish = broker.publish.bind(broker);
+  broker.publish = (ch, frame, as) => {
+    if (ch === 'state') count += 1;
+    publish(ch, frame, as);
+  };
+  return {
+    total: () => count,
+    reset: () => {
+      count = 0;
+    },
+  };
 }
 
 export function createBroker(latency: () => number = () => LATENCY_MS): Broker {
@@ -511,6 +539,15 @@ function firePublishWaiters(): void {
  * A page that publishes its snapshot on every store notification — what
  * `src/app/config/useSync.ts` does, and what both CAM's config browser and the
  * phone's remote do.
+ *
+ * It really does publish on EVERY notification, repeats included. That is not
+ * an oversight in the model, it is the hook: an idempotent-publish gate was
+ * tried here and in `useSync` and it breaks the phone — a layer added on the
+ * remote loses its selection the moment the display saves, because the phone's
+ * own snapshot stops being re-asserted. Measured: ten `remote-editor.spec.ts`
+ * cases fail with the gate in and pass with it out. The quiescence budget in
+ * `quiescence.dom.test.ts` is therefore the budget of a room that repeats
+ * itself, and the storm is closed at the store instead.
  */
 function publishOnEveryChange(
   name: string,
@@ -962,6 +999,33 @@ export async function retainedAuthoredBy(
     await sleep(50);
   }
   throw new Error(`the retained slot never became ${src}'s${story()}`);
+}
+
+/**
+ * Block until the retained slot CARRIES something, whoever wrote it.
+ *
+ * The sibling above pins the AUTHOR, which was the right question while every
+ * page republished its whole snapshot on every notification: in a room that
+ * chatty, "CAM owns the slot" is reachable by waiting. It is not any more —
+ * `store.replace` is value-gated, so a peer that has nothing new to say says
+ * nothing, and the last frame on the wire is whoever's change ended the
+ * exchange. Where a test's real subject is what a returning peer INHERITS, the
+ * content is the fact and the author is the race. Use this one there.
+ */
+export async function retainedSaying(
+  broker: Broker,
+  what: string,
+  matches: (body: SyncStateBody) => boolean,
+  timeoutMs = 6000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const frame = broker.retained.state;
+    const body = frame === undefined ? undefined : decodeEnvelope(frame)?.body;
+    if (body !== undefined && matches(body as SyncStateBody)) return;
+    await sleep(50);
+  }
+  throw new Error(`the retained slot never said ${what}${story()}`);
 }
 
 /** A retained snapshot an earlier session left on the broker. */

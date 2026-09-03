@@ -727,7 +727,7 @@ test.describe('the strip’s deeper controls land somewhere', () => {
     await expect(phone.getByTestId('remote-module-effect')).toHaveAttribute('aria-checked', 'true');
   }
 
-  test('Preset opens the inspector at the module’s own panel, and a tap sticks', async ({
+  test('the effect strip’s one control opens the module’s own panel, and a tap sticks', async ({
     context,
   }) => {
     const display = await context.newPage();
@@ -745,8 +745,9 @@ test.describe('the strip’s deeper controls land somewhere', () => {
     await edit.tap();
     await expect(phone.getByTestId('remote-editor')).toBeVisible();
 
-    // The button that used to close the editor.
-    await phone.getByTestId('ops-preset-button').tap();
+    // The button that used to close the editor. The effect strip is one
+    // control now — `Effect…` — and it is still the one that must not.
+    await phone.getByTestId('ops-more').tap();
     await expect(phone.getByTestId('remote-editor')).toBeVisible();
     await expect(phone.getByTestId('remote-inspect')).toBeVisible();
 
