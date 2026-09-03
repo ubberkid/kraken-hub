@@ -322,6 +322,18 @@ export function brokerTransport(
   broker: Broker,
   handshakeMs = 0,
   offset: () => number = () => 0,
+  /**
+   * How long `disconnect()` takes to resolve — MQTT's flush window, modelled.
+   *
+   * `MqttTransport.disconnect()` calls `end(false, …)` so the last frame of a
+   * session is not discarded, and waits up to `MQTT_FLUSH_CEILING_MS` for the
+   * broker to acknowledge it. The subscriptions are torn down only AFTER that
+   * wait, so a frame in flight when a page closes is still delivered to the
+   * page's own handlers. Zero — the default — is the settled case every other
+   * suite wants; a non-zero value is what makes "a page that is closing" a
+   * state a test can be in.
+   */
+  disconnectMs = 0,
 ): FakeTransport {
   const subs = new Set<Sub>();
   const statusSubs = new Set<(s: TransportStatus, d?: string) => void>();
@@ -410,12 +422,14 @@ export function brokerTransport(
       for (const cb of statusSubs) cb('online');
       return Promise.resolve();
     },
-    disconnect() {
+    async disconnect() {
       status = 'idle';
       for (const s of subs) broker.subs.delete(s);
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
-      return Promise.resolve();
+      // The flush window, during which this page's handlers are still attached
+      // and a frame already on the wire still reaches them. See `disconnectMs`.
+      if (disconnectMs > 0) await sleep(disconnectMs);
     },
     // A muted transport swallows publishes as well as deliveries: an outage is
     // symmetric, and a peer that could still write to the retained slot while
@@ -496,7 +510,10 @@ export interface Peer {
 /**
  * The transports a peer built, so a test can reach in and blip the network one.
  */
-function radio(offset: () => number = () => 0): {
+function radio(
+  offset: () => number = () => 0,
+  disconnectMs = 0,
+): {
   made: FakeTransport[];
   make: (broker: Broker, handshakeMs?: number) => FakeTransport;
 } {
@@ -504,7 +521,7 @@ function radio(offset: () => number = () => 0): {
   return {
     made,
     make(broker, handshakeMs = 0) {
-      const t = brokerTransport(broker, handshakeMs, offset);
+      const t = brokerTransport(broker, handshakeMs, offset, disconnectMs);
       made.push(t);
       return t;
     },
@@ -541,13 +558,18 @@ function firePublishWaiters(): void {
  * phone's remote do.
  *
  * It really does publish on EVERY notification, repeats included. That is not
- * an oversight in the model, it is the hook: an idempotent-publish gate was
- * tried here and in `useSync` and it breaks the phone — a layer added on the
- * remote loses its selection the moment the display saves, because the phone's
- * own snapshot stops being re-asserted. Measured: ten `remote-editor.spec.ts`
- * cases fail with the gate in and pass with it out. The quiescence budget in
+ * an oversight in the model, it is the hook — and the repetition is
+ * LOAD-BEARING. This wire has no acknowledgements, so the only way a frame that
+ * lost a race ever lands is that somebody says it again, and the re-announcement
+ * a routine `persistRemote` save provokes is the room's whole anti-entropy. An
+ * idempotent gate was written three times over — on the body in `useSync`, on
+ * the whole frame in `SyncService.flushState`, and on the notification a no-op
+ * `commit()` raises — and every one of them reached full quiescence and cost a
+ * write made in the dark: 22, 22 and 3 failing cases across
+ * `persistShippedness`, `intentReloadSkew`, `hlcFloorPin`, `slotCapUnshipped`,
+ * `newestStampReserve` and `intentReconnect`. The budget in
  * `quiescence.dom.test.ts` is therefore the budget of a room that repeats
- * itself, and the storm is closed at the store instead.
+ * itself on purpose, and the storm is closed at the store instead.
  */
 function publishOnEveryChange(
   name: string,
@@ -907,6 +929,15 @@ export interface PhoneOptions {
   persistRemote?: boolean;
   /** Model a full localStorage quota swallowing every DOCUMENT write. */
   quotaOnSyncWrites?: boolean;
+  /**
+   * How long this phone's `disconnect()` takes — MQTT's flush window.
+   *
+   * See `brokerTransport`'s `disconnectMs`. A page closing over a real broker
+   * spends up to 1.5 s inside `stop()` with its handlers still attached, and
+   * that window is where "a page that has been told to stop" is a state rather
+   * than an instant.
+   */
+  disconnectMs?: number;
   /** Seed this device's clock slot before the page starts — a damaged slot pin. */
   slotRaw?: string;
 }
@@ -924,7 +955,7 @@ export async function startPhonePeer(broker: Broker, o: PhoneOptions = {}): Prom
     clock,
   );
   if (o.slotRaw !== undefined) slotFor(o.device ?? name).write(o.slotRaw);
-  const net = radio(clock.offset);
+  const net = radio(clock.offset, o.disconnectMs ?? 0);
   const sync = await withAmbientAsync(offsetMs, () =>
     startAppSync({
       role: 'remote',

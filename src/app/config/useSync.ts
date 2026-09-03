@@ -415,9 +415,21 @@ export function useSync(runtime: ConfigRuntime, opts: UseSyncOptions = {}): Sync
     };
   }, []);
 
-  // Every local edit is a full snapshot on the wire. `SyncService` coalesces at
-  // 5 Hz, so dragging a slider produces four or five messages a second, not one
-  // per pixel.
+  /*
+   * Every local edit is a full snapshot on the wire. `SyncService` coalesces at
+   * 5 Hz, so dragging a slider produces four or five messages a second, not one
+   * per pixel.
+   *
+   * Every notification, repeats included, and that is deliberate rather than
+   * unexamined. An idempotent gate here — "say nothing if the body matches the
+   * last one I sent" — reaches full quiescence and was measured and removed
+   * twice, and so were the two other places it can be written. This wire has no
+   * acknowledgements: the re-announcement a routine save provokes is the only
+   * thing that lands a frame which lost a race, and a phone that taps while its
+   * screen is locked recovers that tap by saying it again. See the note in
+   * `src/sync/quiescence.dom.test.ts`, which counts what the repetition costs
+   * and lists what silencing it cost instead.
+   */
   useEffect(
     () =>
       runtime.store.subscribe(() => {

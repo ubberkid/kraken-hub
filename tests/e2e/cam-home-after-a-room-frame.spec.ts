@@ -133,6 +133,30 @@ async function writeBackground(page: Page, hex: string): Promise<void> {
   );
 }
 
+/**
+ * Has this page's sync layer folded an inbound frame yet?
+ *
+ * `StoredClock.heard` in the per-role clock slot, which is the flag the intent
+ * layer arms itself on: false until the first frame of any kind arrives, and
+ * written down on the spot. So it answers "is this page's transport up and is
+ * the room reaching it", with no stopwatch involved.
+ */
+async function clockHeard(page: Page, role: 'display' | 'config' | 'remote'): Promise<boolean> {
+  return page.evaluate((key) => {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return false;
+    return (JSON.parse(raw) as { heard?: boolean }).heard === true;
+  }, `kraken-hub:v1:sync-clock:${role}`);
+}
+
+/** How many browsers the display has folded a STATE frame from — its readout. */
+async function peersHeard(display: Page): Promise<number> {
+  const raw = await display.locator('html').getAttribute('data-kh-sync');
+  if (raw === null) return 0;
+  const readout = JSON.parse(raw) as { peers?: number };
+  return readout.peers ?? 0;
+}
+
 /** Asserts a value HOLDS rather than merely being true once: the bug was a revert. */
 async function holdsFor(read: () => Promise<string | null>, expected: string): Promise<void> {
   const deadline = Date.now() + HOLD_MS;
@@ -145,8 +169,8 @@ async function holdsFor(read: () => Promise<string | null>, expected: string): P
 /**
  * A display, and a peer that publishes state into the same room.
  *
- * The wait is the whole point of the fixture: it gives the display time to fold
- * the remote's announce, which is what used to arm the mask.
+ * The FOLD is the whole point of the fixture: it does not return until the
+ * display has taken the remote's announce, which is what used to arm the mask.
  */
 async function roomWithAPhone(context: BrowserContext): Promise<{ display: Page; peer: Page }> {
   const display = await context.newPage();
@@ -156,9 +180,11 @@ async function roomWithAPhone(context: BrowserContext): Promise<{ display: Page;
   const peer = await context.newPage();
   await peer.goto(peerUrl());
   await expect(peer.locator('.kh-app')).toBeVisible();
-  // Long enough for the handshake, the remote's immediate announce and the
-  // display's fold of it.
-  await peer.waitForTimeout(3000);
+  // The handshake, the remote's immediate announce and the display's fold of
+  // it — asked as a fact rather than waited out, because the fold is what arms
+  // the mask this whole page is about. `peers` counts the browsers the display
+  // has heard state from; the phone is the first of them.
+  await expect.poll(() => peersHeard(display), { timeout: 20_000 }).toBeGreaterThanOrEqual(1);
 
   return { display, peer };
 }
@@ -203,14 +229,25 @@ test.describe("CAM's configuration window, after a phone has joined the room", (
     await config.goto(`/?cam=1&room=${ROOM}&transport=fake#/`);
     await expect(config.getByTestId('module-chip-clock')).toBeVisible();
     /*
-     * A moment before the click, and it is about the fixture rather than the
-     * product: this page joins the room through a dynamic `import()` and a
-     * transport handshake, and a click that lands inside that window is served
-     * by the document channel instead — which is the OTHER test on this page.
-     * A person does not click a config window within milliseconds of it
-     * appearing; under a fully parallel suite the harness does.
+     * PAIRED means paired, and it is asked rather than waited out.
+     *
+     * This page joins the room through a dynamic `import()` and a transport
+     * handshake, and a click that lands inside that window is served by the
+     * document channel instead — which is the OTHER test on this page. This
+     * one is about the paired path, so it starts when the pairing is a fact:
+     *
+     *  1. the config page has FOLDED an inbound frame — `heard` in its own
+     *     clock slot, which is the flag the intent layer itself trusts — so
+     *     its transport is up and the room is reaching it; and
+     *  2. the display has folded a frame FROM IT — `peers` on the display's
+     *     `data-kh-sync` readout counts the browsers it has heard state from,
+     *     and there are exactly two of them here: the phone and this page.
+     *
+     * A fixed millisecond wait was what stood here, and under a fully parallel
+     * suite one second was not always a handshake.
      */
-    await config.waitForTimeout(1000);
+    await expect.poll(() => clockHeard(config, 'config'), { timeout: 20_000 }).toBe(true);
+    await expect.poll(() => peersHeard(display), { timeout: 20_000 }).toBe(2);
 
     await config.getByTestId('module-chip-clock').click();
 

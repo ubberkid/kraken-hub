@@ -46,7 +46,15 @@ import { resolveState } from '../state/precedence';
 import { noteSeenRev } from '../state/storage';
 
 import { EPOCH, compareStamps, decodeStamp, encodeStamp, maxStamp, tick, type Stamp } from './hlc';
-import { BASE_KIND_LEAF, deepEqual, enumerateLeaves, leavesToPatch, withBaseKind } from './leaves';
+import {
+  BASE_KIND_LEAF,
+  LAYER_LEAF_PREFIX,
+  ORDER_LEAF,
+  deepEqual,
+  enumerateLeaves,
+  leavesToPatch,
+  withBaseKind,
+} from './leaves';
 import { mergeInto, type Register, type Registers } from './merge';
 import {
   WIRE_TOO_LARGE_CLAIM,
@@ -1240,6 +1248,11 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    */
   function drainPendingDocument(): void {
     pendingDocTimer = null;
+    // A page that has been told to stop adopts nothing. See `stopped`.
+    if (stopped) {
+      pendingDoc.clear();
+      return;
+    }
     /*
      * Asked ONCE per drain, on exactly the rule a local commit uses: a decision
      * taken while this page could not hear the room is an intent, re-stamped
@@ -1329,9 +1342,58 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   /** The last layer summary printed, so DEV logs only the transitions. */
   let lastTrace: string | null = null;
 
+  /**
+   * ── A remote layer that names a layer it cannot describe ───────────────────
+   *
+   * `look.order` and the per-layer leaves are two halves of ONE claim, and
+   * `leavesToPatch` needs both: an id in the order with no `look.layer.<id>`
+   * leaf beside it is SKIPPED (see `src/sync/leaves.ts`). That is right on the
+   * wire, where the body carries every layer it names. It is a lie as a
+   * PRECEDENCE PATCH, because `remote` outranks `persisted` and `mergeLeaf`
+   * replaces arrays wholesale — so a look with one leaf missing does not fall
+   * back to the persisted layer, it deletes it.
+   *
+   * The register table gets into exactly that shape by ordinary use, and the
+   * commonest path is the one a user is most likely to walk. A page stamps only
+   * what a commit CHANGED, so the phone adding its first overlay writes
+   * `look.order` and `look.layer.<new>` and nothing else — it has never had a
+   * reason to stamp `look.layer.base`. From that moment `patch()` claimed an
+   * order of two layers while describing one, and the next re-resolve dropped
+   * the base out of the phone's own look. Measured on the room harness: the
+   * layer the phone had just added was gone from the phone's snapshot half a
+   * second later, while the document and the display still held it. It looked
+   * like a sync bug and it was a completeness bug.
+   *
+   * It was invisible for as long as the room was chatty, because any inbound
+   * state frame gives `mergeInto` a leaf for every layer in the body and fills
+   * the hole. That is why it surfaced the moment idle publishing was gated: the
+   * page's own commit was only durable while somebody kept re-notifying it.
+   *
+   * So the hole is filled from the DOCUMENT — the value this page already holds
+   * for that layer — and filled in the patch rather than in the table, because
+   * this page has decided nothing about that layer and must not claim a stamp
+   * for it. A layer the document cannot describe either is still skipped: there
+   * is no value to be had, and skipping is what it has always done.
+   */
+  function fillOrderedLayers(leaves: Map<string, unknown>): void {
+    const order = leaves.get(ORDER_LEAF);
+    if (!Array.isArray(order)) return;
+    const missing = order.filter(
+      (id): id is string => typeof id === 'string' && !leaves.has(`${LAYER_LEAF_PREFIX}${id}`),
+    );
+    if (missing.length === 0) return;
+    const held = enumerateLeaves(stateToSyncBody(resolveState({ persisted: o.persisted() }).state));
+    for (const id of missing) {
+      const path = `${LAYER_LEAF_PREFIX}${id}`;
+      const value = held.get(path);
+      if (value !== undefined) leaves.set(path, value);
+    }
+  }
+
   function patch(): DeepPartial<AppState> {
     const leaves = new Map<string, unknown>();
     for (const [path, register] of registers) leaves.set(path, register.value);
+    fillOrderedLayers(leaves);
     return leavesToPatch(leaves);
   }
 
@@ -1347,6 +1409,35 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    */
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
   let persistPending = false;
+
+  /**
+   * ── A page that has been told to stop does not write afterwards ────────────
+   *
+   * `stop()` is not an instant, it is a WINDOW. `SyncService.stop()` awaits
+   * every transport's `disconnect()`, and `MqttTransport.disconnect()` uses
+   * `end(false, …)` with a 1.5 s ceiling on purpose, so the last frame of a
+   * session is not discarded. The subscriptions come down only after that wait
+   * — so a frame already on the wire when the page began closing is still
+   * delivered to this layer's own handlers.
+   *
+   * Folding one ended in `schedulePersist()`, which is how a closing page wrote
+   * the shared document one more time AFTER its shutdown flush — either
+   * straight away, or on a trailing timer up to two seconds later, long after
+   * `stop()` had resolved and the caller believed the page was silent.
+   *
+   * It is the document that makes this more than untidy: it is what the next
+   * cold boot reads, so a page that has been closed otherwise gets a vote on
+   * what the machine wakes up as, and a page whose radio was stale gets to cast
+   * it with a stale snapshot. The e2e cold-boot test caught it as a state
+   * document reappearing after it had been deleted, written by a phone that had
+   * already gone.
+   *
+   * So the flag: from the first line of `stop()`, this layer folds nothing,
+   * adopts nothing and saves nothing. The one write that still happens is
+   * `stop()`'s own flush, which calls `persistNow` directly and is deliberately
+   * not gated here. See `src/sync/stopSilence.dom.test.ts`.
+   */
+  let stopped = false;
 
   function persistNow(): void {
     lastPersistAt = monotonicNow();
@@ -1405,6 +1496,8 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
      * At most one round trip later, and the throttle it was already under is
      * five times longer than that.
      */
+    // A page that has been told to stop makes no further saves. See `stopped`.
+    if (stopped) return;
     if (pendingDocTimer !== null) {
       persistPending = true;
       return;
@@ -1499,6 +1592,9 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
   });
 
   service.onState((body, meta) => {
+    // Delivered inside the transport's flush window, to a page that is closing:
+    // nothing this frame says can be published, saved or acted on. See `stopped`.
+    if (stopped) return;
     /*
      * The Lamport counter, kept fed.
      *
@@ -1598,11 +1694,15 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * from persisting `heard: false` and doing it again after every reload.
    */
   service.onCmd((body, meta) => {
+    // See `stopped`: a closing page writes nothing, and its clock slot is
+    // already written down as it was when the page said its last word.
+    if (stopped) return;
     foldRoomFrame(meta);
     saveClock();
     o.onCmd?.(body, meta);
   });
   service.onTele((body, meta) => {
+    if (stopped) return;
     foldRoomFrame(meta);
     saveClock();
     o.onTele?.(body, meta);
@@ -1631,6 +1731,10 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     stampedLeaves: () => stampedNewestFirst().map(([path, r]) => ({ path, stamp: r.stamp })),
     stop: () =>
       (stopping ??= (async () => {
+        // First line, before the flush and long before the transports are
+        // actually down: from here nothing inbound is folded, adopted or saved,
+        // and the only write left is the flush below. See `stopped`.
+        stopped = true;
         stopFolding();
         /*
          * ── The shutdown flush, in the only safe order ────────────────────────

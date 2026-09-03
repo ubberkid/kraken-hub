@@ -352,11 +352,31 @@ test('a cold display restores from the retained snapshot ALONE', async ({ contex
   //    ever changed. This is the assertion the whole milestone rests on.
   const scratch = await context.newPage();
   await scratch.goto('/');
-  await scratch.evaluate((key) => {
-    localStorage.removeItem(key);
-  }, STATE_KEY);
+  /*
+   * Deleted, and then deleted until it STAYS deleted.
+   *
+   * The phone's `pagehide` handler flushes its last save on the way out — that
+   * is deliberate, because the document is what the next cold boot reads — and
+   * a renderer's localStorage write reaches the shared storage area through the
+   * browser process, so it can land a moment AFTER `page.close()` has resolved
+   * for the test. Under a fully parallel suite that is about one run in four: a
+   * document written by `writerRole: 'remote'`, `writerOrigin: 'sync'`
+   * reappearing after the delete, and the assertion below rightly failing.
+   *
+   * What this step actually needs is not "one delete happened" but "the
+   * document is GONE when the cold display boots", so that is what it asserts:
+   * clear it, and keep clearing it until it stays clear for a full second.
+   */
   await expect
-    .poll(async () => scratch.evaluate((key) => localStorage.getItem(key), STATE_KEY))
+    .poll(
+      async () =>
+        scratch.evaluate(async (key) => {
+          localStorage.removeItem(key);
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          return localStorage.getItem(key);
+        }, STATE_KEY),
+      { timeout: 15_000 },
+    )
     .toBeNull();
 
   const retained = await scratch.evaluate((key) => localStorage.getItem(key), RETAINED_KEY);

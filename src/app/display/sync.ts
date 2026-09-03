@@ -439,6 +439,9 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
   let lastDiagAt = 0;
   const diagTimers = new Set<ReturnType<typeof setTimeout>>();
 
+  /** Every browser this display has folded a STATE frame from, by `src`. */
+  const heardStateFrom = new Set<string>();
+
   async function publishDiagReport(): Promise<void> {
     const publish = publishTele;
     if (publish === null || diagRunning) return;
@@ -496,10 +499,19 @@ export async function startDisplaySync(o: DisplaySyncOptions): Promise<DisplaySy
     settings: o.state.sync,
 
     onRemoteState: (next, meta) => {
+      // Which browsers this display has actually HEARD state from, by count.
+      //
+      // The same fact `appSync`'s `heardStateFrom` set is built on, published
+      // for the same reason the rest of this readout is: a page that has been
+      // heard from speaks for itself, so "has the room learned about this
+      // browser yet?" is the readiness question a test — or a person with
+      // devtools open — otherwise has to answer with a stopwatch.
+      heardStateFrom.add(meta.src);
       writeReadout({
         t: meta.via,
         rev: meta.rev,
         retained: meta.retained,
+        peers: heardStateFrom.size,
         module: next.activeModuleId,
         loop: loopOf(next),
         bg: next.render.background,

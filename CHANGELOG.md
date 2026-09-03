@@ -1132,6 +1132,36 @@ end }` through the existing `applyUrlParams` seam. The END is deliberately not
 
 ### Fixed
 
+- **A device that had just been closed could still have the last word on what
+  the machine wakes up as.** Closing a page is not instant: the connection is
+  given up to a second and a half to hand over anything it was still holding, so
+  the last thing you touched before locking your phone is not lost. During that
+  goodbye the page was still listening — and still writing down what it heard.
+  So a phone put away at the wrong moment could take one more message from the
+  room, decide it was worth saving, and write it into the record the machine
+  reads the next time it starts, seconds after everybody had stopped looking at
+  it. A page now says its last word and then stays quiet: from the moment it is
+  asked to close it takes nothing in and writes nothing down, other than the one
+  save it closes with.
+
+- **A layer added from the phone could vanish from the phone's own view until
+  the Kraken next saved.** Add an overlay from the phone's editor and, about
+  half a second later, the phone's canvas could drop back to the background on
+  its own — the new layer gone, and its controls with it — while the Kraken went
+  on showing it and the saved arrangement still had it. Touching almost anything
+  else, or simply waiting for the Kraken's next routine save, brought it back.
+
+  Each device keeps a note of what it has personally decided, and that note is
+  what outranks the saved arrangement. Adding a layer decides two things — the
+  running order, and the new layer itself — and nothing whatsoever about the
+  layers that were already there. So the phone ended up claiming an order of two
+  layers while only being able to describe one of them, and the one it could not
+  describe was dropped rather than read back from what was saved. Constant
+  chatter between the devices had been papering over it: any message from another
+  device filled the missing descriptions back in, which is why it only showed
+  itself once the room went quiet. A device now falls back to the saved
+  arrangement for a layer it has never decided anything about.
+
 - **The live picture in the hub flickered and restarted five to ten times a
   second.** Reported from a real machine: the halo in the configuration window
   kept jumping back to the beginning, over and over, with nobody touching
@@ -1147,8 +1177,9 @@ end }` through the existing `applyUrlParams` seam. The END is deliberately not
   the loop closed: fifty announcements in five seconds, forever, in a room where
   nothing had changed. State written down is now compared with the state already
   held, and an announcement that says nothing new changes nothing and starts
-  nothing. Fifty in five seconds became thirteen — the rest are the display's
-  routine half-second save, and they no longer cost anything on screen.
+  nothing. Fifty in five seconds became thirteen — the rest are the devices
+  saying where they are every couple of seconds, which is how a message that got
+  lost eventually arrives, and they no longer cost anything on screen.
 
   And every one of those arrivals threw the picture away and built it again from
   scratch — every layer torn down, the drawing surface replaced, animations back

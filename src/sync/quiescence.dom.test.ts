@@ -19,7 +19,8 @@
  * watched the display ever noticed.
  *
  * The store's value gate closes the mutual echo. See the budget below for the
- * part that is still open and why it was left open deliberately.
+ * part that is still open, and for why every way of closing it was measured and
+ * then rejected.
  *
  * The cost was not bandwidth. Every one of those deliveries rebuilt the
  * editor's compositor from scratch: a new `LayerHost`, a fresh WebGL context,
@@ -54,25 +55,47 @@ const WINDOW_MS = 5000;
  *
  * At the commit this file was written against, all three readings below were
  * **50** — a hard 10 Hz, split evenly between the two publishing peers, with
- * nobody touching anything. Value-gating `store.replace`
- * (`src/state/store.ts`) takes them to **13, 13 and 16**: the mutual echo of
- * unchanged snapshots is gone, and what remains is the display's routine
- * `persistRemote` save, which bumps `rev` on a document nobody edited, which is
- * a genuine change of state and therefore a genuine notification and publish.
+ * nobody touching anything. Value-gating `store.replace` (`src/state/store.ts`)
+ * takes them to **13, 13 and 16**: the mutual echo of unchanged snapshots is
+ * gone, and what remains is every page's routine `persistRemote` save — a
+ * transcription of the state it already holds — notifying, publishing, and
+ * being answered.
  *
- * Closing that last gap needs an idempotent publish — the page remembering the
- * last `SyncStateBody` it sent and saying nothing when the next notification
- * would repeat it. That was written, measured (it takes all three readings to
- * 0, 2 and 2) and then REMOVED, because it breaks the phone: a layer added on
- * the remote loses its selection the instant the display saves, and ten cases
- * in `tests/e2e/remote-editor.spec.ts` fail with it in and pass with it out.
- * The phone's own resolved snapshot turns out to depend on being re-notified —
- * a defect of its own, and not one to fix behind a performance change.
+ * ## That remainder is anti-entropy, and it was measured three ways
  *
- * So the budget pins the repair that is real: a room that says a dozen things
- * in five seconds is quiet enough that no compositor rebuilds itself over it
- * (`tests/e2e/mirror-stability.spec.ts` is where THAT is pinned), and a
- * regression to the 10 Hz storm fails here immediately.
+ * It looks like pure waste and it is not. This wire has no acknowledgements:
+ * `onStateShipped` can only say that a frame RESOLVED on a transport reading
+ * online, never that a peer received it. The only thing that lands a frame
+ * which lost a race — a peer mid-reload, a radio that came back between two
+ * publishes, a stamp the wire budget rotated off the last frame — is somebody
+ * saying it again, and the two-second save is what says it.
+ *
+ * Three separate idempotent gates were written, and each one reached full
+ * quiescence (0 / 2 / 2 or better) and cost a write made in the dark:
+ *
+ *  - **On the body, in `useSync`** — "say nothing if this body matches the last
+ *    one I sent". 13 failures. A frame is a body AND the stamps that date it: a
+ *    phone re-stamps a write it made while its radio was down, and the same body
+ *    with the new stamp is the entire difference between the tap landing and the
+ *    room's value out-ranking it for good.
+ *  - **On the whole frame, in `SyncService.flushState`** — body, stamps and all.
+ *    22 failures. Recording a frame as said when it was merely handed to a dead
+ *    transport silenced the page's own recovery; recording it only on a resolved
+ *    publish to an online room transport still failed 14, because "the transport
+ *    took it" is not "the room heard it".
+ *  - **On the notification a no-op `commit()` raises, in `store.ts`** — with the
+ *    save's re-announcement then driven by `unshipped` instead. Down to 3, and
+ *    the last 3 are the plainest statement of the problem: a peer that missed one
+ *    frame stays wrong forever in a room where nobody says anything twice.
+ *
+ * All three are reverted. The repetition is the design; what it costs is bounded
+ * and is now on the record, and a regression to the 10 Hz storm fails here
+ * immediately.
+ *
+ * Suites that fail when the repetition is removed, for whoever tries again:
+ * `persistShippedness`, `intentReloadSkew`, `hlcFloorPin`, `slotCapUnshipped`,
+ * `newestStampReserve`, `intentReconnect`. A real fix is an acknowledgement or
+ * a digest exchange, not a gate.
  */
 const REST_BUDGET = 20;
 

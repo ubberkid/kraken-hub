@@ -719,13 +719,33 @@ The **remote layer is in-memory**, so a reload drops it — recovered from the M
 > - **Quiescence has a number.** `src/sync/quiescence.dom.test.ts` counts state
 >   frames on the wire at rest and after one change. 50 → 13 in five seconds.
 >
-> The remaining thirteen are the display's routine `persistRemote` save bumping
-> `rev` on a document nobody edited — a real change of state, so a real
-> notification and a real publish. An idempotent publish gate closes it (0 at
-> rest, measured) and was **removed**: it breaks the phone, whose resolved
-> snapshot depends on being re-notified, and ten cases in
-> `tests/e2e/remote-editor.spec.ts` fail with it in. That dependency is a defect
-> of its own and is not fixed behind a performance change.
+> **The remaining thirteen are anti-entropy, and they stay.** They are every
+> page's routine `persistRemote` save — a transcription of the state it already
+> holds — notifying, publishing, and being answered. This wire has no
+> acknowledgements: `onStateShipped` can say only that a frame RESOLVED on a
+> transport reading online, never that a peer received it, so the only thing that
+> lands a frame which lost a race is somebody saying it again. Three idempotent
+> gates were written and measured, each reaching full quiescence and each costing
+> a write made in the dark — on the body in `useSync` (13 failures), on the whole
+> frame in `SyncService.flushState` (22, then 14), and on the notification a
+> no-op `commit()` raises with the re-announcement driven by `unshipped` instead
+> (3). All three are reverted; the measurements and the affected suites are
+> written up in `quiescence.dom.test.ts`. A real fix here is an acknowledgement
+> or a digest exchange, not a gate.
+>
+> One defect was found underneath this work and is nothing to do with
+> performance: **a layer added on the phone could vanish from the phone's own
+> editor.** A page stamps only what a commit CHANGED, so a phone adding its first
+> overlay held a register for `look.order` and for the new layer and none for the
+> base — and `leavesToPatch` skips an ordered id it cannot describe, while
+> `remote` outranks `persisted` and replaces arrays wholesale. The page's remote
+> layer therefore claimed a look of two layers, described one, and deleted the
+> rest on the next re-resolve, about half a second after the add. Any inbound
+> frame refilled the hole, which is why the page's own commit was durable only
+> while something kept re-notifying it — and why the chatter above was hiding it.
+> `patch()` now fills a hole from the document rather than claiming a stamp it
+> has not earned (`fillOrderedLayers`, `src/sync/appSync.ts`), pinned by
+> `src/sync/phoneLayerDurability.dom.test.ts`.
 
 ### 4.2 Parameter table (`src/state/urlParams.ts` + per-module `urlParams.ts`)
 
