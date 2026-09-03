@@ -58,7 +58,15 @@ import type { ModuleConfigProps } from '../types';
 
 const INTERVAL_STEP = 5;
 
-export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
+/*
+ * `ownsBytes` — round 13's finding 3, the same rule the video panel states.
+ *
+ * "On this PC" is the whole of this panel's primary surface, and the inspector
+ * mounts this component on a phone. A window that owns no storage cannot keep a
+ * copy and has no PC to keep it on, so the row is not offered there; framing and
+ * the slideshow interval are properties of the PICTURE and stay.
+ */
+export function ConfigPanel({ config, onChange, ownsBytes = true }: ModuleConfigProps) {
   const cfg = validateImageConfig(config);
 
   const patch = (next: Partial<ImageModuleConfig>): void => {
@@ -72,31 +80,33 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
     <ModuleOptions
       advancedTestId="image-advanced"
       primary={
-        <>
-          {/* The sentence lives on the segment that means it — see the video
+        !ownsBytes ? null : (
+          <>
+            {/* The sentence lives on the segment that means it — see the video
               panel's note: this panel opens inside a 537 px window now. The row
               is named for the destination so the options can be the verbs; both
               come from `config/vocabulary.ts` (round 3, F7). */}
-          <GroupField label={KEEP_A_COPY_LABEL} id="image-download-mode">
-            <Segmented
-              id="image-download-mode"
-              labelledBy="image-download-mode-label"
-              value={cfg.downloadMode}
-              options={[
-                {
-                  value: 'auto',
-                  label: KEEP_A_COPY,
-                  title:
-                    'Fetch it once, then paint the copy — still there with the network unplugged.',
-                },
-                { value: 'stream-only', label: STREAM_ONLY, title: 'Never store anything.' },
-              ]}
-              onChange={(value) => {
-                patch({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
-              }}
-            />
-          </GroupField>
-        </>
+            <GroupField label={KEEP_A_COPY_LABEL} id="image-download-mode">
+              <Segmented
+                id="image-download-mode"
+                labelledBy="image-download-mode-label"
+                value={cfg.downloadMode}
+                options={[
+                  {
+                    value: 'auto',
+                    label: KEEP_A_COPY,
+                    title:
+                      'Fetch it once, then paint the copy — still there with the network unplugged.',
+                  },
+                  { value: 'stream-only', label: STREAM_ONLY, title: 'Never store anything.' },
+                ]}
+                onChange={(value) => {
+                  patch({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
+                }}
+              />
+            </GroupField>
+          </>
+        )
       }
       advanced={
         <>

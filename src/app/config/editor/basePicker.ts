@@ -45,6 +45,33 @@ export function baseCapableKinds(modules: readonly AnyKrakenModule[]): readonly 
   return modules.filter((m) => (m.layer?.roles ?? []).includes('base'));
 }
 
+/**
+ * The value Solid colour carries in a SEGMENTED base picker.
+ *
+ * Not a module id, for the reason CAM's chip is `base-chip-solid` rather than
+ * `module-chip-solid`: "solid" names a config of the shape kind, and a value
+ * that looked like a module id would be one the registry cannot resolve.
+ */
+export const SOLID_OPTION_VALUE = 'base-solid';
+
+/**
+ * The whole picker, as options — the phone's "Showing" row (round 13).
+ *
+ * CAM's chip row and the add sheet's Background row each lay their own tiles
+ * out and so take the two functions above; the remote's row is a `Segmented`,
+ * which wants `{value,label}` pairs, and a third hand-rolled list is exactly
+ * how the phone ended up offering Text as a background in the first place.
+ * Same filter, same Solid entry, same order.
+ */
+export function baseOptions(
+  modules: readonly AnyKrakenModule[],
+): readonly { value: string; label: string }[] {
+  return [
+    ...baseCapableKinds(modules).map((m) => ({ value: m.id, label: m.chipName ?? m.name })),
+    ...(hasSolidBase(modules) ? [{ value: SOLID_OPTION_VALUE, label: 'Solid' }] : []),
+  ];
+}
+
 /** Whether this build can offer Solid colour at all — it needs the shape kind. */
 export function hasSolidBase(modules: readonly AnyKrakenModule[]): boolean {
   return modules.some((m) => m.id === SOLID_BASE_KIND);

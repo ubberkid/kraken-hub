@@ -1122,6 +1122,96 @@ end }` through the existing `applyUrlParams` seam. The END is deliberately not
 
 ### Fixed
 
+- **Changes made in CAM's configuration window stopped reaching the display once
+  a phone had joined the room.** Reported as "clicking on stuff on the PC doesn't
+  change anything; only my phone changes the live display", and that is exactly
+  what happened: the click went green, the LCD held its old module for as long as
+  anybody watched, and the setting was quietly rewritten back to what it had been
+  a second or two later. It needed all three windows to show up — a display, a
+  phone with its Remote tab open, and CAM's configuration browser on its Home
+  screen — which is why every existing test passed.
+
+  Two things met. CAM's configuration browser never joined the room from Home:
+  the sync layer was started by the About, Library and Remote screens only, and
+  Home — where the module chips, the looks, the editor and every setting live —
+  started none, so a person editing there sent nothing to the room and reached
+  the LCD only by writing the browser profile's shared settings document. And on
+  the display, the first snapshot from ANY peer — a phone merely opening its
+  Remote tab was enough — created an entry for every setting there is, including
+  settings nobody had touched, and those empty entries then covered the shared
+  document completely. From that moment the display could not see CAM's writes at
+  all, and its own routine two-second save wrote the covered version back over
+  them, which is why the configuration window looked dead too. The phone kept
+  working throughout, because a phone's changes travel as timestamped messages
+  the display compares and accepts, while CAM's travelled as a document nothing
+  compared.
+
+  The editor showed the same fault with a second turn of the screw, because
+  every add is built on the look the editing window is holding and the editing
+  window reads that look back out of the same document: add a Clock overlay, add
+  a Text overlay a second and a half later, add a Date overlay after that, and
+  each one REPLACED the last — the layer list emptying about 1.2 seconds after
+  every add, and three overlays ending as one.
+
+  Both halves are closed. `ConfigApp` now starts the sync layer at the app root,
+  so a paired CAM publishes from Home like every other screen (About, Library and
+  Remote still own the one connection when they are on screen — there is never a
+  second). And the display now treats the shared document as a real write
+  channel: a change made by the other browser on the machine is stamped and
+  published like any other decision, so an UNPAIRED CAM — the shipped default —
+  reaches both the LCD and the phone. It is narrow on purpose: only the display
+  adopts, only what the write actually changed, never a page's own write coming
+  back at it, never the routine save a page makes to write down what the room
+  told it (`AppState.writerOrigin` is new and says which is which), and never
+  from a browser the display already hears state from, so a paired CAM's own
+  messages still carry its changes and still carry its clock. The display's own
+  routine save also waits for that decision rather than landing on top of it,
+  which is what makes a run of edits in the editor accumulate.
+
+- **Phone editing dead-ended on Effect / Preset / Colours.** Every strip control
+  declared `control: 'action'` except source, loop and quality was mapped, on the
+  phone, to an escape called `more` — and `more` closed the editor and opened
+  nothing. On the effect module, which is the background half the shipped
+  templates use, that is three of its four controls; the icon picker was the
+  fourth casualty. No `InspectorSheet` and no module `ConfigPanel` was mounted on
+  a phone at all, so the twelve-tile effect catalogue, the preset chips and the
+  colour wells were genuinely unreachable there. The only way to them was to
+  drag the browser window past 700 px, which swapped the phone app for CAM's —
+  and CAM's editor was deriving its touch behaviour from the _width_ breakpoint,
+  so the workaround handed a thumb 24 px handles, no pinch, no two-finger
+  rotate, no long press and 28–39 px strip buttons.
+
+  Five changes, and none of them relaxes the phone's bytes rule (a preset is a
+  number in the synced document; a colour is a hex string — neither is a file):
+
+  - The phone mounts the **same `InspectorSheet`** as a bottom sheet — Layout's
+    five numerics through the same pure ops, the kind's own `ConfigPanel`
+    through the same lazy loader, Visibility, Advanced — registered as the
+    `inspect` stage so the 44 px and page-fit sweeps measure it. Every action
+    control opens it with the desktop's own reveal mechanism (section + nonce),
+    so **Preset** opens _at_ the panel rather than at the top.
+  - **Loop** and **Quality** no longer evaporate: `RemoteView` scrolls the A-B
+    scrubber or the quality ladder onto the screen after the editor closes, the
+    way **Source** has always focused the paste field.
+  - The remote's **Showing** row is `baseOptions()` from `basePicker.ts` — six
+    base-capable kinds plus Solid colour, the same seven the add sheet's
+    Background row and CAM's chip row offer. It was `listModules()`: nine
+    options including Text, Icon and Date, whose manifests declare
+    `roles: ['overlay']` and cannot be a background at all, and no Solid.
+  - **Looks on the phone**: templates, the project's gallery, and _Your Looks_ —
+    apply, **Save a copy…** with a name field, rename, favourite, delete. All
+    document operations against this device's own namespaced storage, and the
+    sheet says _"Saved on this phone"_ rather than implying the PC's shelf.
+    Import, export, the gallery download and the media library stay off the
+    phone; the carousel is reported there and driven by the window that owns the
+    looks store.
+  - **Touch is a pointer fact now, not a width fact.** `useCoarsePointer()`
+    (`(pointer: coarse)`) feeds `coarsePointer`/`touch` on the desktop canvas
+    and the 44 px strip-button floor keys on it as well as on the width, so a
+    tablet at 800×1180 and a phone-landscape window at 780 px get 44 px handles,
+    pinch, two-finger rotate and the long-press sheet — which is now one shared
+    `LayerContextSheet` rather than a copy per surface.
+
 - **Five things the closing audit measured, all of which were invisible to the
   test suite because they were about pixels, contrast or the passage of time.**
 

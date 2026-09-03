@@ -158,6 +158,30 @@ export interface AppState {
   updatedAt: number;
   writerId: string;
   writerRole: Role;
+  /**
+   * Was this document write a DECISION, or a page writing down what it was told?
+   *
+   * `'local'` is a person: a click, a slider, a pasted link. `'sync'` is the
+   * `persistRemote` transcription — a page committing the state it resolved from
+   * the room so a cold boot has something to start from. `CommitOrigin` in
+   * `src/state/store.ts` has drawn that line in memory since the first sync
+   * layer; this puts it in the document, where the OTHER browser can read it.
+   *
+   * It is load-bearing for exactly one thing, and it is the difference between
+   * a repair and a new bug. CAM's two browsers share one document, and
+   * `src/sync/appSync.ts` treats a write by the other one as a decision worth
+   * stamping and publishing — which is the only way an edit made on CAM's Home
+   * screen ever reaches a phone. A transcription is NOT such a decision: a CAM
+   * window whose radio is down transcribes the room as it last heard it, so
+   * adopting that write re-stamps a stale value as fresh and reverts whatever
+   * has happened since. Measured: a phone's tap reverted room-wide by a muted
+   * CAM's routine 2 s save.
+   *
+   * A missing value reads as `'sync'` — the conservative direction, because it
+   * means a document from a build that predates this field is never adopted,
+   * which is exactly how those builds behaved.
+   */
+  writerOrigin: 'local' | 'sync';
 
   /**
    * The arrangement every window shares: what is on the panel, in what order,

@@ -29,6 +29,12 @@ import {
 } from '../../../ui';
 import { FIT_SEGMENTS } from '../../../ui/fitOptions';
 import { withBaseKind } from '../../state/switchBase';
+import {
+  baseOptions,
+  SOLID_BASE_CFG,
+  SOLID_BASE_KIND,
+  SOLID_OPTION_VALUE,
+} from '../editor/basePicker';
 import { RECEIPT_LINGER_MS, sourceName } from '../homeState';
 import { linkReceipt, panelVerb, playingLine } from '../panelClaims';
 import {
@@ -163,6 +169,8 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   /** The link field, so "Play something" can hand it the caret — as home does. */
   const pasteRef = useRef<HTMLInputElement | null>(null);
   const wantsPaste = useRef(false);
+  /** A CSS selector for the control the strip's escape was reaching for. */
+  const wantsScroll = useRef<string | null>(null);
   const lastLoopWrite = useRef(0);
   const pendingLoop = useRef<VideoModuleConfig['loop'] | null>(null);
   const loopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -850,11 +858,35 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
   const leaveEditor = (wanted?: StripEscape): void => {
     setEditing(false);
     if (wanted === 'source') wantsPaste.current = true;
+    /*
+      …and the other two land somewhere real now.
+
+      `loop` and `quality` used to be accepted here and then dropped: the
+      editor closed, the intent evaporated, and the A/B scrubber and the
+      quality ladder were somewhere below the fold with nothing to say they
+      were what the button had meant. They are on this page — so the page
+      brings them to the person rather than the person hunting for them.
+    */
+    if (wanted === 'loop') wantsScroll.current = '[data-testid="scrubber"]';
+    if (wanted === 'quality') wantsScroll.current = '#remote-quality-label,#remote-quality-readout';
   };
   useEffect(() => {
-    if (editing || !wantsPaste.current) return;
-    wantsPaste.current = false;
-    pasteRef.current?.focus();
+    if (editing) return;
+    if (wantsPaste.current) {
+      wantsPaste.current = false;
+      pasteRef.current?.focus();
+    }
+    const target = wantsScroll.current;
+    if (target === null) return;
+    wantsScroll.current = null;
+    /*
+      One frame later: the editor has just unmounted and the transport, the
+      scrubber and the quality ladder mount in its place, so a scroll issued in
+      the same tick measures a page that is still the editor's height.
+    */
+    requestAnimationFrame(() => {
+      document.querySelector(target)?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    });
   }, [editing]);
 
   const submitLink = (): void => {
@@ -1245,10 +1277,41 @@ export function RemoteView({ runtime }: { runtime: ConfigRuntime }) {
                   wrap
                   labelledBy="remote-module-label"
                   value={state.activeModuleId}
-                  // `chipName ?? name`, the same source the home chips read, so the
-                  // two rows can never call one module two different things.
-                  options={listModules().map((m) => ({ value: m.id, label: m.chipName ?? m.name }))}
+                  /*
+                    The BASE picker, from the one derivation — round 13.
+
+                    This row was `listModules()`: nine options including Text,
+                    Icon and Date, whose manifests declare `roles: ['overlay']`
+                    and therefore cannot be a background at all, and missing the
+                    Solid colour the add sheet one screen away offers. That is
+                    exactly the bug round 11's M-a fixed for CAM's chip row, and
+                    the fix never reached the phone — so the phone's two base
+                    pickers disagreed with each other AND with the desktop's.
+                    `basePicker.ts` answers it for all four now.
+
+                    `chipName ?? name`, the same source the home chips read, so
+                    no two rows can call one module two different things.
+                  */
+                  options={baseOptions(listModules())}
                   onChange={(id) => {
+                    /*
+                      Solid is the shape kind wearing `SOLID_BASE_CFG` (§10)
+                      rather than a tenth module, so choosing it is a base
+                      switch AND a config write — the same pair the add sheet's
+                      Solid tile commits.
+                    */
+                    if (id === SOLID_OPTION_VALUE) {
+                      const shape = listModules().find((m) => m.id === SOLID_BASE_KIND);
+                      commit((s) => {
+                        const based = withBaseKind(s, SOLID_BASE_KIND);
+                        return shape === undefined
+                          ? based
+                          : withModuleConfig(based, SOLID_BASE_KIND, shape.configVersion, {
+                              ...SOLID_BASE_CFG,
+                            });
+                      });
+                      return;
+                    }
                     commit((s) => withBaseKind(s, id));
                   }}
                 />

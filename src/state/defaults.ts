@@ -75,6 +75,9 @@ export function defaultAppState(): AppState {
     updatedAt: 0,
     writerId: '',
     writerRole: 'config',
+    // Nobody decided anything: see `AppState.writerOrigin` for why the absence
+    // of a decision reads as `'sync'` rather than as `'local'`.
+    writerOrigin: 'sync',
     // A fresh install is a one-layer look: the default module, whole panel.
     // Byte-identical to what the 6 → 7 migration and `lookOf`'s legacy
     // projection produce, so all three agree.

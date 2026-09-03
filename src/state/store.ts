@@ -121,12 +121,23 @@ export interface StoreOptions {
    * from permanently repointing somebody's LCD.
    */
   overlay?: DeepPartial<AppState>;
+  /**
+   * Who this store's document writes claim to be. Defaults to `clientId()`.
+   *
+   * Only the room harness passes it: every peer there lives in one process and
+   * therefore shares one `clientId()`, so CAM's browser and the display's
+   * browser are indistinguishable as writers of the shared document — which is
+   * exactly the distinction `src/sync/appSync.ts` makes to tell "somebody else
+   * on this origin decided something" from "this is my own write coming back".
+   */
+  writerId?: string;
 }
 
 export function createStore(initial: AppState, role: Role, opts: StoreOptions = {}): Store {
   let snapshot = initial;
   const commitBase = opts.commitBase ?? 'stored';
   const overlay = opts.overlay;
+  const writerId = opts.writerId;
 
   /** Re-apply the URL layer to a document that came from storage. */
   const withOverlay = (next: AppState): AppState =>
@@ -221,6 +232,10 @@ export function createStore(initial: AppState, role: Role, opts: StoreOptions = 
         snapshot = withOverlay(
           commitToStorage((stored) => mutate(commitBase === 'snapshot' ? snapshot : stored), {
             role,
+            // The other browser on this origin reads this to tell a decision
+            // from a transcription. See `AppState.writerOrigin`.
+            origin,
+            ...(writerId === undefined ? {} : { writerId }),
           }),
         );
       } finally {

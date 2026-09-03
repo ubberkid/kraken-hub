@@ -440,6 +440,7 @@ export interface AppState {
   updatedAt: number;              // epoch ms, writer's clock
   writerId: string;               // clientId of last writer — echo suppression
   writerRole: Role;               // 'display' | 'config' | 'remote'
+  writerOrigin: 'local' | 'sync'; // a person's decision, or a persistRemote save — see §4.1
 
   activeModuleId: ModuleId;
   modules: Record<ModuleId, { v: number; cfg: unknown }>;
@@ -635,6 +636,57 @@ export function resolveState(l: Layers): AppState {
 ```
 
 The **remote layer is in-memory**, so a reload drops it — recovered from the MQTT retained snapshot, or (with `sync.persistRemote: true`, the default) from localStorage because the display commits remote-received state, throttled to ≥ 2 s and coalesced. Without `persistRemote`, a reload on a network-down display would revert to the CAM-configured state; that behavior is offered as an option for users who want the CAM config to be authoritative. The flag governs the DOCUMENT only: the sync clock slot (`kraken-hub:v1:sync-clock:<role>`, a self-contained `{ stamp, value }` register table, slot version 2) is written either way, because a page that persists a stamp without the value it described pairs it with whatever its document happens to hold and then out-ranks the truth room-wide.
+
+> **Added on 2026-09-02: the same-origin document is a stamped WRITE channel,
+> not only a layer.**
+> CAM opens two Chromium browsers on one origin, so `kraken-hub:v1:state` is a
+> channel between them as much as it is a persisted layer — and until this
+> repair it was a channel the merge could not see. The register table
+> (`src/sync/appSync.ts`) gets an entry for every leaf of the synced body from
+> the first inbound frame, `EPOCH`-stamped ones included, and `remote` outranks
+> `persisted` with nothing to arbitrate; so one phone opening its Remote tab was
+> enough to cover the document completely, and the display's own `persistRemote`
+> save then wrote the covered resolution back over CAM's write. Reported as
+> "clicking on stuff on the PC doesn't change anything; only my phone changes
+> the live display".
+>
+> `noteDocumentWrite` closes it: a document written by the OTHER browser on this
+> origin is a decision, stamped with `nextStamp()` like a local commit and
+> published, so an unpaired CAM reaches both the LCD and the phone. Five gates
+> keep it from becoming a second bug, and each one is a measured failure:
+>
+> - **only leaves the write CHANGED** — diffed against the previous document,
+>   never against the register table, because a document carries every leaf and
+>   most of them are settled values the write did not touch;
+> - **never this page's own write** — `commit()` fires the in-memory bus
+>   synchronously, so a page's own document write comes straight back into the
+>   resolver (`src/state/storage.ts`'s echo suppression covers the `storage`
+>   event and the poll, deliberately not the bus);
+> - **never a transcription** — `AppState.writerOrigin` (new, `'local' | 'sync'`,
+>   missing reads as `'sync'`) tells a person's click from the routine
+>   `persistRemote` save. A CAM window whose radio is down transcribes the room
+>   as it last heard it, and adopting that reverts everything since;
+> - **never from a browser this page hears state from** — a page's `clientId()`
+>   is both its document `writerId` and the `src` on its frames, so a paired CAM
+>   is recognised exactly and its own stamps are left alone;
+> - **only the DISPLAY adopts**, and only after `DOCUMENT_ADOPT_GRACE_MS`
+>   (600 ms), which is the previous gate in the time dimension.
+>
+> `persistRemote` also stands down inside that window. Until a queued write is
+> adopted the register table still holds the old value, so a save landing there
+> writes it back over the decision it is about to accept — and the other browser
+> reads its own snapshot back out of that document, so the save deletes the
+> overlay the person just added from the editor they are looking at, and their
+> next add is built on the look that lost it. Measured on one origin: three
+> overlays added 1.5 s apart ended stored as `video,date`, each add replacing the
+> last, with the rail emptying ~1.2 s after every commit.
+>
+> The other half of the same repair is in the app: `ConfigApp` mounts
+> `useSync(runtime)` at the config app root, so CAM's **Home** screen publishes
+> to the room like About, Library and Remote always did — with an `enabled` gate
+> so those three still own the single connection when they are on screen.
+> Pinned by `src/sync/camHomeDocument.dom.test.ts` and
+> `tests/e2e/cam-home-after-a-room-frame.spec.ts`.
 
 ### 4.2 Parameter table (`src/state/urlParams.ts` + per-module `urlParams.ts`)
 
@@ -1115,7 +1167,7 @@ Target: black pixels immediately, module visible within ~300 ms, zero blocking n
 6. Display's `MqttTransport` receives → `SyncService` decrypts → dedup `(src,seq)` → `rev > lastAppliedRev` → `onState`.
 7. Display merges into the **remote layer**, recomputes the resolved state, calls `renderer.update(cfg, {changed:['playback.loop'], origin:'remote'})` and `renderer.applyTimeline(playback, 'remote')`.
 8. `VideoDisplay` updates the loop bounds **without seeking** unless `currentTime` now falls outside `[start, end]`. On `pointerup` the phone sends one final un-throttled state plus, if `loop.enabled`, `cmd:seekTo(start)`.
-9. `persistRemote` (default true) → display commits the remote state to localStorage, throttled ≥ 2 s, coalesced, `writerRole='display'`. The `storage` event reaches the CAM config browser, whose form updates — all three surfaces converge, with no state ever echoed back onto the network by the display.
+9. `persistRemote` (default true) → display commits the remote state to localStorage, throttled ≥ 2 s, coalesced, `writerRole='display'`. The `storage` event reaches the CAM config browser, whose form updates — all three surfaces converge, with no state echoed back onto the network by the display. That save carries `writerOrigin: 'sync'`, which is how the other browser tells it from a person's click (§4.1).
 10. Display publishes `tele` at 1 Hz with the actual `posSec`. The phone's scrubber snaps to telemetry only when `Date.now() > draggingUntil` (set to `lastInput + 800 ms`), so the thumb never fights the user's finger.
 
 ### 7.5 Flow C — display recovers after PC sleep
@@ -1156,7 +1208,7 @@ Target: black pixels immediately, module visible within ~300 ms, zero blocking n
 | ntfy replay delivers a stale `cmd` | `Date.now() - env.ts > 15 s` | Dropped. This is why `cmd` is a separate channel from `state` and is never retained. |
 | Wrong room code | 10 decrypt failures in 30 s | "No messages could be decrypted — check the room code." Never silently half-works. |
 | Two controllers editing simultaneously | Lamport `rev` + `(ts, src)` tiebreak | Last-writer-wins on the whole document. Documented as intentional (not CRDT): the state is small and human-driven. |
-| Feedback loop between the three surfaces | role matrix (§5.5) + `writerId` echo suppression + `rev` monotonicity | Structurally impossible: the display never publishes state. |
+| Feedback loop between the three surfaces | role matrix (§5.5) + `writerId` echo suppression + `rev` monotonicity | The display publishes state in exactly one case, and it is not a reply: a decision made by the OTHER browser on its own origin, which arrives as a document and has no other way onto the wire (§4.1). It never volunteers a snapshot and never republishes what it was told, and the loop is cut by the same `writerId`: a browser it hears frames from is never adopted from. |
 | IndexedDB evicted (`persist()` denied) | `getMedia(id)` miss | "Media missing — re-upload" card; config offers re-link by name+bytes+sha256. State retains the `mediaId`. |
 | CAM webview lacks a codec (HEVC needs GPU decode; AV1 uncertain) | `capabilities.probe()` at boot | Config UI warns at input time; player falls back or shows an actionable error instead of a black frame. |
 | Module throws in `mount`/`frame`/`monitoring` | try/catch + 3-strike unsubscribe + the shell's own `try`/`catch` (§2.1) | `ModuleErrorCard` sized for 640 px with the error text; telemetry carries the stack. Other subsystems keep running. |

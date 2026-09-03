@@ -106,15 +106,39 @@ export function noteSeenRev(rev: number): void {
  * One `setItem` of one JSON string: readers can never observe a torn state.
  * The Lamport `rev` makes concurrent edits resolvable last-writer-wins.
  */
-export function commit(mutate: (s: AppState) => AppState, meta: { role: Role }): AppState {
+export function commit(
+  mutate: (s: AppState) => AppState,
+  meta: { role: Role; writerId?: string; origin?: AppState['writerOrigin'] },
+): AppState {
   const current = readState().state;
   const draft = mutate(current);
   const { state } = validateAppState({
     ...draft,
     rev: Math.max(current.rev, seenRevHighWater, draft.rev) + 1,
     updatedAt: Date.now(),
-    writerId: clientId(),
+    /*
+     * Who wrote this document, and it is load-bearing in two places now.
+     *
+     * `watchState` uses it to drop this page's own write coming back through
+     * the `storage` event or the poll, and `src/sync/appSync.ts` uses it to
+     * drop the same write coming back through the in-memory bus — which is the
+     * path that fires for the writer itself, so a page without this check would
+     * re-stamp its own document write as though another browser had made it.
+     *
+     * `meta.writerId` exists for the room harness, where every peer runs in one
+     * process and would otherwise share one `clientId()`: CAM's browser and the
+     * display's browser are two writers of one document, and a fixture that
+     * cannot tell them apart cannot model the bug this check exists for.
+     */
+    writerId: meta.writerId ?? clientId(),
     writerRole: meta.role,
+    /*
+     * A bare `commitToStorage` is always somebody deciding something — the
+     * seeding in tests, the first-run write, a migration accepted by a person.
+     * Only the store's `persistRemote` path passes `'sync'`, and it is the one
+     * caller that must. See `AppState.writerOrigin`.
+     */
+    writerOrigin: meta.origin ?? 'local',
   });
 
   const json = JSON.stringify(state);

@@ -70,6 +70,9 @@ function phoneRuntime(): ConfigRuntime {
 /** Whether the room this phone is in is joined AND up — `lookReach.delivers`. */
 let delivers = false;
 
+/** Every `onDone` this render has been asked for, in order. */
+let escapes: (string | undefined)[] = [];
+
 function draw(): void {
   act(() => {
     root.render(
@@ -79,7 +82,9 @@ function draw(): void {
         state={store.getSnapshot()}
         presence="live"
         ring={RING}
-        onDone={() => undefined}
+        onDone={(wanted) => {
+          escapes.push(wanted);
+        }}
       />,
     );
   });
@@ -90,12 +95,16 @@ beforeEach(() => {
   const proto = Element.prototype as unknown as Record<string, unknown>;
   proto['setPointerCapture'] ??= () => undefined;
   proto['releasePointerCapture'] ??= () => undefined;
+  // The inspector scrolls to the section the strip asked for; jsdom has no
+  // layout and therefore no `scrollIntoView`.
+  proto['scrollIntoView'] ??= () => undefined;
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
   store = createStore(defaultAppState(), 'remote');
   runtime = phoneRuntime();
   delivers = false;
+  escapes = [];
   draw();
 });
 
@@ -261,6 +270,100 @@ describe('the phone edits the same Look', () => {
   });
 });
 
+/**
+ * Make `kind` the background, and wait for its strip chunk.
+ *
+ * `SelectionStrip` fetches the kind's own declaration on first selection, so a
+ * render taken before that lands shows `ops-loading` and no controls at all —
+ * which is exactly what a test that pressed a button too early would report as
+ * "there is no Preset button".
+ */
+async function baseKind(kind: string): Promise<void> {
+  const { withBaseKind } = await import('../../../state/switchBase');
+  const { getModule } = await import('../../../../modules/registry');
+  act(() => {
+    store.commit((s) => withBaseKind(s, kind));
+  });
+  await getModule(kind)?.editor?.loadStrip();
+  draw();
+}
+
+describe('the strip’s deeper controls land somewhere', () => {
+  /**
+   * The finding, as a test.
+   *
+   * On the effect module — the default background of half the templates —
+   * `Effect`, `Preset` and `Colours` are `control: 'action'`, and on the phone
+   * every one of them called `escape('more')`, which closed the editor and
+   * opened nothing. The catalogue, the preset chips and the colour wells were
+   * unreachable at any number of presses. The property is stated in both
+   * directions: the inspector is up, AND the editor was not asked to leave.
+   */
+  it('opens the inspector instead of closing the editor', async () => {
+    await baseKind('effect');
+    expect(host.querySelector('[data-testid="ops-preset-button"]')).not.toBeNull();
+
+    click('ops-preset-button');
+    expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
+    expect(escapes, 'a preset must not close the editor').toEqual([]);
+  });
+
+  it('opens it from Effect and Colours too, and Done gives the canvas back', async () => {
+    await baseKind('effect');
+    for (const id of ['ops-effect-button', 'ops-colours-button']) {
+      click(id);
+      expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
+      click('remote-inspect-done');
+      expect(host.querySelector('[data-testid="remote-inspect"]')).toBeNull();
+    }
+    expect(escapes).toEqual([]);
+  });
+
+  /**
+   * The inspector is the SAME sheet, with the kind's own panel inside it.
+   *
+   * `loadConfigPanel` is the desktop's cache, so warming it is warming the one
+   * the sheet reads; what is asserted is that the effect catalogue itself is on
+   * the phone's screen, which is the thing the user could not reach.
+   */
+  it('renders the kind’s own ConfigPanel inside it', async () => {
+    const { loadConfigPanel } = await import('../configPanels');
+    await baseKind('effect');
+    await loadConfigPanel('effect');
+    click('ops-preset-button');
+    draw();
+
+    expect(host.querySelector('[data-testid="inspect-layout"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="inspect-options"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="inspect-visibility"]')).not.toBeNull();
+    // The twelve-tile picker, on a 390 px screen at last.
+    expect(host.querySelector('[data-testid="effect-pick-plasma"]')).not.toBeNull();
+    expect(host.querySelector('#effect-preset')).not.toBeNull();
+  });
+
+  /**
+   * …and the three that genuinely live on the page below still leave, saying
+   * which one they meant. `RemoteView` scrolls onto them; the property here is
+   * that the intent is not dropped, which is what `'more'` used to do to loop
+   * and quality.
+   */
+  it('still leaves for the controls the remote itself owns', async () => {
+    await baseKind('video');
+    click('ops-source-button');
+    click('ops-loop-button');
+    click('ops-quality-button');
+    expect(escapes).toEqual(['source', 'loop', 'quality']);
+    expect(host.querySelector('[data-testid="remote-inspect"]')).toBeNull();
+  });
+
+  it('opens at the top for More, and at the panel for an action', async () => {
+    await baseKind('effect');
+    click('ops-more');
+    expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
+    expect(escapes).toEqual([]);
+  });
+});
+
 describe('the phone is still a remote', () => {
   /**
    * The surface gate, as pixels.
@@ -277,6 +380,96 @@ describe('the phone is still a remote', () => {
     expect(host.querySelector('[data-testid="library-add"]')).toBeNull();
     expect(host.querySelector('[data-testid="drop-target"]')).toBeNull();
     expect(host.textContent).not.toContain('Browse');
+  });
+
+  /**
+   * …including the inspector, which is the surface round 13 added.
+   *
+   * The sheet hosts the kind's own `ConfigPanel`, and the image kind's panel is
+   * the one that could plausibly grow a picker into CAM's library. Enumerated
+   * the same way as the sweep above rather than by naming a component: what
+   * matters is that no file input, no library and no "Browse" reached this
+   * screen, whatever put it there.
+   */
+  it('keeps the inspector free of anything that would move bytes', async () => {
+    for (const kind of ['image', 'video', 'effect']) {
+      await baseKind(kind);
+      click('ops-more');
+      expect(host.querySelector('[data-testid="remote-inspect"]')).not.toBeNull();
+      expect(host.querySelectorAll('input[type="file"]')).toHaveLength(0);
+      expect(host.querySelector('[data-testid="library"]')).toBeNull();
+      expect(host.querySelector('[data-testid="library-add"]')).toBeNull();
+      expect(host.querySelector('[data-testid="drop-target"]')).toBeNull();
+      expect(host.textContent).not.toContain('Browse');
+      click('remote-inspect-done');
+    }
+  });
+
+  /**
+   * Looks, on the phone, are DOCUMENTS — and the sheet says where they live.
+   *
+   * Save / rename / favourite / delete are rows in this device's own
+   * namespaced storage, so they are allowed here; import, export and the
+   * gallery download are files, so they are not. The sentence is asserted
+   * because "Saved on this phone" is the honesty the feature rests on.
+   */
+  it('keeps Looks to what a phone may honestly do with them', () => {
+    click('remote-looks-button');
+    const yours = host.querySelector<HTMLButtonElement>('[data-testid="remote-looks-tab-yours"]');
+    expect(yours).not.toBeNull();
+    act(() => {
+      yours?.click();
+    });
+    draw();
+
+    expect(host.querySelector('[data-testid="remote-looks-save"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="remote-looks-where"]')?.textContent).toContain(
+      'Saved on this phone',
+    );
+    expect(host.querySelectorAll('input[type="file"]')).toHaveLength(0);
+    expect(host.textContent).not.toContain('Export');
+    expect(host.textContent).not.toContain('Import');
+  });
+
+  it('saves a copy into this device’s own store, and can delete it again', async () => {
+    const { readLooksDoc } = await import('../../editor/looksStore');
+    click('remote-looks-button');
+    const yours = host.querySelector<HTMLButtonElement>('[data-testid="remote-looks-tab-yours"]');
+    act(() => {
+      yours?.click();
+    });
+    draw();
+
+    click('remote-looks-save');
+    const field = host.querySelector<HTMLInputElement>('[data-testid="remote-save-name"]');
+    expect(field).not.toBeNull();
+    /*
+      React tracks a controlled input's last value on the node, so assigning
+      `.value` and firing `input` is swallowed as "nothing changed". The native
+      setter is the documented way past that, and it is what makes this a real
+      keystroke rather than a call to the handler.
+    */
+    act(() => {
+      if (field === null) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        field,
+        'On the sofa',
+      );
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    draw();
+    click('remote-save-confirm');
+
+    const saved = readLooksDoc().looks;
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.file.name).toBe('On the sofa');
+
+    const id = saved[0]?.id ?? '';
+    // Delete confirms — the first press arms it, the second does it.
+    click(`remote-del-${id}`);
+    expect(readLooksDoc().looks).toHaveLength(1);
+    click(`remote-del-${id}`);
+    expect(readLooksDoc().looks).toHaveLength(0);
   });
 
   it('never claims the Kraken has an arrangement it cannot deliver', () => {

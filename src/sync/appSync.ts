@@ -105,6 +105,28 @@ export const PERSIST_REMOTE_THROTTLE_MS = 2000;
 export const ROOM_SILENCE_MS = 5000;
 
 /**
+ * How long the room gets to claim a change that arrived as a DOCUMENT.
+ *
+ * CAM's two browsers share an origin, so a write by one of them reaches the
+ * other synchronously, through the in-memory bus — always sooner than the same
+ * change coming back around the room as a frame. A PAIRED CAM makes both; an
+ * unpaired one, and CAM's Home screen before `useSync` was hoisted to the config
+ * app root, makes only the document.
+ *
+ * The display cannot tell those apart at the instant the document lands, and
+ * guessing wrong in the paired direction is not harmless: it re-stamps somebody
+ * else's write with the display's own clock and client id, which is not a lie
+ * any receiver can detect and which changes who wins a contested leaf (the
+ * arbitration `hlcFloorPin` and `clockSkew` pin). So it waits one round trip.
+ * 600 ms is the publish throttle (200 ms) plus a slow broker's hop and change,
+ * comfortably inside the "did that click do anything?" threshold, and every
+ * paired write is claimed long before it elapses.
+ *
+ * See `noteDocumentWrite`.
+ */
+export const DOCUMENT_ADOPT_GRACE_MS = 600;
+
+/**
  * What travels. Blobs and settings deliberately do not — and neither do `sync`,
  * `platform` or `diagnostics`: a remote peer must not be able to change which
  * broker a display talks to, whether its watchdog may reload it, or whether
@@ -1103,6 +1125,205 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     ...(o.factories === undefined ? {} : { factories: o.factories }),
   });
 
+  /**
+   * ── The same-origin DOCUMENT, as a stamped write channel ───────────────────
+   *
+   * ## The room this was missing
+   *
+   * CAM opens two Chromium browsers on one origin, and the configuration one
+   * spends its whole life on `#/`, where nothing mounts a sync layer: the
+   * module chips, the looks, the editor and every setting are on the HOME
+   * screen, and `useSync` was only ever called from About, Library and Remote.
+   * So a person editing in CAM published NO state frame at all — the shared
+   * `kraken-hub:v1:state` document was their only channel to the LCD.
+   *
+   * That channel worked for exactly as long as the display's register table was
+   * empty. The first inbound state frame gives it a register for EVERY leaf of
+   * `stateToSyncBody` — `mergeInto` creates one wherever it holds none, EPOCH
+   * stamps included — and from that instant `patch()` covers the whole synced
+   * document, `remote` outranks `persisted` in `resolveState` with nothing to
+   * arbitrate, and `persistNow()` writes the masked resolution back over CAM's
+   * value. One phone opening its Remote tab is enough to arm it. Measured: CAM
+   * clicks Clock, the LCD holds Video for as long as anybody watched, and the
+   * document is rewritten to Video behind the click. The phone kept working the
+   * whole time, because a phone's edits arrive as STAMPED FRAMES and win the
+   * comparison, while CAM's arrive as a DOCUMENT the merge never sees.
+   *
+   * ## The repair, in one sentence
+   *
+   * A document written by another browser on this origin is a decision that
+   * nobody put on the wire, so — unless the room says it first — the display
+   * stamps it like one and publishes it, and the phone learns what CAM did even
+   * though CAM said nothing.
+   *
+   * ## The four things that make it safe, each of which is measured
+   *
+   *  - **Diffed against the PREVIOUS DOCUMENT, never against the registers.**
+   *    A document carries every leaf, most of them untouched by the write that
+   *    delivered it, so "differs from my register" would adopt the whole
+   *    document — including leaves where a peer's newer frame is right and the
+   *    document is merely two seconds stale, which would revert a phone's edit
+   *    every time CAM saved anything. What a write actually decided is what
+   *    CHANGED in it, and that is a question about two documents.
+   *  - **This page's own writes are skipped by `writerId`.** `commit()` fires
+   *    the in-memory bus synchronously, so a page's own document write comes
+   *    straight back through `watchState` into this resolver — the echo
+   *    suppression in `src/state/storage.ts` covers the `storage` event and the
+   *    poll, and deliberately not the bus. Without the check the display would
+   *    re-stamp its own `persistRemote` write twice a second and hand itself
+   *    the whole room.
+   *  - **Only the DISPLAY adopts.** It is the page for which the document is a
+   *    channel it has no other copy of: every other surface either publishes its
+   *    own decisions (`useSync`, now mounted on Home too) or has no sync layer
+   *    running at all. Letting a configuration page adopt as well made it revert
+   *    ITSELF — the display's `persistRemote` transcription is a document write
+   *    like any other, and a CAM page that adopted it re-stamped the value it
+   *    had just replaced.
+   *  - **A browser this page HEARS is never adopted from.** A paired CAM writes
+   *    the document AND publishes a frame, and the document always arrives first
+   *    — it is a synchronous call on the same origin, while the frame is a round
+   *    trip. Adopting it would re-stamp somebody else's write with the DISPLAY's
+   *    clock and client id, which no receiver can detect and which changes who
+   *    wins a contested leaf: exactly the arbitration `hlcFloorPin` and
+   *    `clockSkew` pin, and measured to flip three of their rows.
+   *
+   *    A page's `clientId()` is BOTH its document `writerId` and the `src` on
+   *    every frame it sends, so "have I ever heard a state frame from the
+   *    browser that wrote this?" is an exact question with an exact answer, and
+   *    a yes means the document is redundant. `DOCUMENT_ADOPT_GRACE_MS` is the
+   *    same rule in the time dimension: it gives a browser that has only just
+   *    started publishing one round trip to be heard from before its document
+   *    write is treated as the only copy.
+   *
+   *  - **A leaf the URL layer owns is never adopted.** `persistNow` writes the
+   *    RESOLVED state, so a display opened with `?fit=contain` has that value in
+   *    its document; adopting it would publish a per-link override into the
+   *    room, which is the one thing the URL layer is not for.
+   */
+  let lastDocLeaves = enumerateLeaves(
+    stateToSyncBody(resolveState({ persisted: o.persisted() }).state),
+  );
+
+  /** Leaves an arriving document changed, and who wrote them, waiting one round trip. */
+  const pendingDoc = new Map<string, { value: unknown; writer: string }>();
+  let pendingDocTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Every peer this page has folded a STATE frame from, by `src`.
+   *
+   * The same string a page writes into `AppState.writerId`, because both are
+   * its `clientId()`. That is what makes "this browser speaks for itself" a
+   * fact rather than a guess — see the note above.
+   */
+  const heardStateFrom = new Set<string>();
+
+  /** Does the URL layer define a value at, above, or below this leaf path? */
+  function urlMasks(path: string): boolean {
+    let node: unknown = o.url;
+    for (const part of path.split('.')) {
+      if (node === undefined) return false;
+      // A scalar above the leaf: the URL owns the whole subtree under it.
+      if (!isPlainObject(node)) return true;
+      node = node[part];
+    }
+    return node !== undefined;
+  }
+
+  /**
+   * Adopt whatever the room did not claim in the meantime, and publish it.
+   *
+   * Two tests, and they are the same test asked twice: has this decision
+   * reached the room by itself? A writer this page has heard a frame from
+   * speaks for itself, and a leaf whose register already holds the document's
+   * value has been spoken for. What survives both is a decision with no other
+   * way onto the wire.
+   */
+  function drainPendingDocument(): void {
+    pendingDocTimer = null;
+    /*
+     * Asked ONCE per drain, on exactly the rule a local commit uses: a decision
+     * taken while this page could not hear the room is an intent, re-stamped
+     * against the first frame that arrives. See the intent layer.
+     */
+    const asIntent = !heardFromRoom || outOfTouch();
+    let adopted = false;
+    for (const [path, { value, writer }] of pendingDoc) {
+      if (heardStateFrom.has(writer)) continue;
+      const held = registers.get(path);
+      if (held !== undefined && deepEqual(held.value, value)) continue;
+      registers.set(path, { value, stamp: nextStamp() });
+      if (asIntent) intents.add(path);
+      // The room has not heard this yet, so no cap may evict it. See `unshipped`.
+      markUnshipped(path);
+      adopted = true;
+    }
+    pendingDoc.clear();
+    if (!adopted) {
+      // A save that waited for this drain still has to happen.
+      if (persistPending && o.settings.persistRemote) schedulePersist();
+      return;
+    }
+    clockDirty = true;
+    saveClock();
+    const resolved = resolveState({ persisted: o.persisted(), remote: patch(), url: o.url }).state;
+    /*
+     * ── And the display stops being a pure sink, for this one reason ─────────
+     *
+     * A display was `grep publishState`-provably a sink, and everything else
+     * about it still is: it never volunteers a snapshot, never republishes what
+     * it was told, and answers nothing on the state channel. But it is the ONLY
+     * page that can see what CAM's configuration window just decided — CAM
+     * shares an origin with it and shares nothing with the phone — so if the
+     * display does not carry that decision onto the wire, the phone cannot learn
+     * it at all.
+     *
+     * Coalesced rather than `immediate`: `SyncService` batches at 5 Hz, which is
+     * far faster than the eye and keeps a slider dragged in CAM from becoming
+     * one frame per pixel.
+     */
+    service.publishState(stateToSyncBody(resolved), { rev: resolved.rev });
+    o.store.replace(resolved);
+    // Write the adopted resolution down — the save this drain was holding back,
+    // now carrying the decision rather than the value it replaced.
+    if (o.settings.persistRemote) schedulePersist();
+  }
+
+  /** Queue what one arriving document changed. See the note above. */
+  function noteDocumentWrite(doc: AppState): void {
+    const incoming = enumerateLeaves(stateToSyncBody(doc));
+    const previous = lastDocLeaves;
+    lastDocLeaves = incoming;
+    if (doc.writerId === o.clientId) return;
+    if (o.role !== 'display') return;
+    // This browser publishes its own decisions — see the note above.
+    if (heardStateFrom.has(doc.writerId)) return;
+    /*
+     * A DECISION, never a transcription.
+     *
+     * Both CAM's browser and this one commit the state they resolve from the
+     * room every two seconds (`persistRemote`), and those writes are documents
+     * like any other. Adopting one re-stamps a value the room already settled as
+     * though it were fresh — and a CAM window whose radio is down transcribes
+     * the room AS IT LAST HEARD IT, so the stale save reverts everything that
+     * happened while it was away. Measured on a muted CAM: a phone's tap
+     * reverted room-wide by a routine save nobody made.
+     *
+     * See `AppState.writerOrigin`, including why a document that does not carry
+     * the field at all is treated as a transcription.
+     */
+    if (doc.writerOrigin !== 'local') return;
+
+    let queued = false;
+    for (const [path, value] of incoming) {
+      if (deepEqual(previous.get(path), value)) continue;
+      if (urlMasks(path)) continue;
+      pendingDoc.set(path, { value, writer: doc.writerId });
+      queued = true;
+    }
+    if (!queued || pendingDocTimer !== null) return;
+    pendingDocTimer = setTimeout(drainPendingDocument, DOCUMENT_ADOPT_GRACE_MS);
+  }
+
   /** On the MONOTONIC clock, and `-Infinity` so the first write is never held. */
   let lastPersistAt = -Infinity;
   /** The last layer summary printed, so DEV logs only the transitions. */
@@ -1165,6 +1386,29 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * `SyncService.ts` had the identical arithmetic and the identical repair.
    */
   function schedulePersist(): void {
+    /*
+     * ── Never transcribe over a decision this page is in the middle of taking ─
+     *
+     * A document write from the other browser is held for one round trip before
+     * it is adopted (`noteDocumentWrite`), and until it IS adopted the register
+     * table still holds the old value — so a `persistRemote` save landing inside
+     * that window writes the old value back over the write it is about to
+     * accept. That is not a cosmetic race: the OTHER browser reads its own
+     * snapshot back out of this document, so the save deletes the overlay the
+     * person just added from the editor they are still looking at, and the next
+     * thing they add is built on a look that lost it. Measured on one origin:
+     * add Clock, add Text 1.5 s later, add Date 1.5 s after that, and the
+     * stored look ends as `video,date` — each add REPLACING the last, with the
+     * rail dropping to zero overlays about 1.2 s after every commit.
+     *
+     * So the save waits for the drain, which schedules it again on the way out.
+     * At most one round trip later, and the throttle it was already under is
+     * five times longer than that.
+     */
+    if (pendingDocTimer !== null) {
+      persistPending = true;
+      return;
+    }
     const elapsed = monotonicNow() - lastPersistAt;
     if (elapsed < 0 || elapsed >= PERSIST_REMOTE_THROTTLE_MS) {
       persistNow();
@@ -1179,6 +1423,10 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
     persistTimer = setTimeout(() => {
       persistTimer = null;
       if (!persistPending) return;
+      // A timer armed BEFORE the document write is still a save, and it must
+      // wait for the drain exactly as a fresh one does. `persistPending` stays
+      // true, and `drainPendingDocument` schedules it again.
+      if (pendingDocTimer !== null) return;
       persistPending = false;
       persistNow();
     }, delay);
@@ -1192,10 +1440,17 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
    * whatever it read, which threw away the merged registers and `url` — and on
    * the config page the very next `store.subscribe` republished that raw
    * document as this page's own desire. See `Store.setResolve`.
+   *
+   * It is also, since the CAM-Home regression, the page's SECOND WRITE CHANNEL:
+   * a document written by the other browser on this origin is a decision, and
+   * `noteDocumentWrite` stamps it like one — after giving the room one round
+   * trip to say it first. See that function for why the diff is against the
+   * previous document rather than against the register table.
    */
-  o.store.setResolve(
-    (persistedDoc) => resolveState({ persisted: persistedDoc, remote: patch(), url: o.url }).state,
-  );
+  o.store.setResolve((persistedDoc) => {
+    noteDocumentWrite(persistedDoc);
+    return resolveState({ persisted: persistedDoc, remote: patch(), url: o.url }).state;
+  });
 
   const stopFolding = o.store.onCommit((next, origin, before) => {
     /*
@@ -1253,6 +1508,9 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
      * is not a counter. This is the observation.
      */
     if (meta.rev !== null) noteSeenRev(meta.rev);
+    // This browser speaks for itself, so its document writes are redundant.
+    // See `noteDocumentWrite`.
+    heardStateFrom.add(meta.src);
 
     /*
      * ── Step 1: the ROOM CLOCK, which is a different question from the HLC ──
@@ -1391,6 +1649,16 @@ export async function startAppSync(o: AppSyncOptions): Promise<AppSync> {
          */
         if (persistTimer !== null) clearTimeout(persistTimer);
         persistTimer = null;
+        /*
+         * A document adoption still waiting out its grace window is dropped
+         * rather than flushed: the page is closing, so it can neither publish
+         * the frame nor be the thing that answers for it, and a stamp written
+         * into the slot for a value the room never heard would be defended by
+         * the next page load for nothing.
+         */
+        if (pendingDocTimer !== null) clearTimeout(pendingDocTimer);
+        pendingDocTimer = null;
+        pendingDoc.clear();
         const flushDocument = persistPending && o.settings.persistRemote;
         persistPending = false;
         clockDirty = true;

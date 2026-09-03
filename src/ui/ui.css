@@ -2023,6 +2023,24 @@ html.kh-config-mode .kh-app {
 }
 
 /*
+ * …and on a FINGER at any width — round 13.
+ *
+ * The comment above is still true about why the width query exists, and it was
+ * also the whole bug: a phone whose window is 780 px, a phone turned landscape
+ * and a tablet at 800×1180 are the desktop layout under a thumb, and they got
+ * 28–39 px strip buttons. Width serves the narrow layout, the pointer serves
+ * the hand, and the floor now answers to either — the same string `useNarrow`'s
+ * `COARSE_QUERY` uses, so JavaScript and CSS cannot disagree about it.
+ */
+@media (pointer: coarse) {
+  .kh-op__btn {
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/*
  * The contextual options panel.
  *
  * Opened by pressing the module chip that is already active — the audit's F1
@@ -2450,8 +2468,22 @@ main > .kh-panel .kh-setup {
  * drawn height and gains a transparent `::before` bleed instead, and the SUITE
  * measures that bleed rather than the bounding box, because a hit area a test
  * cannot see is a hit area round 2 already got wrong once.
+ *
+ * ## …and round 13: width was never the question, the HAND was
+ *
+ * The floor was keyed on `max-width: 700px` alone, so a phone whose window is
+ * 780 px, a phone turned landscape and a 800×1180 tablet — the desktop layout
+ * under a thumb — kept 20–39 px targets: Done at 65×39, the base fill segments
+ * at 49×20, the Looks tabs at 84×25, the wordmark at 90×26. That is the second
+ * half of the user's own report ("unless I resize the window larger") and it
+ * was live for every touch device wider than 700 px.
+ *
+ * The query is a comma list rather than a duplicated block, and the second half
+ * is the same string `useNarrow`'s `COARSE_QUERY` uses, so JavaScript and CSS
+ * cannot disagree about what a finger is. Narrow serves the LAYOUT; coarse
+ * serves the HAND; the floor answers to either.
  * ========================================================================== */
-@media (max-width: 700px) {
+@media (max-width: 700px), (pointer: coarse) {
   /* The house floor: anything you press, anywhere in the config UI. */
   .kh-seg__opt,
   .kh-ops .kh-seg__opt,
@@ -3618,7 +3650,8 @@ main > .kh-panel .kh-setup {
  * keeps. The row already carries `--wrap`; this lets it use it. Both halves of
  * the pair get the rule, so the two rows stay the same shape as each other.
  */
-@media (max-width: 700px) {
+/* Narrow layout or a finger — the house floor's rule, same string. */
+@media (max-width: 700px), (pointer: coarse) {
   .kh-remote__pair2 .kh-seg__opt {
     flex: none;
     min-width: 44px;
@@ -5583,7 +5616,8 @@ main > .kh-panel .kh-setup {
  * does — it replaced the branch-based ops strip on every surface — so its new
  * controls are held to the same floor everything else on a phone is.
  */
-@media (max-width: 700px) {
+/* Narrow layout or a finger — the house floor's rule, same string. */
+@media (max-width: 700px), (pointer: coarse) {
   .kh-swatch,
   .kh-op__step,
   .kh-op__text {
@@ -5694,6 +5728,107 @@ main > .kh-panel .kh-setup {
 .kh-redit__sheet {
   max-height: 50vh;
   overflow-y: auto;
+}
+
+/*
+ * The inspector, as a phone sheet — round 13.
+ *
+ * `InspectorSheet` is the desktop's component and brings its own `kh-sheet`
+ * chrome, so this wrapper does one thing: cap the height and make the INNER
+ * body the box that scrolls, which is §9's rule for every sheet on this
+ * surface and what the page-fit sweep measures. A little taller than the other
+ * phone sheets because it is the one with five number fields, a whole module
+ * panel and two sections under it.
+ */
+.kh-redit__sheet--inspect {
+  display: flex;
+  flex-direction: column;
+  max-height: 62vh;
+  overflow: hidden;
+}
+
+.kh-redit__sheet--inspect .kh-sheet {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kh-redit__sheet--inspect .kh-sheet__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/*
+ * Every control inside it is a thumb target, including the ones the module's
+ * own panel paints — the effect cards, the preset segments, the colour wells.
+ * The panels are shared with CAM, so the floor is applied HERE rather than in
+ * nine module stylesheets.
+ */
+.kh-redit__sheet--inspect .kh-num__field input,
+.kh-redit__sheet--inspect .kh-seg__opt,
+.kh-redit__sheet--inspect .kh-effect-card,
+.kh-redit__sheet--inspect .kh-effect-well,
+.kh-redit__sheet--inspect .kh-tile,
+.kh-redit__sheet--inspect summary,
+.kh-redit__sheet--inspect .kh-btn {
+  min-height: 44px;
+}
+
+.kh-redit__inspect-done {
+  margin-top: 8px;
+  min-height: 44px;
+  width: 100%;
+}
+
+/* The Looks sheet's three tabs, and the rows underneath them. */
+.kh-redit__lookstabs {
+  margin-bottom: 6px;
+}
+
+.kh-redit__lookrow {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.kh-redit__lookapply {
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-redit__lookacts {
+  display: flex;
+  gap: 4px;
+}
+
+.kh-redit__lookacts .kh-tbtn {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.kh-redit__saveas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.kh-redit__saveas-lab {
+  flex: 1 0 100%;
+  font-size: 0.75rem;
+}
+
+.kh-redit__name {
+  background: var(--kh-panel-2);
+  border: 1px solid var(--kh-line);
+  border-radius: 8px;
+  color: inherit;
+  flex: 1;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0 8px;
 }
 
 .kh-redit__notice {

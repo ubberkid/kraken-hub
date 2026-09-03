@@ -173,6 +173,22 @@ It has four parts:
 presets, the effect catalogue, the quality ladder — opens this one place rather
 than four buttons that all led to the same wall.
 
+### On a phone
+
+The same sheet, with the same four parts, from the same strip. It opens as a
+sheet under the canvas instead of in the rail's column, at 44 px controls, and
+it scrolls inside itself so the canvas never moves; **Done** or **Esc** closes
+it. See [Editing from your phone](remote-control.md#editing-from-your-phone) for
+what the phone keeps and the one thing it does not (files — import, export and
+the media library are the PC's).
+
+Touch is decided by the **pointer**, not by the window's width. A tablet, or a
+phone whose window is wider than 700 px, gets the full editor _with_ the touch
+behaviour: 44 px handles, pinch to scale, two fingers to rotate, and a long
+press for duplicate / front / back / remove. It used to key on the width
+breakpoint, so making the window bigger to reach the inspector cost you every
+gesture on the way.
+
 ## Undo
 
 Undo is everywhere and it is cheap. Fifty steps, from the buttons in the header

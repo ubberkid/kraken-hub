@@ -23,7 +23,7 @@ import {
 import { readTeleMirror, type TelePacket } from '../../../modules/video/telemetry/videoTelemetry';
 import { validateVideoConfig, type VideoModuleConfig } from '../../../modules/video/types';
 import { DEVICE_PRESETS } from '../../../platform/devicePresets';
-import { BASE_LAYER_ID, MAX_LAYERS } from '../../../state/look/types';
+import { BASE_LAYER_ID, MAX_LAYERS, type Layer } from '../../../state/look/types';
 import { selectLayerConfig, withModuleConfig } from '../../../state/selectors';
 import { decodeMonitorSnapshot } from '../../../sync/monitorSnapshot';
 import { Meter, Notice } from '../../../ui';
@@ -78,7 +78,7 @@ import { panelIsLive, panelPresence, type PanelPresence } from '../panelPresence
 import { pasteAction, type PasteAction, type PasteIssue } from '../pasteLink';
 import { replicaGeometry } from '../replica';
 import { ownsBytes } from '../surface';
-import { PHONE_QUERY, useNarrow } from '../useNarrow';
+import { PHONE_QUERY, useCoarsePointer, useNarrow } from '../useNarrow';
 
 import { CamSetupCard } from './CamSetupCard';
 import { prefetchConfigPanel } from './configPanels';
@@ -87,6 +87,7 @@ import { ArrangeStrip } from './editor/ArrangeStrip';
 import { EditorCanvas } from './editor/EditorCanvas';
 import { EditorHeader } from './editor/EditorHeader';
 import { InspectorSheet } from './editor/InspectorSheet';
+import { LayerContextSheet } from './editor/LayerContextSheet';
 import { LayerRail } from './editor/LayerRail';
 import { crossFadeLookSwitch } from './editor/looks/crossFade';
 import { FirstRunTemplates } from './editor/looks/FirstRunTemplates';
@@ -419,6 +420,17 @@ export function HomeView({
   const clips = useMirror(readClipIndex);
   const now = useNow();
   const narrow = useNarrow(PHONE_QUERY);
+  /**
+   * A FINGER, at any width — round 13.
+   *
+   * The canvas took its touch behaviour from `narrow`, which is a question
+   * about PIXELS. So a phone whose window is 780 px, a phone turned landscape
+   * and a tablet at 800×1180 all got the mouse's editor: 24 px handles instead
+   * of 44, no pinch to scale, no two-finger rotate, no long press. The pointer
+   * is the thing that decides a gesture, and it is its own query now — the same
+   * string `ui.css`'s `@media (pointer: coarse)` blocks key on.
+   */
+  const coarse = useCoarsePointer();
 
   const preset = DEVICE_PRESETS[pickMirrorPreset(facts)];
 
@@ -468,6 +480,15 @@ export function HomeView({
   useCarousel({ store: runtime.store, owns });
 
   const [addOpen, setAddOpen] = useState(false);
+  /**
+   * What a LONG PRESS opened — the phone's right-click, on this surface too.
+   *
+   * The desktop editor had no context gesture at all: the overlay's long-press
+   * branch is gated on `touch`, and `touch` was never passed here. A tablet
+   * therefore had duplicate / front / back / delete only through the rail's
+   * rows, at 30 px each. Same sheet the phone gets, same ops.
+   */
+  const [context, setContext] = useState<Layer | null>(null);
   /**
    * Which row of the add sheet the press was ASKING for — round 12's F12-2.
    *
@@ -1336,7 +1357,14 @@ export function HomeView({
             monitor={decodeMonitorSnapshot(fresh?.mon)}
             monitorAt={fresh?.ts ?? 0}
             progress={haloProgress}
-            coarsePointer={narrow}
+            /*
+              It was `narrow`, and inside this branch `narrow` is provably
+              false — `editorMode = !narrow` — so the canvas has never once
+              drawn a 44 px handle. The pointer is the fact that matters here.
+            */
+            coarsePointer={coarse}
+            touch={coarse}
+            onContext={setContext}
           />
         ) : (
           <div
@@ -1684,6 +1712,13 @@ export function HomeView({
       {/*
         The inspector (§2.4) — everything about the selected layer, in the
         rail's own column, with its body the thing that scrolls.
+
+        No `ownsBytes` — the same silence `ModuleSettingsView` keeps, for the
+        same reason: this sheet and that options panel are two doors into one
+        module panel on ONE surface, and a control present through one door and
+        missing through the other is worse than either answer. The gated
+        inspector is the phone's (`RemoteEditor`), which is the surface with no
+        PC in the room.
       */}
       {editorMode && inspectOpen && stripLayer !== null && (
         <InspectorSheet
@@ -1696,6 +1731,17 @@ export function HomeView({
           onConfig={writeStripConfig}
           onClose={() => {
             setInspectOpen(false);
+          }}
+        />
+      )}
+
+      {/* The long press's four ops — the same sheet, on whichever surface. */}
+      {editorMode && context !== null && (
+        <LayerContextSheet
+          editor={editor}
+          layer={context}
+          onClose={() => {
+            setContext(null);
           }}
         />
       )}

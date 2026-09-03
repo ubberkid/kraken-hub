@@ -1022,6 +1022,16 @@ export interface EditorCanvasProps {
   progress: number | null;
   /** Whether this window may run the real display page at all (A1). */
   coarsePointer: boolean;
+  /**
+   * A finger rather than a mouse — pinch, two-finger rotate, long press.
+   *
+   * Passed straight through to the overlay, which is where the branches are.
+   * It is a POINTER fact, not a width fact: a tablet and a landscape phone are
+   * this editor at desktop widths, and they were getting the mouse's gestures.
+   */
+  touch?: boolean;
+  /** What a long press opens. Only ever called when `touch`. */
+  onContext?: (layer: Layer) => void;
 }
 
 export function EditorCanvas({
@@ -1032,6 +1042,8 @@ export function EditorCanvas({
   monitorAt,
   progress,
   coarsePointer,
+  touch = false,
+  onContext,
 }: EditorCanvasProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -1207,6 +1219,8 @@ export function EditorCanvas({
             preview={preview}
             clockOf={() => clockRef.current}
             coarsePointer={coarsePointer}
+            touch={touch}
+            {...(onContext === undefined ? {} : { onContext })}
           />
         </div>
       </div>

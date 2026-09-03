@@ -48,6 +48,18 @@ export interface InspectorSheetProps {
    * to turn the model's diameters into the pixels a person reads (M1).
    */
   panel: { width: number; height: number };
+  /**
+   * Whether this window owns the bytes — `ownsBytes()`, handed to the kind's
+   * own panel.
+   *
+   * The inspector mounts the module's real `ConfigPanel`, which is exactly what
+   * makes the phone's editor the same editor. It is also how round 13's audit
+   * found *"On this PC"*, the **Local downloader** card and a *"Download for
+   * Windows"* button rendered on a sofa: the panel is one component and the
+   * surface it opens on is not. So the answer travels with it, and the panel
+   * drops the half of itself that acts on a disk this window does not have.
+   */
+  ownsBytes?: boolean;
   /** Writes it back to whichever home §4.1 gives it. */
   onConfig: (next: unknown) => void;
   onClose: () => void;
@@ -81,6 +93,7 @@ export function InspectorSheet({
   config,
   panel,
   reveal = null,
+  ownsBytes = true,
   onConfig,
   onClose,
 }: InspectorSheetProps) {
@@ -105,8 +118,26 @@ export function InspectorSheet({
   const optionsRef = useRef<HTMLElement | null>(null);
   const [panelReady, setPanelReady] = useState(false);
   useEffect(() => {
-    if (reveal === null) return;
+    if (reveal === null) return undefined;
+    /*
+     * Now, and again one frame later — round 13's finding 5.
+     *
+     * `panelReady` says the chunk is IN, not that the browser has laid it out:
+     * the effect panel's twelve tiles and four colour wells are still zero-high
+     * in the same tick, so under load the scroll lands short and the section's
+     * top sits below the port. Nothing here can ask "is it settled?" — but a
+     * frame later the layout is done, which is the same one-frame delay
+     * `RemoteView` already uses to scroll onto a control the editor just
+     * unmounted. The immediate call stays: on a warm panel it is already right,
+     * and a scroll that is correct twice is invisible.
+     */
     optionsRef.current?.scrollIntoView({ block: 'start' });
+    const frame = requestAnimationFrame(() => {
+      optionsRef.current?.scrollIntoView({ block: 'start' });
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
   }, [reveal, panelReady, layer.id]);
 
   const write = (patch: Record<string, number>): void => {
@@ -239,7 +270,13 @@ export function InspectorSheet({
         {module !== null && (
           <section className="kh-sheet__group" data-testid="inspect-options" ref={optionsRef}>
             <h3>{module.chipName ?? module.name}</h3>
-            <KindPanel id={module.id} config={config} onChange={onConfig} onReady={setPanelReady} />
+            <KindPanel
+              id={module.id}
+              config={config}
+              ownsBytes={ownsBytes}
+              onChange={onConfig}
+              onReady={setPanelReady}
+            />
           </section>
         )}
 
@@ -383,11 +420,14 @@ function Num({
 function KindPanel({
   id,
   config,
+  ownsBytes,
   onChange,
   onReady,
 }: {
   id: string;
   config: unknown;
+  /** Passed straight through — see `ModuleConfigProps.ownsBytes`. */
+  ownsBytes: boolean;
   onChange: (next: unknown) => void;
   /**
    * Told once the chunk is in and the panel has something to measure — F-7.
@@ -425,5 +465,5 @@ function KindPanel({
 
   if (loaded === null) return null;
   const Panel = loaded;
-  return <Panel config={config} onChange={onChange} />;
+  return <Panel config={config} ownsBytes={ownsBytes} onChange={onChange} />;
 }

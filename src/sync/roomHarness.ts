@@ -24,7 +24,7 @@
  */
 
 import { defaultAppState } from '../state/defaults';
-import { readState } from '../state/storage';
+import { commit as commitToStorage, readState } from '../state/storage';
 import { createStore } from '../state/store';
 
 import { startAppSync, stateToSyncBody, type AppSync } from './appSync';
@@ -572,7 +572,18 @@ export async function startConfigPeer(
   if (offsetMs !== 0) installDeviceClocks();
   const clock = makeDeviceClock(offsetMs);
   const store = onDeviceClock(
-    createStore(readState().state, 'config', { commitBase: 'snapshot' }),
+    createStore(readState().state, 'config', {
+      commitBase: 'snapshot',
+      /*
+       * CAM's browser and the display's browser are TWO WRITERS of one
+       * document, and in this process they would otherwise share one
+       * `clientId()`. `src/sync/appSync.ts` tells "somebody else on this origin
+       * decided something" from "my own write coming back through the bus" by
+       * exactly this field, so a harness that cannot tell them apart cannot
+       * model the CAM-Home regression at all.
+       */
+      writerId: 'configpeer01',
+    }),
     clock,
   );
   const net = radio(clock.offset);
@@ -636,7 +647,11 @@ export async function startConfigPeer(
 export async function startDisplayPeer(broker: Broker, offsetMs = 0): Promise<Peer> {
   if (offsetMs !== 0) installDeviceClocks();
   const clock = makeDeviceClock(offsetMs);
-  const store = onDeviceClock(createStore(readState().state, 'display'), clock);
+  // `writerId` for the same reason CAM's store carries one — see `startConfigPeer`.
+  const store = onDeviceClock(
+    createStore(readState().state, 'display', { writerId: 'displaypeer1' }),
+    clock,
+  );
   const net = radio(clock.offset);
   const sync = await withAmbientAsync(offsetMs, () =>
     startAppSync({
@@ -705,6 +720,36 @@ export async function startDisplayPeer(broker: Broker, offsetMs = 0): Promise<Pe
       store.dispose();
     },
   };
+}
+
+/**
+ * ── CAM's configuration window on `#/`, which runs NO sync layer ────────────
+ *
+ * `startConfigPeer` models the config browser as it behaves on About, Library
+ * and Remote: a page with a live transport that republishes its snapshot on
+ * every change. That is not what CAM's owner is looking at. The module chips,
+ * the looks, the editor and every setting are on HOME, and until the CAM-Home
+ * repair the home screen mounted no sync layer at all — so an edit made there
+ * left the browser as ONE THING ONLY: a write to the shared localStorage
+ * document, with no frame, no stamp and no announcement.
+ *
+ * This is that peer. It is deliberately not a `Peer` — it has no transport, no
+ * clock slot and nothing to stop — because having any of those would be the
+ * thing under test. It is a writer of the shared document and nothing else, and
+ * `writerId` is what makes it a DIFFERENT browser from the display sharing the
+ * origin with it.
+ */
+export const CAM_HOME_WRITER = 'camhomedoc1';
+
+export function camHomeWrites(mutate: (s: AppState) => AppState): AppState {
+  const next = commitToStorage(mutate, { role: 'config', writerId: CAM_HOME_WRITER });
+  note(`CAM Home writes the document: module=${next.activeModuleId} rev=${String(next.rev)}`);
+  return next;
+}
+
+/** What the shared document — CAM's only channel — actually holds. */
+export function documentState(): AppState {
+  return readState().state;
 }
 
 /**

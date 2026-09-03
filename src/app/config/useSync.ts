@@ -193,9 +193,25 @@ export interface SyncHandle {
   publishNow: (state: AppState) => void;
 }
 
-export function useSync(runtime: ConfigRuntime): SyncHandle {
+export interface UseSyncOptions {
+  /**
+   * Whether this call may own the page's ONE sync connection. Defaults to true.
+   *
+   * `ConfigApp` mounts this hook at the app root so CAM's Home screen — where
+   * the module chips, the looks and every setting live — publishes to the room
+   * like every other surface does. About, Library and Remote each call it too,
+   * and two calls would open two connections to the same topic (see
+   * `AboutView`'s note), so the root call stands down whenever the route on
+   * screen is one of theirs. Disabled behaves exactly like an unpaired page:
+   * nothing starts, nothing is reported, and the sync chunk is never fetched.
+   */
+  enabled?: boolean;
+}
+
+export function useSync(runtime: ConfigRuntime, opts: UseSyncOptions = {}): SyncHandle {
+  const enabled = opts.enabled ?? true;
   const state = runtime.store.getSnapshot();
-  const room = state.sync.enabled ? state.sync.roomCode : null;
+  const room = enabled && state.sync.enabled ? state.sync.roomCode : null;
   const transport = state.sync.transport;
   const mqttUrl = state.sync.mqttUrl;
   const ntfyBase = state.sync.ntfyBase;

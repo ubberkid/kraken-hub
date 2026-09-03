@@ -96,6 +96,16 @@ export function ModuleSettingsView({ runtime, id }: { runtime: ConfigRuntime; id
   const ConfigPanel = loaded;
 
   return (
+    /*
+      No `ownsBytes` here, deliberately — see `ModuleConfigProps.ownsBytes`.
+
+      This view is the desktop's own options panel: CAM's window, and an
+      ordinary browser at a desk, which is the machine somebody would run the
+      downloader on even though its IndexedDB is not the LCD's. The prop
+      defaults to `true` and this surface is exactly the reader the copy was
+      written for. The gate is the PHONE's inspector, which is the surface that
+      has no PC in the room.
+    */
     <ConfigPanel
       config={mod.validate(stored)}
       onChange={(next) => {

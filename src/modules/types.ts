@@ -307,6 +307,23 @@ export interface DisplayRenderer<C> {
 export interface ModuleConfigProps {
   config: unknown;
   onChange: (next: unknown) => void;
+  /**
+   * Whether the window rendering this panel is the one whose storage the bytes
+   * land in — `app/config/surface.ts`'s `ownsBytes()`, threaded in rather than
+   * imported, because invariant I8 forbids a module reaching into `app/config`.
+   *
+   * Round 13's audit: the phone's inspector mounts these panels verbatim, so a
+   * sofa got *"On this PC"*, *"Keep a copy"*, a **Local downloader** card
+   * offering *"Download for Windows"*, and a port and token field for a program
+   * running on a machine it cannot see. Every one of those controls acts on the
+   * OWNER's disk; a window that owns none of it can neither perform nor check
+   * them, so it does not render them.
+   *
+   * Optional and TRUE by default: the panel behaves exactly as it always has on
+   * every surface that does not answer the question, and only a caller that
+   * knows the answer is `false` has to say so.
+   */
+  ownsBytes?: boolean;
 }
 
 export interface KrakenModule<C = unknown> {

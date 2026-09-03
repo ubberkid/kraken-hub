@@ -19,7 +19,13 @@ import { describe, expect, it } from 'vitest';
 
 import { listModules } from '../../../modules/registry';
 
-import { SOLID_BASE_KIND, baseCapableKinds, hasSolidBase } from './basePicker';
+import {
+  SOLID_BASE_KIND,
+  SOLID_OPTION_VALUE,
+  baseCapableKinds,
+  baseOptions,
+  hasSolidBase,
+} from './basePicker';
 
 import type { AnyKrakenModule } from '../../../modules/types';
 
@@ -78,5 +84,37 @@ describe('the base picker’s one list', () => {
     // The commonest background of all is in it, or the filter is over-eager.
     expect(ids).toContain('video');
     expect(hasSolidBase(listModules())).toBe(true);
+  });
+  /**
+   * …and the PHONE's row is the same list — round 13.
+   *
+   * The remote's "Showing" segmented row was `listModules()`: nine options
+   * including the three overlay-only kinds, and no Solid — so the phone's own
+   * two base pickers (this row and the add sheet's Background row, one screen
+   * apart) disagreed with each other AND with CAM's chip row. `baseOptions` is
+   * what the row calls now, so the parity is a property rather than a habit.
+   */
+  it('gives the phone’s row exactly the kinds the tile pickers offer', () => {
+    const modules = listModules();
+    const tiles = [...baseCapableKinds(modules).map((m) => m.id)];
+    if (hasSolidBase(modules)) tiles.push(SOLID_OPTION_VALUE);
+
+    expect(baseOptions(modules).map((o) => o.value)).toEqual(tiles);
+    // Seven in this build: six base-capable kinds plus Solid colour.
+    expect(baseOptions(modules)).toHaveLength(7);
+    for (const overlayOnly of ['text', 'icon', 'date']) {
+      expect(baseOptions(modules).map((o) => o.value)).not.toContain(overlayOnly);
+    }
+    // Solid's value is not a module id — the registry could not resolve one.
+    expect(modules.map((m) => m.id)).not.toContain(SOLID_OPTION_VALUE);
+  });
+
+  it('labels every option with the name the other rows use', () => {
+    const modules = listModules();
+    for (const option of baseOptions(modules)) {
+      if (option.value === SOLID_OPTION_VALUE) continue;
+      const mod = modules.find((m) => m.id === option.value);
+      expect(option.label).toBe(mod?.chipName ?? mod?.name);
+    }
   });
 });

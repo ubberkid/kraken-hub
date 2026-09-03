@@ -52,13 +52,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { getModule } from '../../../../modules/registry';
 import { hostStyle, transformCss } from '../../../../render/layerBox';
-import { applyLookFile, resolveMedia } from '../../../../state/look/file';
+import { applyLookFile, exportLook, resolveMedia } from '../../../../state/look/file';
 import { BASE_LAYER_ID, MAX_LAYERS, type Layer, type LayerId } from '../../../../state/look/types';
 import { withModuleConfig, selectLayerConfig } from '../../../../state/selectors';
-import { Notice } from '../../../../ui';
+import { Notice, Segmented } from '../../../../ui';
 import { withBaseKind } from '../../../state/switchBase';
-import { lookMenuLabel, loadTemplates, type LookEntry } from '../../editor/looksMenu';
-import { readLookName, subscribeLooks } from '../../editor/looksStore';
+import {
+  lookMenuLabel,
+  loadTemplates,
+  MAX_LOOK_NAME,
+  UNTITLED_LOOK,
+  type LookEntry,
+} from '../../editor/looksMenu';
+import {
+  addLook,
+  deleteSaved,
+  readLooksDoc,
+  readLookName,
+  renameSaved,
+  subscribeLooks,
+  toggleFavourite,
+  updateLooksDoc,
+  writeLookName,
+  type LooksDoc,
+} from '../../editor/looksStore';
 import { resize as resizeLayer } from '../../editor/ops';
 import { useEditor } from '../../editor/useEditor';
 import { PanelClaim } from '../../PanelClaim';
@@ -67,7 +84,10 @@ import { replicaGeometry } from '../../replica';
 import { ownsBytes } from '../../surface';
 import { AddSheet } from '../editor/AddSheet';
 import { EditorOverlay } from '../editor/EditorCanvas';
+import { InspectorSheet } from '../editor/InspectorSheet';
+import { LayerContextSheet } from '../editor/LayerContextSheet';
 import { LayerRail } from '../editor/LayerRail';
+import { loadGallery } from '../editor/looks/gallery';
 import { SelectionStrip } from '../editor/SelectionStrip';
 import { RemoteRing } from '../RemoteRing';
 
@@ -127,6 +147,36 @@ export function RemoteEditor({
   const [context, setContext] = useState<Layer | null>(null);
   const [templates, setTemplates] = useState<readonly LookEntry[]>([]);
 
+  /**
+   * The inspector — the same sheet CAM opens, on the phone (round 13).
+   *
+   * `reveal` is the desktop's own mechanism verbatim: a section plus a nonce,
+   * so a SECOND press of Preset scrolls again after the reader has scrolled
+   * away. `null` means "open where the sheet always opens".
+   */
+  const [inspectOpen, setInspectOpen] = useState(false);
+  const [reveal, setReveal] = useState<{ section: 'options'; nonce: number } | null>(null);
+
+  /**
+   * Looks, on the phone — templates, this device's own saved Looks, the
+   * gallery.
+   *
+   * All three are DOCUMENTS. A template is a chunk that ships with the app, a
+   * gallery entry is a JSON file fetched from this build's own `looks/` folder,
+   * and a saved Look is a row in `kraken-hub:v1:looks` on this phone. None of
+   * them is a picture or a clip, which is why the phone may have all three and
+   * still may not have import, export or the media library.
+   */
+  const [looksTab, setLooksTab] = useState<'templates' | 'yours' | 'gallery'>('templates');
+  const [looksDoc, setLooksDoc] = useState<LooksDoc>(readLooksDoc);
+  const [gallery, setGallery] = useState<readonly LookEntry[] | null>(null);
+  const [galleryMissing, setGalleryMissing] = useState(false);
+  const [savingAs, setSavingAs] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveRefused, setSaveRefused] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
+
   /*
    * The Look's name, from the store that owns it.
    *
@@ -141,9 +191,26 @@ export function RemoteEditor({
     () =>
       subscribeLooks(() => {
         setLookName(readLookName());
+        setLooksDoc(readLooksDoc());
       }),
     [],
   );
+
+  /*
+    The gallery, the first time somebody looks at it.
+
+    A network round trip is not worth spending on a sheet opened to apply a
+    template, and `loadGallery` fetching JSON out of this build's own `looks/`
+    folder is not the user's bytes moving anywhere — it is the app reading its
+    own files, exactly as `loadTemplates` does one line up.
+  */
+  useEffect(() => {
+    if (!looksOpen || looksTab !== 'gallery' || gallery !== null || galleryMissing) return;
+    void loadGallery().then((result) => {
+      if (result.ok) setGallery(result.entries);
+      else setGalleryMissing(true);
+    });
+  }, [looksOpen, looksTab, gallery, galleryMissing]);
 
   /**
    * The panel this canvas stands in for — the REPORTED one, never a guess.
@@ -202,15 +269,43 @@ export function RemoteEditor({
   };
 
   /**
-   * The controls that are not on this screen, and are not duplicated onto it.
+   * The strip's deeper controls, and where each of them actually LANDS.
    *
-   * A source, an A-B loop and a stream quality all have a real control on the
-   * remote itself, twenty pixels below this canvas; colours, presets and the
-   * effect catalog need the module's own panel, which is CAM's. Either way the
-   * answer is the same and it is not "a second copy here": Done, and the person
-   * is standing in front of the control they were reaching for.
+   * This used to be one line — `onDone(wanted)` — with everything that was not
+   * a source mapped to `'more'`, and `'more'` was nothing at all. So on the
+   * effect module, which is the default background, three of its four strip
+   * controls (**Effect**, **Preset**, **Colours**) closed the editor and did
+   * not open anything: the catalogue, the preset chips and the colour wells
+   * were unreachable on a phone at any number of presses. The user found it the
+   * only way it could be found — by making the browser window bigger until the
+   * desktop editor appeared.
+   *
+   * Yesterday's rule was about BYTES, not about looks. A preset is a number in
+   * the synced document; a colour is a hex string. So the kind's own panel
+   * comes here, inside the same `InspectorSheet` CAM opens, and the two escapes
+   * that genuinely have a truer control twenty pixels below the canvas — the
+   * source field and the A/B scrubber and the quality ladder — still leave, and
+   * `RemoteView` now scrolls the person onto the one they asked for instead of
+   * dropping the intent on the floor.
    */
+  const closeInspector = (): void => {
+    setInspectOpen(false);
+    setReveal(null);
+  };
+
+  const openInspector = (): void => {
+    setReveal((prev) => ({ section: 'options', nonce: (prev?.nonce ?? 0) + 1 }));
+    setInspectOpen(true);
+  };
+
   const escape = (wanted: StripEscape): void => {
+    if (wanted === 'more') {
+      // `More` asks for the sheet rather than for anything in it, so it opens
+      // where the sheet always opens: Layout, at the top.
+      setReveal(null);
+      setInspectOpen(true);
+      return;
+    }
     onDone(wanted);
   };
 
@@ -220,6 +315,7 @@ export function RemoteEditor({
     // commits and pushes an undo entry, so applying a template is one step.
     runtime.store.commit((s) => ({ ...s, modules: { ...s.modules, ...patch.modules } }));
     editor.commitLook(patch.look);
+    writeLookName(entry.name === '' ? null : entry.name);
     setLooksOpen(false);
   };
 
@@ -233,6 +329,52 @@ export function RemoteEditor({
       });
     }
   };
+
+  /**
+   * Save a copy — a DOCUMENT operation, which is why the phone may have it.
+   *
+   * `exportLook` with an empty media index: a Look is layers, transforms and
+   * configs, and the pictures it points at are named rather than carried. So
+   * keeping one costs no bytes and moves none — it is a row in this device's
+   * own namespaced `kraken-hub:v1:looks`, and the sheet says exactly that
+   * rather than implying the Kraken or the PC now has it.
+   */
+  const saveCopy = (as: string): void => {
+    const trimmed = as.trim();
+    if (trimmed === '') return;
+    const file = exportLook(runtime.store.getSnapshot(), { name: trimmed }, []);
+    const result = addLook(readLooksDoc(), file, Date.now());
+    if (!result.ok) {
+      setSaveRefused(true);
+      return;
+    }
+    setLooksDoc(updateLooksDoc(() => result.doc));
+    writeLookName(trimmed);
+    setSaveRefused(false);
+    setSavingAs(false);
+    setLooksTab('yours');
+  };
+
+  /*
+    Escape closes the inspector, not the editor.
+
+    A phone has a hardware keyboard more often than the desktop assumption
+    allows — a folio, a Bluetooth board — and the sheet is a modal-ish surface
+    over the canvas, so the key that dismisses a sheet everywhere else in this
+    app dismisses this one.
+  */
+  useEffect(() => {
+    if (!inspectOpen) return undefined;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setInspectOpen(false);
+      setReveal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [inspectOpen]);
 
   const full = editor.layers.length >= MAX_LAYERS;
 
@@ -290,22 +432,256 @@ export function RemoteEditor({
           data-testid="remote-looks-menu"
           role="menu"
         >
-          <p className="kh-looks__head">Start from</p>
-          {templates.map((entry) => (
-            <button
-              key={`${entry.source}-${entry.id}`}
-              type="button"
-              className="kh-looks__item"
-              role="menuitem"
-              data-testid={`remote-look-${entry.id}`}
-              onClick={() => {
-                applyEntry(entry);
+          <div className="kh-redit__lookstabs">
+            <Segmented
+              id="remote-looks-tab"
+              ariaLabel="Which Looks"
+              wrap
+              value={looksTab}
+              options={[
+                { value: 'templates', label: 'Templates' },
+                { value: 'yours', label: 'Your Looks' },
+                { value: 'gallery', label: 'Gallery' },
+              ]}
+              onChange={(next) => {
+                setLooksTab(next as 'templates' | 'yours' | 'gallery');
               }}
-            >
-              <b>{entry.name}</b>
-              <small>{entry.summary}</small>
-            </button>
-          ))}
+            />
+          </div>
+
+          {looksTab === 'templates' && (
+            <>
+              <p className="kh-looks__head">Start from</p>
+              {templates.map((entry) => (
+                <button
+                  key={`${entry.source}-${entry.id}`}
+                  type="button"
+                  className="kh-looks__item"
+                  role="menuitem"
+                  data-testid={`remote-look-${entry.id}`}
+                  onClick={() => {
+                    applyEntry(entry);
+                  }}
+                >
+                  <b>{entry.name}</b>
+                  <small>{entry.summary}</small>
+                </button>
+              ))}
+            </>
+          )}
+
+          {looksTab === 'gallery' && (
+            <>
+              <p className="kh-looks__head">From the project</p>
+              {galleryMissing && (
+                <p className="kh-hint" data-testid="remote-gallery-missing">
+                  This build does not ship a gallery folder.
+                </p>
+              )}
+              {!galleryMissing && gallery === null && (
+                <p className="kh-hint">Reading the gallery…</p>
+              )}
+              {(gallery ?? []).map((entry) => (
+                <button
+                  key={`${entry.source}-${entry.id}`}
+                  type="button"
+                  className="kh-looks__item"
+                  role="menuitem"
+                  data-testid={`remote-gallery-${entry.id}`}
+                  onClick={() => {
+                    applyEntry(entry);
+                  }}
+                >
+                  <b>{entry.name === '' ? UNTITLED_LOOK : entry.name}</b>
+                  <small>{entry.summary}</small>
+                </button>
+              ))}
+              {/*
+                Apply, and nothing else. Downloading a gallery Look as a FILE is
+                the one thing on this tab that would put bytes in the wrong
+                browser, so it is not here — `ownsBytes()` decides that, and it
+                is false on a phone by construction.
+              */}
+              <p className="kh-hint">These are files in the project’s own repository.</p>
+            </>
+          )}
+
+          {looksTab === 'yours' && (
+            <>
+              <p className="kh-looks__head">Saved on this phone</p>
+              {looksDoc.looks.length === 0 && (
+                <p className="kh-hint" data-testid="remote-looks-empty">
+                  You have not kept a Look here yet.
+                </p>
+              )}
+              {looksDoc.looks.map((row) => (
+                <div
+                  className="kh-redit__lookrow"
+                  key={row.id}
+                  data-testid={`remote-saved-${row.id}`}
+                >
+                  {renaming === row.id ? (
+                    <input
+                      className="kh-redit__name"
+                      defaultValue={row.file.name}
+                      maxLength={MAX_LOOK_NAME}
+                      aria-label="Look name"
+                      data-testid={`remote-rename-${row.id}`}
+                      ref={(el) => el?.focus()}
+                      onBlur={(e) => {
+                        setLooksDoc(
+                          updateLooksDoc((d) => renameSaved(d, row.id, e.target.value, Date.now())),
+                        );
+                        setRenaming(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Escape') setRenaming(null);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="kh-looks__item kh-redit__lookapply"
+                      data-testid={`remote-apply-${row.id}`}
+                      onClick={() => {
+                        applyEntry({
+                          id: row.id,
+                          source: 'saved',
+                          name: row.file.name,
+                          summary: row.file.description ?? '',
+                          file: row.file,
+                        });
+                      }}
+                    >
+                      <b>{row.file.name === '' ? UNTITLED_LOOK : row.file.name}</b>
+                      <small>{row.file.description ?? ''}</small>
+                    </button>
+                  )}
+                  <div className="kh-redit__lookacts">
+                    <button
+                      type="button"
+                      className="kh-tbtn"
+                      aria-label={row.favourite ? 'Remove from favourites' : 'Add to favourites'}
+                      aria-pressed={row.favourite}
+                      data-testid={`remote-fav-${row.id}`}
+                      onClick={() => {
+                        setLooksDoc(updateLooksDoc((d) => toggleFavourite(d, row.id, Date.now())));
+                      }}
+                    >
+                      <span aria-hidden="true">{row.favourite ? '★' : '☆'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="kh-tbtn"
+                      aria-label="Rename"
+                      data-testid={`remote-rename-btn-${row.id}`}
+                      onClick={() => {
+                        setRenaming(row.id);
+                      }}
+                    >
+                      <span aria-hidden="true">✎</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="kh-tbtn"
+                      aria-label={confirming === row.id ? 'Delete for good' : 'Delete'}
+                      data-testid={`remote-del-${row.id}`}
+                      onClick={() => {
+                        if (confirming !== row.id) {
+                          setConfirming(row.id);
+                          return;
+                        }
+                        setLooksDoc(updateLooksDoc((d) => deleteSaved(d, row.id)));
+                        setConfirming(null);
+                      }}
+                    >
+                      <span aria-hidden="true">{confirming === row.id ? '⌫!' : '⌫'}</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {saveRefused && (
+                <p className="kh-hint" data-testid="remote-looks-full">
+                  This phone is holding as many Looks as it can. Delete one first.
+                </p>
+              )}
+
+              {!savingAs && (
+                <button
+                  type="button"
+                  className="kh-btn"
+                  data-testid="remote-looks-save"
+                  onClick={() => {
+                    setSaveName(lookName ?? '');
+                    setSavingAs(true);
+                  }}
+                >
+                  Save a copy…
+                </button>
+              )}
+
+              {savingAs && (
+                <form
+                  className="kh-redit__saveas"
+                  data-testid="remote-save-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveCopy(saveName);
+                  }}
+                >
+                  <label className="kh-redit__saveas-lab" htmlFor="kh-remote-save-name">
+                    Save this Look as
+                  </label>
+                  <input
+                    id="kh-remote-save-name"
+                    className="kh-redit__name"
+                    data-testid="remote-save-name"
+                    value={saveName}
+                    maxLength={MAX_LOOK_NAME}
+                    placeholder="Name this Look"
+                    ref={(el) => el?.focus()}
+                    onChange={(event) => {
+                      setSaveName(event.target.value);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setSavingAs(false);
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    className="kh-btn kh-btn--primary"
+                    data-testid="remote-save-confirm"
+                    disabled={saveName.trim() === ''}
+                  >
+                    Save
+                  </button>
+                </form>
+              )}
+
+              {/*
+                Where they live, said plainly.
+
+                A Look kept here is kept HERE — this phone's own namespaced
+                storage — and does not appear on the PC, because the phone does
+                not own that library. The same owning-window rule decides the
+                carousel: the rotation turns in the window that owns the saved
+                Looks, so this one reports it rather than driving it.
+              */}
+              <p className="kh-hint" data-testid="remote-looks-where">
+                Saved on this phone. They stay in this browser, and they are not files — sending a
+                Look to somebody is a job for the PC.
+              </p>
+              <p className="kh-hint" data-testid="remote-carousel-status">
+                {state.carousel === undefined
+                  ? 'Carousel: off.'
+                  : `Carousel: ${String(state.carousel.lookIds.length)} Looks, every ${String(
+                      state.carousel.intervalSec,
+                    )}s — it turns on the PC, not here.`}
+              </p>
+            </>
+          )}
         </div>
       )}
 
@@ -413,9 +789,31 @@ export function RemoteEditor({
               editor.commitLook(resizeLayer(state.look, stripLayer.id, factor, editor.registry));
             }}
             onAction={(action) => {
-              escape(
-                action === 'loop' || action === 'source' || action === 'quality' ? action : 'more',
-              );
+              /*
+                Source, loop and quality have a real control on the page under
+                this one; everything else — effect, preset, colours, the icon
+                picker — is the kind's own panel, and the inspector is where
+                that lives on both surfaces now. Nothing merely closes.
+              */
+              /*
+                …and only for the layer those controls are ABOUT — round 13's
+                finding 4.
+
+                The paste row, the scrubber and the quality ladder all speak for
+                `state.activeModuleId`, which is the BASE. Press Source on an
+                image overlay above a video base and the editor closed and put
+                the caret in a field labelled "Paste a video link", whose submit
+                writes the base's link: the wrong word over the wrong write. An
+                overlay carries its own config (§4.1), so its controls are in
+                its own panel, which is where every other strip action already
+                goes.
+              */
+              const forTheBase = action === 'loop' || action === 'source' || action === 'quality';
+              if (forTheBase && stripIsBase) {
+                onDone(action);
+                return;
+              }
+              openInspector();
             }}
             onMore={() => {
               escape('more');
@@ -423,6 +821,49 @@ export function RemoteEditor({
           />
         )}
       </div>
+
+      {/*
+        The inspector, as a phone sheet — the SAME component, not a phone copy.
+
+        Layout's five numbers, the kind's own `ConfigPanel` through the same
+        lazy loader CAM uses, Visibility and Advanced. It scrolls inside itself
+        (`kh-sheet__body`, plus the `kh-redit__sheet` height cap) so the page
+        underneath does not grow, which is what `REMOTE_EDIT_STAGES`'s page-fit
+        sweep measures.
+      */}
+      {inspectOpen && stripLayer !== null && (
+        <div className="kh-redit__sheet kh-redit__sheet--inspect" data-testid="remote-inspect">
+          <InspectorSheet
+            editor={editor}
+            layer={stripLayer}
+            module={stripModule}
+            config={stripConfig}
+            panel={{ width: panel.width, height: panel.height }}
+            reveal={reveal}
+            /*
+              The kind's panel, minus the half that acts on somebody else's disk
+              — round 13's finding 3. This is the same `InspectorSheet` CAM
+              opens, so the video panel arrived here whole: "On this PC", the
+              Local downloader's port and token, "Get the downloader" and its
+              "Download for Windows" panel, all on a phone that owns no bytes
+              and can neither run the program nor see the disk. `ownsBytes` is
+              false here by construction (`camDetected` false, role `remote`),
+              and the panel answers to it.
+            */
+            ownsBytes={ownsBytes(runtime)}
+            onConfig={writeStripConfig}
+            onClose={closeInspector}
+          />
+          <button
+            type="button"
+            className="kh-btn kh-btn--primary kh-redit__inspect-done"
+            data-testid="remote-inspect-done"
+            onClick={closeInspector}
+          >
+            Done
+          </button>
+        </div>
+      )}
 
       <div className="kh-redit__bar">
         <button
@@ -507,63 +948,15 @@ export function RemoteEditor({
         behaviour, and all four one thumb-width tall.
       */}
       {context !== null && (
-        <div className="kh-sheet kh-redit__sheet" data-testid="remote-context">
-          <p className="kh-looks__head">{context.name ?? context.kind}</p>
-          <button
-            type="button"
-            className="kh-looks__item"
-            data-testid="remote-context-duplicate"
-            onClick={() => {
-              editor.duplicate(context.id);
-              setContext(null);
-            }}
-          >
-            Duplicate
-          </button>
-          <button
-            type="button"
-            className="kh-looks__item"
-            data-testid="remote-context-front"
-            onClick={() => {
-              editor.move(context.id, editor.layers.length - 1);
-              setContext(null);
-            }}
-          >
-            Bring to front
-          </button>
-          <button
-            type="button"
-            className="kh-looks__item"
-            data-testid="remote-context-back"
-            onClick={() => {
-              editor.move(context.id, 1);
-              setContext(null);
-            }}
-          >
-            Send to back
-          </button>
-          <button
-            type="button"
-            className="kh-looks__item"
-            data-testid="remote-context-remove"
-            onClick={() => {
-              editor.remove(context.id);
-              setContext(null);
-            }}
-          >
-            Remove
-          </button>
-          <button
-            type="button"
-            className="kh-looks__item"
-            data-testid="remote-context-close"
-            onClick={() => {
-              setContext(null);
-            }}
-          >
-            Close
-          </button>
-        </div>
+        <LayerContextSheet
+          editor={editor}
+          layer={context}
+          className="kh-redit__sheet"
+          testId="remote-context"
+          onClose={() => {
+            setContext(null);
+          }}
+        />
       )}
 
       {editor.refusal !== null && (

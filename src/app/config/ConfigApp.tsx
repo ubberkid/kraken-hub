@@ -4,6 +4,7 @@ import { Footer } from './Footer';
 import { currentHash, parseRoute, subscribeRoute } from './router';
 import { ownsBytes } from './surface';
 import { usePhoneOnly } from './useNarrow';
+import { useSync } from './useSync';
 import { AboutView } from './views/AboutView';
 import { HomeView } from './views/HomeView';
 import { LibraryElsewhere, LibraryView } from './views/LibraryView';
@@ -195,6 +196,31 @@ export function ConfigApp({ runtime }: { runtime: ConfigRuntime }) {
    */
   const state = runtime.store.getSnapshot();
   const reachable = ownsBytes(runtime) || (state.sync.roomCode !== null && state.sync.enabled);
+
+  /**
+   * ── Home publishes too ─────────────────────────────────────────────────────
+   *
+   * `useSync` used to be called from exactly three places — About, Library and
+   * Remote — and the HOME screen is where the module chips, the looks, the
+   * editor and every setting actually are. So a paired CAM window sitting on
+   * `#/`, which is where it sits all day, published no state frame in its whole
+   * life: its only channel to the LCD was the shared localStorage document, and
+   * the moment a phone joined the room that document stopped being heard (see
+   * `adoptDocumentWrite` in `src/sync/appSync.ts`, which is the other half of
+   * the same repair and the half that also covers an UNPAIRED CAM).
+   *
+   * One connection per page, not four: two calls to this hook open two
+   * transports on the same topic (`AboutView` says why its own call exists), so
+   * the root call stands down for exactly the routes that make their own.
+   * `phoneOnly` collapses every route to the remote, which makes its own.
+   */
+  const viewOwnsSync =
+    phoneOnly ||
+    route.name === 'remote' ||
+    route.name === 'about' ||
+    route.name === 'diag' ||
+    ((route.name === 'library' || route.name === 'sources') && reachable);
+  useSync(runtime, { enabled: !viewOwnsSync });
 
   return (
     <div className="kh-app">

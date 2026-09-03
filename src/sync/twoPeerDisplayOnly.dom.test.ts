@@ -8,11 +8,18 @@
  * defect: a room where the peer that DISAGREES with you never publishes state
  * at all, so a refusal produces no answer and there is no second chance.
  *
- * The display is a pure sink by design (`grep publishState src/app` finds it
- * only in `src/app/config/useSync.ts`), and it stays one. What changed is that
- * it no longer needs to talk back: the merge is a comparison of per-leaf
- * timestamps, so a phone's fresh write beats the display's older one on the
- * first frame that carries it, with nothing to negotiate.
+ * The display is a sink by design — it never volunteers a snapshot and never
+ * republishes what it was told — and it stays one. What changed is that it no
+ * longer needs to talk back: the merge is a comparison of per-leaf timestamps,
+ * so a phone's fresh write beats the display's older one on the first frame
+ * that carries it, with nothing to negotiate.
+ *
+ * There is now exactly one thing it does say, and it is not a reply: a change
+ * CAM's configuration window made on its Home screen arrives at the display as
+ * a localStorage DOCUMENT and nowhere else, so the display is the only page
+ * that can put it on the wire for the phone. See `noteDocumentWrite` in
+ * `src/sync/appSync.ts` and `camHomeDocument.dom.test.ts`; nothing in this file
+ * writes that document, so the display here is as silent as it ever was.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

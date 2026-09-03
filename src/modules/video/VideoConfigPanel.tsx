@@ -175,7 +175,21 @@ const RESOLVER_POLICY_SEGMENTS = [
   { value: 'fallback', label: 'On failure', title: 'Only after the normal player has failed.' },
 ] as const;
 
-export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
+/*
+ * `ownsBytes` — round 13's finding 3.
+ *
+ * Everything this panel gates on it acts on ONE machine's disk: the copy it
+ * keeps, the downloader it runs, the port and token that program listens on, the
+ * proxy the fetch goes through. The inspector mounts this component on the phone
+ * now, so all of it was rendered to a reader who cannot run the program, cannot
+ * see the disk and for whom "this PC" names nothing in the room. A window that
+ * does not own the bytes gets the controls that are about the PICTURE — framing,
+ * shape, quality — and none of the ones about the fetch.
+ *
+ * `true` by default: CAM's own panel is unchanged, and so is every test that
+ * renders this component without an opinion.
+ */
+export function ConfigPanel({ config, onChange, ownsBytes = true }: ModuleConfigProps) {
   const cfg = validateVideoConfig(config);
   // Validation runs at keystroke time here, because this is the only surface
   // where a human can actually read the answer (§7.2).
@@ -208,12 +222,20 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
               the control that answers it, which is the row directly below.
             */
             <Notice tone="warn">
-              YouTube plays its ads <em>inside</em> the video, so cropping cannot remove them.{' '}
-              {KEEP_A_COPY} for an ad-free, full-quality result.
+              YouTube plays its ads <em>inside</em> the video, so cropping cannot remove them.
+              {/*
+                The remedy only exists where the control does. The FACT is true
+                on every surface — it is a property of the link — but a phone
+                that cannot keep a copy is told to keep one by a sentence whose
+                control is not on the screen.
+              */}
+              {ownsBytes && <> {KEEP_A_COPY} for an ad-free, full-quality result.</>}
             </Notice>
           )}
 
-          {/*
+          {ownsBytes && (
+            <>
+              {/*
             No description line. The options panel opens in the halo's place in a
             537 px window now, and every sentence in here is measured against
             that — so the explanation lives on the segment that means it, which
@@ -221,24 +243,26 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             is named for the destination so the options can be the verbs, and
             both words come from `config/vocabulary.ts` (F7).
           */}
-          <GroupField label={KEEP_A_COPY_LABEL} id="video-downloadmode">
-            <Segmented
-              id="video-downloadmode"
-              labelledBy="video-downloadmode-label"
-              value={cfg.downloadMode}
-              options={[
-                {
-                  value: 'auto',
-                  label: KEEP_A_COPY,
-                  title: 'Fetch it once, then play the copy — ad-free, offline, forever.',
-                },
-                { value: 'stream-only', label: STREAM_ONLY, title: 'Never store anything.' },
-              ]}
-              onChange={(value) => {
-                set({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
-              }}
-            />
-          </GroupField>
+              <GroupField label={KEEP_A_COPY_LABEL} id="video-downloadmode">
+                <Segmented
+                  id="video-downloadmode"
+                  labelledBy="video-downloadmode-label"
+                  value={cfg.downloadMode}
+                  options={[
+                    {
+                      value: 'auto',
+                      label: KEEP_A_COPY,
+                      title: 'Fetch it once, then play the copy — ad-free, offline, forever.',
+                    },
+                    { value: 'stream-only', label: STREAM_ONLY, title: 'Never store anything.' },
+                  ]}
+                  onChange={(value) => {
+                    set({ downloadMode: value === 'stream-only' ? 'stream-only' : 'auto' });
+                  }}
+                />
+              </GroupField>
+            </>
+          )}
 
           <QualityRow cfg={cfg} set={set} provider={validation.match.provider} />
         </>
@@ -306,39 +330,53 @@ export function ConfigPanel({ config, onChange }: ModuleConfigProps) {
             }}
           />
 
-          <h3 className="kh-subhead3">Delivery</h3>
+          {/*
+            Delivery is the OWNER's half — round 13's finding 3.
 
-          <LocalDownloaderCard cfg={cfg} set={set} />
+            A downloader that runs on one machine, the port and token it listens
+            on, and the proxy a fetch goes through: three controls whose subject
+            is a computer the reader may not be sitting at, and which a phone can
+            neither perform nor check. The heading goes with them, because a
+            section title with nothing under it is a promise the panel does not
+            keep.
+          */}
+          {ownsBytes && (
+            <>
+              <h3 className="kh-subhead3">Delivery</h3>
 
-          <GroupField
-            label="Use a public proxy as a last resort"
-            id="video-proxy"
-            description="allorigins.win is a free public service with no uptime promise, and it sees every URL your Kraken plays. Tried only for links nothing else could fetch, and it cannot fix HLS."
-          >
-            <Switch
-              id="video-proxy"
-              labelledBy="video-proxy-label"
-              checked={cfg.proxyBase === ALLORIGINS_PROXY_BASE}
-              onChange={(on) => {
-                set({ proxyBase: on ? ALLORIGINS_PROXY_BASE : '' });
-              }}
-            />
-          </GroupField>
-          <Field
-            label="Or your own proxy address"
-            htmlFor="video-proxy-base"
-            description="Ends in ?url=."
-          >
-            <TextInput
-              id="video-proxy-base"
-              settingUrl
-              value={cfg.proxyBase}
-              placeholder="your proxy's base URL, ending in ?url="
-              onChange={(proxyBase) => {
-                set({ proxyBase });
-              }}
-            />
-          </Field>
+              <LocalDownloaderCard cfg={cfg} set={set} />
+
+              <GroupField
+                label="Use a public proxy as a last resort"
+                id="video-proxy"
+                description="allorigins.win is a free public service with no uptime promise, and it sees every URL your Kraken plays. Tried only for links nothing else could fetch, and it cannot fix HLS."
+              >
+                <Switch
+                  id="video-proxy"
+                  labelledBy="video-proxy-label"
+                  checked={cfg.proxyBase === ALLORIGINS_PROXY_BASE}
+                  onChange={(on) => {
+                    set({ proxyBase: on ? ALLORIGINS_PROXY_BASE : '' });
+                  }}
+                />
+              </GroupField>
+              <Field
+                label="Or your own proxy address"
+                htmlFor="video-proxy-base"
+                description="Ends in ?url=."
+              >
+                <TextInput
+                  id="video-proxy-base"
+                  settingUrl
+                  value={cfg.proxyBase}
+                  placeholder="your proxy's base URL, ending in ?url="
+                  onChange={(proxyBase) => {
+                    set({ proxyBase });
+                  }}
+                />
+              </Field>
+            </>
+          )}
         </>
       }
     />

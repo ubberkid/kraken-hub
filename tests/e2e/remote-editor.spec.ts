@@ -52,14 +52,19 @@ function displayUrl(room: string): string {
  * `geometry()`), so the Edit affordance is disabled until the first monitor
  * packet lands. Waiting for it to enable is waiting for the thing under test.
  */
-async function editingPhone(context: BrowserContext, room: string): Promise<Page> {
+async function editingPhone(
+  context: BrowserContext,
+  room: string,
+  /** The surface to emulate. Defaults to the 390 px phone. */
+  size: { width: number; height: number } = PHONE,
+): Promise<Page> {
   const display = await context.newPage();
   await display.setViewportSize({ width: 640, height: 640 });
   await display.goto(displayUrl(room));
   await expect(display.locator('.kh-stage')).toBeVisible();
 
   const phone = await context.newPage();
-  await phone.setViewportSize(PHONE);
+  await phone.setViewportSize(size);
   await phone.goto(phoneUrl(room));
   const edit = phone.getByTestId('remote-edit');
   await expect(edit).toBeVisible();
@@ -477,7 +482,7 @@ test.describe('two fingers on the phone canvas', () => {
  * rather than visiting the states somebody photographed, so a sheet added next
  * wave is measured by adding one line here.
  */
-const REMOTE_EDIT_STAGES = ['editing', 'rail', 'add', 'context', 'looks'] as const;
+const REMOTE_EDIT_STAGES = ['editing', 'rail', 'add', 'context', 'looks', 'inspect'] as const;
 type RemoteEditStage = (typeof REMOTE_EDIT_STAGES)[number];
 
 async function enterStage(phone: Page, stage: RemoteEditStage): Promise<void> {
@@ -496,9 +501,25 @@ async function enterStage(phone: Page, stage: RemoteEditStage): Promise<void> {
     await expect(phone.getByTestId('remote-looks-menu')).toBeVisible();
     return;
   }
+  if (stage === 'inspect') {
+    // `More` is the door that cannot scroll off the strip (round 11's F-3), so
+    // it is the one press that reaches the inspector from any kind's strip.
+    await phone.getByTestId('ops-more').tap();
+    await expect(phone.getByTestId('remote-inspect')).toBeVisible();
+    return;
+  }
   if (stage === 'context') {
     await phone.getByTestId('remote-add-layer').tap();
     await phone.getByTestId('add-tile-clock').tap();
+    /*
+      Bring the canvas back under the finger first.
+
+      On a short landscape window the add sheet is taller than the viewport, so
+      closing it leaves the page scrolled past the ring — the stage's box comes
+      back at a NEGATIVE y and the long press lands outside the document. A
+      person scrolls back; so does this.
+    */
+    await phone.locator('.kh-redit__stage').scrollIntoViewIfNeeded();
     const stageBox = await phone.locator('.kh-redit__stage').boundingBox();
     const current = await look(phone);
     const panel = 640;
@@ -568,14 +589,46 @@ async function smallTargets(page: Page): Promise<string[]> {
   }, TAP_PX);
 }
 
+/**
+ * The surfaces the floor has to hold on — round 13's finding 2.
+ *
+ * The sweep below ran at 390×844 only, and passed, while a touch device one
+ * pixel over the CSS's 700 px width query had **13 to 24** controls under the
+ * floor in every stage: Done at 65×39, the base fill segments at 49×20, the
+ * Looks tabs at 84×25, the wordmark at 90×26. That is the second half of the
+ * user's own report — *"unless I resize the window larger"* — and the reason it
+ * survived a round whose subject was tap targets is that the measurement could
+ * not see it.
+ *
+ * So the floor is measured on a hand, not on a width: a phone in landscape and a
+ * tablet are the same fingers on the same controls, and both are here.
+ */
+const TOUCH_SURFACES = [
+  { name: 'phone', size: PHONE, tag: 'P' },
+  // `W`, not `L`: a room code is Crockford, which has no I, L, O or U in it.
+  { name: 'phone in landscape', size: { width: 780, height: 390 }, tag: 'W' },
+  { name: 'tablet', size: { width: 800, height: 1180 }, tag: 'T' },
+] as const;
+
 test.describe('every control is a thumb target while editing', () => {
-  for (const stage of REMOTE_EDIT_STAGES) {
-    test(`${stage}: nothing under the ${String(TAP_PX)} px floor`, async ({ context }) => {
-      const phone = await editingPhone(context, `EDT${stage.slice(0, 1).toUpperCase()}2345`);
-      await enterStage(phone, stage);
-      await settle(phone);
-      expect(await smallTargets(phone), `${stage}: controls below the touch floor`).toEqual([]);
-    });
+  for (const surface of TOUCH_SURFACES) {
+    for (const stage of REMOTE_EDIT_STAGES) {
+      test(`${surface.name}, ${stage}: nothing under the ${String(TAP_PX)} px floor`, async ({
+        context,
+      }) => {
+        const phone = await editingPhone(
+          context,
+          `ED${surface.tag}${stage.slice(0, 1).toUpperCase()}2345`,
+          surface.size,
+        );
+        await enterStage(phone, stage);
+        await settle(phone);
+        expect(
+          await smallTargets(phone),
+          `${surface.name}/${stage}: controls below the touch floor`,
+        ).toEqual([]);
+      });
+    }
   }
 });
 
@@ -650,4 +703,359 @@ test.describe('a link with an impossible code says so', () => {
       await expect(notice).toBeInViewport();
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// 4. The phone edits the LOOKS, not just the arrangement — round 13
+// ---------------------------------------------------------------------------
+
+/**
+ * The user's own report, as a suite.
+ *
+ * *"On my phone I can't edit the looks the same way as on my PC; selecting
+ * effect presets and stuff is impossible unless I resize the window larger."*
+ *
+ * The cause was one line: every strip control of `control: 'action'` except
+ * source, loop and quality was mapped to an escape called `more`, and `more`
+ * closed the editor and opened nothing. On the effect module — the background
+ * half the templates ship with — that is three of its four controls.
+ */
+test.describe('the strip’s deeper controls land somewhere', () => {
+  /** Make the effect module the background, from the remote's own base row. */
+  async function effectBase(phone: Page): Promise<void> {
+    await phone.getByTestId('remote-module-effect').tap();
+    await expect(phone.getByTestId('remote-module-effect')).toHaveAttribute('aria-checked', 'true');
+  }
+
+  test('Preset opens the inspector at the module’s own panel, and a tap sticks', async ({
+    context,
+  }) => {
+    const display = await context.newPage();
+    await display.setViewportSize({ width: 640, height: 640 });
+    await display.goto(displayUrl('EDITG234'));
+    await expect(display.locator('.kh-stage')).toBeVisible();
+
+    const phone = await context.newPage();
+    await phone.setViewportSize(PHONE);
+    await phone.goto(phoneUrl('EDITG234'));
+    await effectBase(phone);
+
+    const edit = phone.getByTestId('remote-edit');
+    await expect(edit).toBeEnabled({ timeout: 20_000 });
+    await edit.tap();
+    await expect(phone.getByTestId('remote-editor')).toBeVisible();
+
+    // The button that used to close the editor.
+    await phone.getByTestId('ops-preset-button').tap();
+    await expect(phone.getByTestId('remote-editor')).toBeVisible();
+    await expect(phone.getByTestId('remote-inspect')).toBeVisible();
+
+    /*
+     * …and it opened AT the panel rather than at Layout, which is the half of
+     * round 11's F-7 that makes the difference between "the catalogue is in
+     * this sheet somewhere" and "here it is". The section's top is measured
+     * against the scroll port rather than against the window.
+     */
+    const options = phone.getByTestId('inspect-options');
+    await expect(options).toBeVisible();
+    const inView = await options.evaluate((el) => {
+      const body = el.closest('.kh-sheet__body');
+      if (body === null) return false;
+      return el.getBoundingClientRect().top - body.getBoundingClientRect().top < 8;
+    });
+    expect(inView, 'the sheet did not open at the module’s panel').toBe(true);
+
+    // The twelve-tile picker and the preset chips, on a 390 px screen.
+    await expect(phone.getByTestId('effect-pick-plasma')).toBeVisible();
+    const preset = phone.locator('#effect-preset [role="radio"]').nth(1);
+    const wanted = await preset.getAttribute('data-testid');
+    await preset.tap();
+
+    // The document changed…
+    await expect
+      .poll(async () =>
+        phone.evaluate(() => {
+          const raw = localStorage.getItem('kraken-hub:v1:state');
+          return raw === null
+            ? null
+            : ((JSON.parse(raw) as { modules?: Record<string, { cfg?: { preset?: string } }> })
+                .modules?.['effect']?.cfg?.preset ?? null);
+        }),
+      )
+      .toBe((wanted ?? '').replace('effect-preset-', ''));
+
+    // …and the Kraken in the same room has it. Same document, one wire.
+    await expect
+      .poll(async () =>
+        display.evaluate(() => {
+          const raw = localStorage.getItem('kraken-hub:v1:state');
+          return raw === null
+            ? null
+            : ((JSON.parse(raw) as { modules?: Record<string, { cfg?: { preset?: string } }> })
+                .modules?.['effect']?.cfg?.preset ?? null);
+        }),
+      )
+      .toBe((wanted ?? '').replace('effect-preset-', ''));
+  });
+
+  test('the icon picker is reachable too', async ({ context }) => {
+    const phone = await editingPhone(context, 'EDITH234');
+    await phone.getByTestId('remote-add-layer').tap();
+    await phone.getByTestId('add-tile-icon').tap();
+    await expect(phone.getByTestId('remote-strip')).toHaveAttribute('data-strip-kind', 'icon');
+
+    // The icon strip calls its action `icon`, not `preset` — the id is the
+    // control's, and the action is what it asks for.
+    await phone.getByTestId('ops-icon-button').tap();
+    await expect(phone.getByTestId('remote-inspect')).toBeVisible();
+    await expect(phone.getByTestId('inspect-options')).toBeVisible();
+    // Done gives the canvas back rather than leaving the editor.
+    await phone.getByTestId('remote-inspect-done').tap();
+    await expect(phone.getByTestId('remote-inspect')).toHaveCount(0);
+    await expect(phone.getByTestId('remote-editor')).toBeVisible();
+  });
+
+  /**
+   * Loop and quality still LEAVE — they have a truer control on the page under
+   * the canvas — but the intent is no longer dropped on the floor.
+   */
+  test('Loop closes the editor onto the scrubber rather than onto nothing', async ({ context }) => {
+    const phone = await editingPhone(context, 'EDITI234');
+    await phone.getByTestId('ops-loop-button').tap();
+    await expect(phone.getByTestId('remote-editor')).toHaveCount(0);
+    const scrubber = phone.getByTestId('scrubber');
+    await expect(scrubber).toBeVisible();
+    // On the screen, not merely in the document: this is the whole finding.
+    const onScreen = await scrubber.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= window.innerHeight;
+    });
+    expect(onScreen, 'the scrubber is not on the screen after Loop').toBe(true);
+  });
+
+  /**
+   * The base picker, on the phone, is the same list as everywhere else.
+   *
+   * Six base-capable kinds plus Solid colour. It used to be `listModules()` —
+   * nine, including the three kinds whose manifests say they can only ever be
+   * overlays, and without the Solid the add sheet one screen away offers.
+   */
+  test('the Showing row offers the backgrounds and only the backgrounds', async ({ context }) => {
+    const phone = await context.newPage();
+    await phone.setViewportSize(PHONE);
+    await phone.goto(phoneUrl('EDITJ234'));
+
+    const row = phone.locator('#remote-module [role="radio"]');
+    await expect(row).toHaveCount(7);
+    for (const overlayOnly of ['text', 'icon', 'date']) {
+      await expect(phone.getByTestId(`remote-module-${overlayOnly}`)).toHaveCount(0);
+    }
+    await expect(phone.getByTestId('remote-module-base-solid')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. A finger is a finger at any width — round 13
+// ---------------------------------------------------------------------------
+
+/**
+ * The second half of the user's report, and the reason "make the window bigger"
+ * was a bad workaround rather than a fix.
+ *
+ * Past 700 px a phone stops being `phoneOnly` and gets CAM's editor — which was
+ * deriving its touch behaviour from the WIDTH breakpoint. So the workaround
+ * handed a thumb 24 px handles, no pinch, no two-finger rotate and 28–39 px
+ * strip buttons. `useCoarsePointer` is a pointer query now, and this is the
+ * surface that proves it: 780 px wide, real touch, no `phone=1`.
+ */
+test.describe('a touch device gets touch handling at desktop widths', () => {
+  test.use({ viewport: { width: 780, height: 1000 }, hasTouch: true, isMobile: false });
+
+  test('44 px handles and a thumb-sized strip on a 780 px touch window', async ({
+    page: tablet,
+  }) => {
+    await tablet.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await tablet.goto('/?transport=fake&room=EDITK234');
+
+    await tablet.getByTestId('rail-add').tap();
+    await expect(tablet.getByTestId('add-sheet')).toBeVisible();
+    await tablet.getByTestId('add-tile-clock').tap();
+    await expect(tablet.getByTestId('editor-selection')).toBeVisible();
+
+    /*
+      Rounded before comparing: the handle is 44 px of SVG scaled by the
+      canvas's own k, and a browser reports that as 43.99998. The floor is a
+      design rule about a fingertip, not about the fourth decimal place.
+    */
+    for (const handle of ['scale-nw', 'scale-se', 'rotate'] as const) {
+      const box = await tablet.getByTestId(`editor-handle-${handle}`).evaluate((el) => ({
+        width: Math.round(el.getBoundingClientRect().width),
+        height: Math.round(el.getBoundingClientRect().height),
+      }));
+      expect(box.width, `${handle} is the mouse's size on a finger`).toBeGreaterThanOrEqual(TAP_PX);
+      expect(box.height, `${handle} is the mouse's size on a finger`).toBeGreaterThanOrEqual(
+        TAP_PX,
+      );
+    }
+
+    // …and the strip's text buttons, which were 28–39 px here.
+    const more = await tablet.getByTestId('ops-more').boundingBox();
+    expect(more?.height ?? 0).toBeGreaterThanOrEqual(TAP_PX);
+    expect(more?.width ?? 0).toBeGreaterThanOrEqual(TAP_PX);
+
+    // The overlay is in touch mode, which is what carries pinch and long press.
+    await expect(tablet.getByTestId('editor-overlay')).toHaveAttribute('data-touch', 'true');
+  });
+
+  test('a long press opens the layer’s actions on this surface too', async ({ page: tablet }) => {
+    await tablet.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await tablet.goto('/?transport=fake&room=EDITL234');
+    await tablet.getByTestId('rail-add').tap();
+    await tablet.getByTestId('add-tile-clock').tap();
+    await expect(tablet.getByTestId('editor-selection')).toBeVisible();
+
+    const box = await tablet.getByTestId('editor-selection').boundingBox();
+    await tablet.mouse.move(
+      (box?.x ?? 0) + (box?.width ?? 0) / 2,
+      (box?.y ?? 0) + (box?.height ?? 0) / 2,
+    );
+    await tablet.mouse.down();
+    await tablet.waitForTimeout(700);
+    await tablet.mouse.up();
+
+    await expect(tablet.getByTestId('layer-context')).toBeVisible();
+  });
+});
+
+/** The same property one size up: a tablet, which is where it is most obvious. */
+test.describe('a tablet is a touch device too', () => {
+  test.use({ viewport: { width: 800, height: 1180 }, hasTouch: true, isMobile: false });
+
+  test('800x1180 gets the touch editor, not the mouse’s', async ({ page: tablet }) => {
+    await tablet.addInitScript(() => {
+      localStorage.setItem('kraken-hub:v1:config:displaySeen', '1');
+    });
+    await tablet.goto('/?transport=fake&room=EDITM234');
+    await tablet.getByTestId('rail-add').tap();
+    await tablet.getByTestId('add-tile-clock').tap();
+    await expect(tablet.getByTestId('editor-selection')).toBeVisible();
+
+    await expect(tablet.getByTestId('editor-overlay')).toHaveAttribute('data-touch', 'true');
+    const box = await tablet.getByTestId('editor-handle-rotate').evaluate((el) => ({
+      width: Math.round(el.getBoundingClientRect().width),
+      height: Math.round(el.getBoundingClientRect().height),
+    }));
+    expect(box.width).toBeGreaterThanOrEqual(TAP_PX);
+    expect(box.height).toBeGreaterThanOrEqual(TAP_PX);
+
+    const more = await tablet.getByTestId('ops-more').boundingBox();
+    expect(more?.height ?? 0).toBeGreaterThanOrEqual(TAP_PX);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. The phone gets the phone's half of the panel — round 13
+// ---------------------------------------------------------------------------
+
+/**
+ * The inspector mounts the module's real `ConfigPanel`, and the module's real
+ * `ConfigPanel` was written for CAM.
+ *
+ * That is what makes the phone's editor the same editor, and it is also how the
+ * audit found **"On this PC"**, a *Keep a copy* / *Stream only* row, a **Local
+ * downloader** card with a port and a shared token, and a **"Get the
+ * downloader"** button that opens a panel offering *Download for Windows* — all
+ * on a phone that owns no storage, cannot run the program and has no PC in the
+ * room to point the words at. Both vocabulary spines stayed green because
+ * neither file was on their list.
+ *
+ * `ownsBytes` is the answer travelling with the panel. This measures the
+ * rendered result rather than the import list, because the sentence is what the
+ * reader gets.
+ */
+test.describe('the phone’s inspector never offers the owner’s controls', () => {
+  test('the video panel on a phone has framing and quality, and no downloader', async ({
+    context,
+  }) => {
+    const phone = await editingPhone(context, 'EDITN234');
+
+    // Video is the default base, so `More` opens the video panel.
+    await expect(phone.getByTestId('remote-strip')).toHaveAttribute('data-strip-kind', 'video');
+    await phone.getByTestId('ops-more').tap();
+    await expect(phone.getByTestId('remote-inspect')).toBeVisible();
+    await expect(phone.getByTestId('inspect-options')).toBeVisible();
+
+    // Every control whose subject is somebody else's disk. Counted in the DOM,
+    // not on the screen: half of these live behind the Advanced disclosure, and
+    // a control the reader can open is a control the reader has.
+    const sheet = phone.getByTestId('remote-inspect');
+    for (const owned of [
+      'video-downloadmode-auto',
+      'video-downloadmode-stream-only',
+      'downloader-check',
+      'resolver-get',
+      'video-proxy-on',
+      'video-proxy-off',
+    ]) {
+      await expect(sheet.getByTestId(owned), `${owned} is the owner's control`).toHaveCount(0);
+    }
+    for (const id of ['#video-resolver-port', '#video-resolver-token', '#video-proxy-base']) {
+      await expect(sheet.locator(id)).toHaveCount(0);
+    }
+
+    // …and the machine's own nouns, as words on the screen.
+    const words = (await sheet.innerText()).toLowerCase();
+    for (const noun of ['this pc', 'this computer', 'the disk', 'download for windows']) {
+      expect(words, `the phone was told about "${noun}"`).not.toContain(noun);
+    }
+
+    // What SHOULD be here is still here: the picture's own settings.
+    await expect(sheet.getByTestId('video-advanced')).toBeVisible();
+    await expect(sheet.locator('#video-yt-aspect-label')).toHaveCount(1);
+  });
+
+  /**
+   * Source on an OVERLAY — the audit's finding 4.
+   *
+   * The paste row under the canvas speaks for `activeModuleId`, which is the
+   * base. Pressing Source on an image overlay above a video base closed the
+   * editor and focused a field labelled *"Paste a video link"* whose submit
+   * writes the base's link. An overlay carries its own config, so its controls
+   * are in its own panel.
+   */
+  test('Source on an overlay opens that layer’s panel, not the base’s field', async ({
+    context,
+  }) => {
+    const phone = await editingPhone(context, 'EDITP234');
+
+    await phone.getByTestId('remote-add-layer').tap();
+    await phone.getByTestId('add-tile-image').tap();
+    await expect(phone.getByTestId('remote-strip')).toHaveAttribute('data-strip-kind', 'image');
+
+    await phone.getByTestId('ops-source-button').tap();
+
+    // The editor stayed, and the layer's own panel opened.
+    await expect(phone.getByTestId('remote-editor')).toBeVisible();
+    await expect(phone.getByTestId('remote-inspect')).toBeVisible();
+    await expect(phone.getByTestId('inspect-options')).toBeVisible();
+    // …rather than the base's field, with the base's word on it.
+    await expect(phone.locator('#remote-src')).toHaveCount(0);
+  });
+
+  /** …while the BASE's Source still leaves onto the real paste row. */
+  test('Source on the base still lands on the paste row', async ({ context }) => {
+    const phone = await editingPhone(context, 'EDITQ234');
+
+    await expect(phone.getByTestId('remote-strip')).toHaveAttribute('data-strip-kind', 'video');
+    await phone.getByTestId('ops-source-button').tap();
+
+    await expect(phone.getByTestId('remote-editor')).toHaveCount(0);
+    const src = phone.locator('#remote-src');
+    await expect(src).toBeFocused();
+    await expect(src).toHaveAttribute('placeholder', /video link/i);
+  });
 });

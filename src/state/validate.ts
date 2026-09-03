@@ -370,6 +370,13 @@ export function validateAppState(raw: unknown): ValidationResult {
     updatedAt: num(o['updatedAt'], 0, 0, Number.MAX_SAFE_INTEGER, 'updatedAt', n),
     writerId: str(o['writerId'], '', 'writerId', n, 32),
     writerRole: enum_(o['writerRole'], def.writerRole, ROLES, 'writerRole', n),
+    /*
+     * `def.writerOrigin` is `'sync'`, and a missing key therefore reads as "not
+     * a decision" — see `AppState.writerOrigin`. Silently, because every
+     * document written before the field existed is missing it and that is not a
+     * defect worth a note.
+     */
+    writerOrigin: o['writerOrigin'] === 'local' ? 'local' : def.writerOrigin,
     activeModuleId,
     modules: validateModules(o['modules'], n),
     playback: validatePlayback(o['playback'], n),

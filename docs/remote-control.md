@@ -400,9 +400,50 @@ leaving you to find out:
   has the mechanism, and it is the same mechanism for a layer's position as for
   the video's fit.
 
-The deeper controls — the source field, the A-B loop, the quality ladder — are
-not duplicated into the editor. They are real controls on the remote itself, so
-pressing them in the strip closes the editor and puts you in front of them.
+**More**, and every strip control that needs a panel — **Effect**, **Preset**,
+**Colours**, the icon picker — open the **inspector**: the same sheet CAM shows,
+with the same four sections, on the phone.
+
+| Section        | What is in it                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Layout         | X and Y in panel pixels from the centre, size %, rotation °, opacity %                                                       |
+| The kind's own | The module's whole settings panel — the effect catalogue, the preset chips, the colour wells, the stats face, the clock face |
+| Visibility     | On the panel / hidden, locked / unlocked                                                                                     |
+| Advanced       | What this layer is, and that its settings travel with the look                                                               |
+
+Pressing **Preset** opens the sheet already scrolled to the module's panel
+rather than at the top, so the thing you pressed for is the thing on the screen.
+The sheet scrolls inside itself, the canvas never moves, and **Done** hands the
+canvas back without leaving the editor.
+
+Three strip controls still leave the editor, because each of them has a truer
+control on the remote page twenty pixels below the canvas: **Source** puts the
+caret in the link field, **Loop** brings the A-B scrubber onto the screen, and
+**Quality** brings the quality ladder onto it. None of them merely closes.
+
+#### Looks, from the phone
+
+The look's name at the top opens **Looks**, in three groups:
+
+- **Templates** — the looks that ship with the app.
+- **Your Looks** — apply, **Save a copy…** (with a name field; an unnamed look
+  is refused rather than defaulted), rename, favourite, delete. These are kept
+  **on this phone**, in this browser's own storage, and the sheet says so: they
+  are not the PC's shelf and they do not travel to it.
+- **Gallery** — the looks in the project's own repository, fetched as JSON and
+  applied. Reading the app's own files is not moving your bytes.
+
+The **carousel** is reported here, not driven: a rotation turns in the window
+that owns the saved looks, which is CAM.
+
+#### What the phone cannot do with looks
+
+Files. **Import**, **Export** and the gallery's download are not on this screen
+and will not be — the phone is the remote, and a look file landing in a phone's
+downloads folder is the two-libraries bug this whole surface exists to prevent.
+Nothing in the editor or the Looks sheet can open a file picker, a drop target
+or the media library; a picture or a clip is added on the PC, and a look you
+send somebody is exported there.
 
 ### Quality
 

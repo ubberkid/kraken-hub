@@ -34,6 +34,28 @@ export const PHONE_QUERY = '(max-width: 700px)';
  */
 export const PHONE_CLASS_QUERY = '(max-width: 700px) and (pointer: coarse)';
 
+/**
+ * A FINGER, at any width — round 12's phone-editing round.
+ *
+ * The editor derived "is this touch?" from `PHONE_QUERY`, which is a question
+ * about pixels: a phone turned landscape, a phone whose browser window is 780
+ * px, or a tablet at 800×1180 answered *no* and got the mouse's editor —
+ * 24 px handles, no pinch, no two-finger rotate, no long press, and strip
+ * buttons at 28–39 px under a thumb. Width decides the LAYOUT; the pointer
+ * decides the GESTURES, and conflating them is what made "resize the window
+ * bigger" the only way to reach an effect preset.
+ *
+ * The same string `ui.css`'s `@media (pointer: coarse)` blocks use, for the
+ * reason `PHONE_QUERY` is shared: two answers to one question is how a handle
+ * ends up 24 px in JS and 44 px in CSS.
+ */
+export const COARSE_QUERY = '(pointer: coarse)';
+
+/** Whether the primary pointer on this device is a finger rather than a mouse. */
+export function useCoarsePointer(): boolean {
+  return useNarrow(COARSE_QUERY);
+}
+
 export function useNarrow(query: string): boolean {
   const [narrow, setNarrow] = useState(() =>
     typeof window.matchMedia === 'function' ? window.matchMedia(query).matches : false,

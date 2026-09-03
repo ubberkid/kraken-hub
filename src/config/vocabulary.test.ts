@@ -228,6 +228,26 @@ describe('the app has one vocabulary', () => {
     'app/config/curationOptimistic.ts',
     'app/config/wireLibrary.ts',
     'app/config/showTile.ts',
+    /*
+     * Round 13 widened what the phone renders; this is the rule widening with
+     * it.
+     *
+     * The remote grew an editor, and the editor mounts the SAME `InspectorSheet`
+     * CAM opens — so the list above, ten files long and correct for a remote
+     * that was a transport and a library, stopped describing the surface. The
+     * audit found the bill: *"On this PC"*, a **Local downloader** card, a
+     * *"Download for Windows"* button and a port field for a program on a
+     * machine the reader cannot see, all rendered on a phone, with both
+     * vocabulary spines green because neither file was read.
+     *
+     * The module panels those two mount are not listed here and cannot be: they
+     * render on CAM as well, where "this PC" is exactly right. What answers for
+     * them is `ModuleConfigProps.ownsBytes` — the panel is handed the answer and
+     * drops the owner-only half — and the e2e sweep in `remote-editor.spec.ts`
+     * measures the rendered result on the phone itself.
+     */
+    'app/config/views/remote/RemoteEditor.tsx',
+    'app/config/views/editor/InspectorSheet.tsx',
   ];
 
   for (const rel of REMOTE_RENDERED_FILES) {
